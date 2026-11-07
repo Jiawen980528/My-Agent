@@ -186,9 +186,9 @@ async def _fetch_ranking(client: httpx.AsyncClient, descending: bool, limit: int
 async def _fetch_board_catalog(client: httpx.AsyncClient) -> list[dict]:
     """Load Eastmoney industry/concept boards, not only the current top fund-flow ranks."""
     rows: dict[str, dict] = {}
-    for page in range(1, 4):
+    for page in range(1, 13):
         response = await client.get(_RANK_URL, params={
-            "fid": "f3", "po": "1", "pz": "500", "pn": str(page), "np": "1",
+            "fid": "f3", "po": "1", "pz": "100", "pn": str(page), "np": "1",
             "fltt": "2", "invt": "2", "ut": _FLOW_UT,
             "fs": "m:90+t:2,m:90+t:3", "fields": "f3,f12,f14",
         })
@@ -201,7 +201,7 @@ async def _fetch_board_catalog(client: httpx.AsyncClient) -> list[dict]:
             code, name = str(item.get("f12") or ""), str(item.get("f14") or "")
             if code.startswith("BK") and name:
                 rows[code] = {"code": code, "name": name, "pct": item.get("f3")}
-        if len(items) < 500:
+        if len(items) < 100:
             break
     return sorted(rows.values(), key=lambda item: item["name"])
 
