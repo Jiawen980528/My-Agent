@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import * as echarts from 'echarts'
 import type { ECharts, EChartsOption } from 'echarts'
 import type { MinuteKlineRow, PriceLimitInfo } from '@/lib/api'
-import { computeIntradayAverage, formatMinuteTime, FULL_DAY_TIMES, summarizeMinutes, getLimitPrices, type DailySummary } from '@/lib/intraday-chart'
+import { computeIntradayAverage, formatMinuteTime, FULL_DAY_TIMES, summarizeMinutes, type DailySummary } from '@/lib/intraday-chart'
 import { useChartTheme, type ChartTheme } from '@/lib/theme'
-import { pricePrecision } from '@/lib/format'
-import { intradayScale } from '@/lib/intraday-scale'
 
 type YMode = 'adaptive' | 'limit'
 
@@ -19,7 +18,6 @@ const THEME = {
 }
 
 interface Props {
-  assetType?: 'stock' | 'etf' | 'index'
   data: MinuteKlineRow[]
   height?: number
   prevClose?: number
@@ -32,6 +30,7 @@ interface Props {
   priceLines?: { value: number; label?: string; color?: string }[]
   showLimitLines?: boolean
   showAvgLine?: boolean
+  averagePrices?: (number | null)[]
 }
 
 function fmtAmt(v: number | null | undefined): string {
@@ -45,9 +44,32 @@ function isValidPrice(v: number | null | undefined): v is number {
   return typeof v === 'number' && Number.isFinite(v) && v > 0
 }
 
-function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgPrices: (number | null)[], lineColor: string, areaColor: string, yMode: YMode, ct: ChartTheme, priceLimit?: PriceLimitInfo, showLimitLines = true, showAvgLine = true, priceLines: Props['priceLines'] = [], assetType?: Props['assetType']): EChartsOption {
-  const digits = pricePrecision(assetType)
-  const limitLinesActive = assetType !== 'index' && showLimitLines && !priceLimit?.no_limit
+/** 计算实际涨跌停价 (四舍五入到2位小数) 和实际涨跌停幅度 */
+function getLimitPrices(prevClose: number, priceLimit?: PriceLimitInfo): {
+  limitUp: number      // 涨停价 (四舍五入)
+  limitDown: number    // 跌停价 (四舍五入)
+  upPct: number        // 实际涨停幅度 (如 9.97)
+  downPct: number      // 实际跌停幅度 (如 -9.97)
+} {
+  const pct = priceLimit && Number.isFinite(priceLimit.rate) ? priceLimit.rate : 0.10
+  const rawUp = prevClose * (1 + pct)
+  const rawDown = prevClose * (1 - pct)
+  // A股涨跌停价四舍五入到分 (2位小数)
+  const limitUp = isValidPrice(priceLimit?.limit_up)
+    ? priceLimit.limit_up
+    : Math.round(rawUp * 100) / 100
+  const limitDown = isValidPrice(priceLimit?.limit_down)
+    ? priceLimit.limit_down
+    : Math.round(rawDown * 100) / 100
+  const upPct = (limitUp - prevClose) / prevClose * 100
+  const downPct = (limitDown - prevClose) / prevClose * 100
+  return { limitUp, limitDown, upPct, downPct }
+}
+
+function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgPrices: (number | null)[], lineColor: string, areaColor: string, yMode: YMode, ct: ChartTheme, priceLimit?: PriceLimitInfo, showLimitLines = true, showAvgLine = true, priceLines: Props['priceLines'] = []): EChartsOption {
+  // 无涨跌幅标的 (注册制新股上市初期窗口, 后端 no_limit 标记): 不存在可信
+  // 涨跌停带, 自适应/涨跌停两类模式都退化为纯数据对称范围, 也不画涨跌停虚线
+  const limitLinesActive = showLimitLines && !priceLimit?.no_limit
   // 将数据映射到全天时间轴上的正确位置
   const timeIndexMap = new Map(FULL_DAY_TIMES.map((t, i) => [t, i]))
   const closes = new Array(FULL_DAY_TIMES.length).fill(null) as (number | null)[]
@@ -124,21 +146,75 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
     })
   }
 
-  const limits = limitLinesActive && isValidPrice(prevClose) ? getLimitPrices(prevClose, priceLimit, assetType) : undefined
-  const mode = limits ? yMode : 'adaptive'
-  const scale = intradayScale([
-    ...closes, ...highs, ...lows,
-    ...(mode === 'limit' && limits ? [limits.limitDown, limits.limitUp] : []),
-  ], prevClose, digits, limits ? { min: limits.limitDown, max: limits.limitUp } : undefined, mode)
-  const yMin = scale?.range.min
-  const yMax = scale?.range.max
-  const interval = scale ? (scale.range.max - scale.range.min)
-    / (scale.range.max - scale.range.min < 10 ** -digits * 4 ? 2 : 4) : undefined
-  if (mode === 'limit' && limits) {
-    markLineData.push(
-      { yAxis: limits.limitUp, lineStyle: { color: 'rgba(199,64,64,0.4)', type: 'dashed', width: 1 }, label: { show: false }, symbol: 'none' },
-      { yAxis: limits.limitDown, lineStyle: { color: 'rgba(45,155,101,0.4)', type: 'dashed', width: 1 }, label: { show: false }, symbol: 'none' },
-    )
+  let yMin: number | undefined
+  let yMax: number | undefined
+  let maxDiff = 0
+  if (isValidPrice(prevClose) && data.length > 0) {
+    const priceArrays = showAvgLine ? [closes, highs, lows, avgData] : [closes, highs, lows]
+    for (const arr of priceArrays) {
+      for (const v of arr) {
+        if (!isValidPrice(v)) continue
+        const diff = Math.abs(v - prevClose)
+        if (diff > maxDiff) maxDiff = diff
+      }
+    }
+
+    const monitoredDiff = priceLines.reduce((largest, line) => (
+      Number.isFinite(line.value) && line.value > 0
+        ? Math.max(largest, Math.abs(line.value - prevClose))
+        : largest
+    ), 0) * 1.05
+
+    if (limitLinesActive && yMode === 'limit') {
+      const { limitUp, limitDown } = getLimitPrices(prevClose, priceLimit)
+      const limitDiffUp = limitUp - prevClose
+      const limitDiffDown = prevClose - limitDown
+      const limitDiff = Math.max(limitDiffUp, limitDiffDown)
+      // 涨跌停模式: Y 轴按实际涨跌停价, 但不小于实际数据范围 (数据超带 =
+      // 涨跌幅规则不适用或数据异常, 钳制会把曲线推出图外)
+      maxDiff = Math.max(limitDiff, maxDiff, monitoredDiff)
+      yMin = prevClose - maxDiff
+      yMax = prevClose + maxDiff
+      // 加 markLine 标注涨停价和跌停价 (仅虚线, 不显示文字)
+      markLineData.push(
+        {
+          yAxis: limitUp,
+          lineStyle: { color: 'rgba(199,64,64,0.4)', type: 'dashed', width: 1 },
+          label: { show: false },
+          symbol: 'none',
+        },
+        {
+          yAxis: limitDown,
+          lineStyle: { color: 'rgba(45,155,101,0.4)', type: 'dashed', width: 1 },
+          label: { show: false },
+          symbol: 'none',
+        },
+      )
+    } else {
+      // 自适应模式: Y 轴按实际涨跌幅对称。不做涨跌停带上限钳制 — 带内数据
+      // maxDiff 本就 ≤ limitDiff (钳制是恒等), 而数据超带时 (无涨跌幅新股/
+      // 数据异常) 钳制会把曲线推出图外 (issue: C沈鼓 分时被夹在 ±10% 内)
+      if (!limitLinesActive) {
+        // 指数/ETF没有涨跌停带时，纵轴应围绕实际分钟高低点动态取值。
+        // 不能以昨收对称扩展，否则昨收距离当日价格较远时会把曲线压扁。
+        const observed = [closes, highs, lows, ...(showAvgLine ? [avgData] : [])]
+          .flat().filter(isValidPrice) as number[]
+        const observedMin = observed.length ? Math.min(...observed) : prevClose
+        const observedMax = observed.length ? Math.max(...observed) : prevClose
+        const observedRange = Math.max(observedMax - observedMin, prevClose * 0.001)
+        const padding = Math.max(observedRange * 0.08, prevClose * 0.0005)
+        yMin = observedMin - padding
+        yMax = observedMax + padding
+        maxDiff = Math.max((yMax - yMin) / 2, monitoredDiff)
+      } else {
+        // 股票涨跌停模式仍以昨收为中心，保证涨跌停参考线完整可见。
+        const minDiff = prevClose * 0.01
+        if (maxDiff < minDiff) maxDiff = minDiff
+        maxDiff = Math.max(maxDiff, monitoredDiff)
+        yMin = prevClose - maxDiff
+        yMax = prevClose + maxDiff
+      }
+    }
   }
 
   // x 轴标签: 9:30, 10:30, 11:30/13:00, 14:00, 15:00
@@ -238,8 +314,12 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
         type: 'value',
         min: yMin,
         max: yMax,
+        // 上市首日无 prevClose 时 min/max 为 undefined, scale 避免 value 轴
+        // 默认从 0 锚定把曲线挤到图上部 (有 min/max 时本属性无影响)。
+        // 区间过宽时 (无涨跌幅新股, maxDiff 远超昨收) interval 减半让昨收
+        // 落在刻度上; 正常涨跌停带内保持原 interval 行为
         scale: true,
-        interval,
+        interval: prevClose != null && maxDiff > prevClose * 0.5 ? maxDiff / 2 : maxDiff || undefined,
         splitArea: { show: false },
         axisLine: { show: false },
         axisTick: { show: false },
@@ -248,7 +328,7 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
           label: {
             formatter: (params: any) => {
               const v = params.value
-              return typeof v === 'number' ? v.toFixed(digits) : ''
+              return typeof v === 'number' ? v.toFixed(2) : ''
             },
           },
         },
@@ -256,7 +336,7 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
           color: ct.text,
           fontSize: 10,
           fontFamily: 'JetBrains Mono, monospace',
-          formatter: (v: number) => v.toFixed(digits),
+          formatter: (v: number) => v.toFixed(2),
         },
       },
       {
@@ -274,7 +354,7 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
         gridIndex: 0,
         min: yMin,
         max: yMax,
-        interval,
+        interval: maxDiff || undefined,
         splitArea: { show: false },
         axisLine: { show: false },
         axisTick: { show: false },
@@ -334,12 +414,15 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
         cursor: 'crosshair',
       },
     ],
+    dataZoom: [
+      { type: 'inside', xAxisIndex: [0, 1], zoomOnMouseWheel: true, moveOnMouseWheel: true, moveOnMouseMove: true },
+      { type: 'slider', xAxisIndex: [0, 1], bottom: 0, height: 18 },
+    ],
   }
 }
 
 export function EChartsIntraday({
   data,
-  assetType,
   height = 320,
   prevClose,
   date,
@@ -351,9 +434,8 @@ export function EChartsIntraday({
   priceLines,
   showLimitLines = true,
   showAvgLine = true,
+  averagePrices,
 }: Props) {
-  const digits = pricePrecision(assetType)
-  const averageVisible = showAvgLine && assetType !== 'index'
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<ECharts | null>(null)
   const roRef = useRef<ResizeObserver | null>(null)
@@ -372,8 +454,10 @@ export function EChartsIntraday({
 
   const [infoIdx, setInfoIdx] = useState(-1)
   const [yMode, setYMode] = useState<YMode>('adaptive')
+  const [expanded, setExpanded] = useState(false)
+  const chartHeight = expanded ? Math.max(640, window.innerHeight - 170) : height
   const ct = useChartTheme()
-  const avgPrices = useMemo(() => computeIntradayAverage(data, assetType), [data, assetType])
+  const avgPrices = useMemo(() => averagePrices ?? computeIntradayAverage(data), [averagePrices, data])
   const summary = useMemo(() => summarizeMinutes(data), [data])
 
   // 分时线颜色：基于最新价 vs 昨收
@@ -465,12 +549,12 @@ export function EChartsIntraday({
       }
       fullDayToDataIdx.current = mapping
 
-      chart.setOption(buildOption(data, prevClose, avgPrices, lineColor, areaFill, yMode, ct, priceLimit, showLimitLines, averageVisible, priceLines, assetType), true)
+      chart.setOption(buildOption(data, prevClose, avgPrices, lineColor, areaFill, yMode, ct, priceLimit, showLimitLines, showAvgLine, priceLines), true)
     } else {
       fullDayToDataIdx.current = new Map()
       chart.clear()
     }
-  }, [data, prevClose, height, lineColor, areaFill, yMode, ct, priceLimit, showLimitLines, averageVisible, priceLines, assetType])
+  }, [data, prevClose, chartHeight, lineColor, areaFill, yMode, ct, priceLimit, showLimitLines, showAvgLine, priceLines])
 
   useEffect(() => {
     return () => {
@@ -498,10 +582,16 @@ export function EChartsIntraday({
   const isFlat = chg != null ? chg === 0 : false
   const priceClr = isFlat ? '#A1A1AA' : isUp ? '#C74040' : '#2D9B65'
 
-  return (
-    <div className="w-full">
+  const content = (
+    <div className={expanded ? 'fixed inset-4 z-[1000] w-auto rounded-lg border border-border bg-base p-3 shadow-2xl' : 'w-full'}>
+      <div className="mb-1 flex items-center justify-between px-1 text-[11px] text-muted">
+        <span>实时分时 · 鼠标移动查看数据，滚轮缩放，底部拖动浏览</span>
+        <button type="button" onClick={() => setExpanded(value => !value)} className="rounded border border-border px-2 py-0.5 text-accent hover:bg-elevated">
+          {expanded ? '退出放大' : '放大查看'}
+        </button>
+      </div>
       {/* 按钮行: 切换式按钮组, 居右 */}
-      {showLimitLines && assetType !== 'index' && <div className="flex items-center justify-end px-1 pb-0.5">
+      {showLimitLines && <div className="flex items-center justify-end px-1 pb-0.5">
         <div className="inline-flex items-center rounded bg-elevated overflow-hidden">
           <button
             onClick={() => setYMode('adaptive')}
@@ -535,13 +625,13 @@ export function EChartsIntraday({
               {date && <span className="text-muted">{date}</span>}
               <span className="text-muted">{hovered ? `${formatMinuteTime(hovered.datetime)} 分钟` : daily ? '日K（前复权）' : '分时汇总'}</span>
               <span className="text-muted">开</span>
-              <span style={{ color: priceClr }}>{ohlc.open != null ? ohlc.open.toFixed(digits) : '—'}</span>
+              <span style={{ color: priceClr }}>{ohlc.open != null ? ohlc.open.toFixed(2) : '—'}</span>
               <span className="text-muted">高</span>
-              <span style={{ color: priceClr }}>{ohlc.high.toFixed(digits)}</span>
+              <span style={{ color: priceClr }}>{ohlc.high.toFixed(2)}</span>
               <span className="text-muted">低</span>
-              <span style={{ color: priceClr }}>{ohlc.low.toFixed(digits)}</span>
+              <span style={{ color: priceClr }}>{ohlc.low.toFixed(2)}</span>
               <span className="text-muted">收</span>
-              <span style={{ color: priceClr }} className="font-semibold">{ohlc.close.toFixed(digits)}</span>
+              <span style={{ color: priceClr }} className="font-semibold">{ohlc.close.toFixed(2)}</span>
             </>
           )}
         </div>
@@ -551,11 +641,11 @@ export function EChartsIntraday({
             <>
               <span className="flex items-center gap-x-1">
                 <span style={{ display: 'inline-block', width: 14, height: 2, background: priceClr }} />
-                <span style={{ color: priceClr }}>{d.close.toFixed(digits)}</span>
+                <span style={{ color: priceClr }}>{d.close.toFixed(2)}</span>
               </span>
-              {averageVisible && <span className="flex items-center gap-x-1">
+              {showAvgLine && <span className="flex items-center gap-x-1">
                 <span style={{ display: 'inline-block', width: 14, height: 2, background: THEME.avgLine }} />
-                <span style={{ color: THEME.avgLine }}>{avg != null ? avg.toFixed(digits) : '—'}</span>
+                <span style={{ color: THEME.avgLine }}>{avg != null ? avg.toFixed(2) : '—'}</span>
               </span>}
               <span className="text-muted">{hovered ? '量' : '累计量'}</span>
               <span className="text-secondary">{d.volume.toFixed(0)}</span>
@@ -565,7 +655,44 @@ export function EChartsIntraday({
           )}
         </div>
       </div>
-      <div ref={containerRef} className="w-full" style={{ height: height - 42, cursor: 'crosshair' }} />
+      <div ref={containerRef} className="w-full" style={{ height: chartHeight - 42, cursor: 'crosshair' }} />
     </div>
   )
+  return expanded ? createPortal(content, document.body) : content
+}
+
+/** 多交易日分钟曲线：指数历史分钟接口按交易日分区，合并后用连续时间轴展示。 */
+export function EChartsMultiDayIntraday({ data, height = 420 }: { data: MinuteKlineRow[]; height?: number }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [expanded, setExpanded] = useState(false)
+  const chartHeight = expanded ? Math.max(640, window.innerHeight - 150) : height
+  useEffect(() => {
+    if (!ref.current || !data.length) return
+    const chart = echarts.init(ref.current)
+    const labels = data.map(row => row.datetime.slice(0, 16))
+    const values = data.map(row => row.close)
+    chart.setOption({
+      animation: false, backgroundColor: 'transparent',
+      grid: { left: 55, right: 18, top: 18, bottom: 60 },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, formatter: (params: any) => {
+        const p = Array.isArray(params) ? params[0] : params
+        const row = data[p?.dataIndex ?? 0]
+        return row ? `<b>${row.datetime.slice(0, 16)}</b><br/>最新 ${row.close.toFixed(3)}<br/>最高 ${row.high.toFixed(3)} · 最低 ${row.low.toFixed(3)}<br/>成交量 ${Number(row.volume ?? 0).toLocaleString('zh-CN')}` : ''
+      }},
+      xAxis: { type: 'category', data: labels, boundaryGap: false, axisLabel: { color: '#9ca3af', hideOverlap: true, formatter: (v: string) => v.slice(5, 16) }, axisLine: { lineStyle: { color: '#394354' } } },
+      yAxis: { type: 'value', scale: true, axisLabel: { color: '#9ca3af' }, splitLine: { lineStyle: { color: '#273243' } } },
+      dataZoom: [{ type: 'inside', start: 0, end: 100 }, { type: 'slider', bottom: 8, height: 18 }],
+      series: [{ type: 'line', data: values, showSymbol: false, smooth: false, lineStyle: { color: '#3B82F6', width: 1.8 }, areaStyle: { color: 'rgba(59,130,246,.10)' } }],
+    })
+    const ro = new ResizeObserver(() => chart.resize())
+    ro.observe(ref.current)
+    return () => { ro.disconnect(); chart.dispose() }
+  }, [data, chartHeight])
+  if (!data.length) return <div className="flex items-center justify-center text-xs text-muted" style={{ height }}>暂无历史分钟数据</div>
+  const content = <div className={expanded ? 'fixed inset-4 z-[1000] rounded-lg border border-border bg-base p-3 shadow-2xl' : 'relative w-full'}>
+    <div className="mb-1 flex items-center justify-between px-1 text-[11px] text-muted"><span>多日分钟曲线 · 可滚轮缩放、拖动时间轴</span>
+      <button type="button" onClick={() => setExpanded(v => !v)} className="rounded border border-border px-2 py-0.5 text-accent hover:bg-elevated">{expanded ? '退出放大' : '放大查看'}</button></div>
+    <div ref={ref} style={{ height: chartHeight }} className="w-full" />
+  </div>
+  return expanded ? createPortal(content, document.body) : content
 }
