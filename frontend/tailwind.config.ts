@@ -8,6 +8,14 @@ export default {
   theme: {
     container: { center: true, padding: '1rem' },
     extend: {
+      fontSize: {
+        xs: ['var(--tf-font-xs, 14px)', { lineHeight: '1.35' }],
+        sm: ['var(--tf-font-sm, 16px)', { lineHeight: '1.4' }],
+        lg: ['var(--tf-font-lg, 19px)', { lineHeight: '1.4' }],
+        xl: ['var(--tf-font-xl, 21px)', { lineHeight: '1.35' }],
+        '2xl': ['var(--tf-font-2xl, 25px)', { lineHeight: '1.3' }],
+        '3xl': ['var(--tf-font-3xl, 31px)', { lineHeight: '1.25' }],
+      },
       colors: {
         // §6.0.1 色板 — CSS variables 见 src/index.css
         // 注意: base 与字号 token 撞名, text-base 会生成 color 规则 (文字变背景色)。

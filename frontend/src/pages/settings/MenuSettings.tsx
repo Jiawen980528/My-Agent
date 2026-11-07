@@ -46,6 +46,7 @@ const BUILTIN_PAGES: NavEntry[] = [
   { id: '/backtest', label: '回测', type: 'builtin', visible: true },
   { id: '/regime', label: '市场环境', type: 'builtin', visible: true },
   { id: '/indices', label: '指数', type: 'builtin', visible: true },
+  { id: '/market-news', label: '市场新闻', type: 'builtin', visible: true },
   { id: '/data', label: '数据', type: 'builtin', visible: true },
 ]
 
@@ -62,6 +63,7 @@ const ARCH_CLASS: Record<string, { kind: ArchKind; reason: string }> = {
   '/backtest':       { kind: 'core', reason: '回测引擎 — 矩阵回测与优化' },
   '/regime':         { kind: 'core', reason: '环境数据生产 — 回测/挖掘/归因共用的市场状态口径' },
   '/indices':        { kind: 'core', reason: '行情数据底座 — 指数日K/分时出口' },
+  '/market-news':    { kind: 'ext', reason: '公开新闻聚合与持仓关联视图' },
   '/data':           { kind: 'core', reason: '数据底座 — 同步管道与数据源路由' },
   '/stock-analysis': { kind: 'ext', reason: '个股分析视图 — 消费核心数据, 可由扩展页面替换' },
   '/limit-ladder':   { kind: 'ext', reason: '连板梯队视图 — 消费核心数据, 可由扩展页面替换' },

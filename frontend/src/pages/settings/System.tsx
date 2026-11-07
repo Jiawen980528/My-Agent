@@ -15,7 +15,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 import { refreshAlertToastConfig } from '@/components/AlertToast'
 import { mergeSoundOptions, previewSound, CUSTOM_SOUND_PREFIX } from '@/lib/notificationSound'
-import { setUiPref } from '@/lib/uiPrefs'
+import { hydrateUiPrefs, setUiPref } from '@/lib/uiPrefs'
 import { setKlineBatchLimits,
   DAILY_BATCH_SYMBOLS_MIN,
   DAILY_BATCH_SYMBOLS_MAX,
@@ -27,6 +27,7 @@ import {
 } from '@/lib/voiceBroadcast'
 import { loadStockExternalTemplate, saveStockExternalTemplate } from '@/lib/stock-external-link'
 import { ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, getPageZoom, setPageZoom } from '@/lib/pageZoom'
+import { FONT_SCALE_MIN, FONT_SCALE_MAX, FONT_SCALE_STEP, getFontScale, setFontScale } from '@/lib/fontScale'
 
 // 回测 worker RSS 内存上限 (GiB) 界面范围; 与后端 BacktestWorkerRssLimitIn 校验一致
 const BACKTEST_RSS_LIMIT_GIB_MIN = 0
@@ -45,6 +46,15 @@ export function SettingsSystemPanel() {
   const [pageZoom, setPageZoomState] = useState(() => getPageZoom())
   const changeZoom = useCallback((delta: number) => {
     setPageZoomState(setPageZoom(getPageZoom() + delta))
+  }, [])
+  const [fontScale, setFontScaleState] = useState(() => getFontScale())
+  const changeFontScale = useCallback((value: number) => {
+    setFontScaleState(setFontScale(value))
+  }, [])
+  useEffect(() => {
+    let active = true
+    void hydrateUiPrefs().then(() => { if (active) setFontScaleState(getFontScale()) })
+    return () => { active = false }
   }, [])
 
   const [toastEnabled, setToastEnabled] = useState(() => {
@@ -582,6 +592,25 @@ export function SettingsSystemPanel() {
             >
               <Plus className="h-3.5 w-3.5" />
             </button>
+          </div>
+        </div>
+        <div className="flex flex-col gap-3 border-t border-border py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="text-sm text-foreground">字体大小</div>
+            <div className="text-[11px] text-muted">单独调节文字，刷新后保留；与界面缩放互不影响</div>
+          </div>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <button type="button" aria-label="缩小字体" disabled={fontScale <= FONT_SCALE_MIN}
+              onClick={() => changeFontScale(fontScale - FONT_SCALE_STEP)}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-btn bg-elevated text-secondary disabled:opacity-40"><Minus className="h-4 w-4" /></button>
+            <input type="range" aria-label="字体大小" min={FONT_SCALE_MIN} max={FONT_SCALE_MAX} step={FONT_SCALE_STEP}
+              value={fontScale} onChange={event => changeFontScale(Number(event.target.value))}
+              className="min-w-0 w-28 accent-blue-500 sm:w-36" />
+            <button type="button" aria-label="放大字体" disabled={fontScale >= FONT_SCALE_MAX}
+              onClick={() => changeFontScale(fontScale + FONT_SCALE_STEP)}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-btn bg-elevated text-secondary disabled:opacity-40"><Plus className="h-4 w-4" /></button>
+            <span className="w-12 shrink-0 text-right font-mono text-xs">{Math.round(fontScale * 100)}%</span>
+            {fontScale !== 1 && <button type="button" onClick={() => changeFontScale(1)} className="rounded-btn bg-elevated px-2 py-1.5 text-xs text-secondary">重置</button>}
           </div>
         </div>
         <ExtensionSlot name="settings.system.section" context={{}} compact />

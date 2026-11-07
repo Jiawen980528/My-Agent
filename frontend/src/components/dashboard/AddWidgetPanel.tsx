@@ -10,18 +10,22 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Plus } from 'lucide-react'
 import { cn } from '@/lib/cn'
-import { sanitizeExtUrl, type WidgetType } from './layout'
+import { MAX_ITEMS, sanitizeExtUrl, type WidgetType } from './layout'
 import { WIDGET_DEFS } from './registry'
+import { pageWidgetOptions } from './PageWidget'
 
 const PANEL_W = 288 // w-72
 
 export function AddWidgetPanel({
   placedTypes,
+  itemCount,
   onAdd,
 }: {
   placedTypes: Set<WidgetType>
+  itemCount: number
   onAdd: (t: WidgetType, props?: Record<string, string>) => void
 }) {
+  const full = itemCount >= MAX_ITEMS
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [url, setUrl] = useState('')
@@ -95,28 +99,29 @@ export function AddWidgetPanel({
             : 'border-border bg-elevated text-secondary hover:text-foreground hover:border-accent/40',
         )}
       >
-        <Plus className="h-3 w-3" />添加组件
+        <Plus className="h-3 w-3" />添加窗口
       </button>
 
       {open && anchor && createPortal(
         <div
           ref={panelRef}
           style={{ left: anchor.left, top: anchor.top, width: PANEL_W }}
-          className="fixed z-[9999] rounded-card border border-border bg-surface p-2 shadow-2xl shadow-black/40"
+          className="fixed z-[9999] max-h-[75vh] overflow-y-auto rounded-card border border-border bg-surface p-2 shadow-2xl shadow-black/40"
         >
-          <div className="mb-1.5 px-0.5 text-[10px] font-medium text-muted">内置组件</div>
+          <div className="mb-1.5 px-0.5 text-[10px] font-medium text-muted">选择窗口 · 添加后可拖动和缩放</div>
+          {full && <p className="mb-2 rounded bg-warning/10 p-2 text-[10px] text-warning">已达到 {MAX_ITEMS} 个窗口上限，请先移除一个窗口。</p>}
           <div className="max-h-56 space-y-0.5 overflow-y-auto">
-            {WIDGET_DEFS.filter(d => d.id !== 'ext-link').map(d => {
+            {WIDGET_DEFS.filter(d => d.id !== 'ext-link' && d.id !== 'page-panel').map(d => {
               const placed = placedTypes.has(d.id)
               return (
                 <button
                   key={d.id}
                   type="button"
-                  disabled={placed}
+                  disabled={placed || full}
                   onClick={() => { onAdd(d.id); setOpen(false) }}
                   className={cn(
                     'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors',
-                    placed
+                    placed || full
                       ? 'cursor-default text-muted/50'
                       : 'cursor-pointer text-secondary hover:bg-elevated hover:text-foreground',
                   )}
@@ -128,6 +133,17 @@ export function AddWidgetPanel({
                 </button>
               )
             })}
+          </div>
+
+          <div className="mt-2 border-t border-border/60 pt-2">
+            <div className="mb-1.5 px-0.5 text-[10px] font-medium text-muted">已有页面（原生内容，可重复添加）</div>
+            <p className="mb-1 px-0.5 text-[10px] text-muted">完整页面会加载其原有数据，开得越多请求越多。</p>
+            <div className="max-h-44 space-y-0.5 overflow-y-auto">
+              {pageWidgetOptions().map(page => <button key={page.path} type="button" disabled={full}
+                onClick={() => { onAdd('page-panel', { path: page.path }); setOpen(false) }}
+                className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs text-secondary hover:bg-elevated hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              >{page.label}</button>)}
+            </div>
           </div>
 
           <div className="mt-2 border-t border-border/60 pt-2">
@@ -150,6 +166,7 @@ export function AddWidgetPanel({
               <button
                 type="button"
                 onClick={addExtLink}
+                disabled={full}
                 className="w-full rounded-btn bg-accent/15 px-2 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/25"
               >
                 添加到看板

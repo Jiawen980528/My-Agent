@@ -47,8 +47,13 @@ export function Auth() {
     },
     onSuccess: () => {
       // 成功: 跳回原页面(或首页)
-      const redirect = new URLSearchParams(window.location.search).get('redirect') || '/'
-      navigate(redirect, { replace: true })
+      const requested = new URLSearchParams(window.location.search).get('redirect') || '/'
+      // React Router applies the /quant basename itself. Older bookmarks may
+      // still carry an absolute /quant path in redirect; normalize it first.
+      const safePath = requested.startsWith('/') && !requested.startsWith('//')
+        ? requested.replace(/^(\/quant)+(?=\/|\?|$)/, '') || '/'
+        : '/'
+      navigate(safePath.startsWith('?') ? `/${safePath}` : safePath, { replace: true })
     },
     onError: (err: any) => {
       const msg = err?.message || (isSetup ? '设置失败' : '登录失败')

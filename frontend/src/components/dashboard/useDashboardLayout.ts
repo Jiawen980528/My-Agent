@@ -18,6 +18,8 @@ const SAVE_DEBOUNCE_MS = 800
 export function useDashboardLayout(): {
   items: DashboardItem[]
   setItems: (next: DashboardItem[]) => void
+  saveError: string | null
+  retrySave: () => void
 } {
   const { data: prefs } = usePreferences()
   const saved = useMemo(
@@ -25,6 +27,8 @@ export function useDashboardLayout(): {
     [prefs?.dashboard_layout],
   )
   const [local, setLocal] = useState<DashboardItem[] | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [retry, setRetry] = useState(0)
 
   useEffect(() => {
     if (local === null) return
@@ -32,10 +36,11 @@ export function useDashboardLayout(): {
     const isDefault = JSON.stringify(blob.items) === JSON.stringify(DEFAULT_LAYOUT)
     const timer = window.setTimeout(() => {
       api.saveDashboardLayout(isDefault ? null : blob)
-        .catch(() => { /* 保存失败静默: 布局仍在本会话生效, 下次刷新回退上次保存 */ })
+        .then(() => setSaveError(null))
+        .catch(error => setSaveError(error instanceof Error ? error.message : '布局保存失败'))
     }, SAVE_DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
-  }, [local])
+  }, [local, retry])
 
-  return { items: local ?? saved, setItems: setLocal }
+  return { items: local ?? saved, setItems: setLocal, saveError, retrySave: () => setRetry(value => value + 1) }
 }

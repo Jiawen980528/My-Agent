@@ -8,6 +8,9 @@ const backendPort = process.env.BACKEND_PORT || '3018'
 const backendTarget = `http://${proxyHost}:${backendPort}`
 
 export default defineConfig({
+  // The canonical user entry is agent.xdailab.com/quant. Keep the original
+  // TickFlow UI intact while serving its assets and API below this prefix.
+  base: '/quant/',
   plugins: [react()],
   experimental: {
     // 后端将资源挂到带版本的路径；分块预加载和 CSS 字体也须跟随该路径。

@@ -53,6 +53,7 @@ let client: QueryClient
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  localStorage.removeItem('indices-minute-source')
   fixtures.pending.length = 0
   fixtures.mounts = 0
   host = document.createElement('div')

@@ -90,3 +90,11 @@ it('等统计可用后才为真正无数据的新用户弹出引导', async () =
   expect(host.textContent).toContain('欢迎首次使用')
   expect(sessionStorage.getItem('tf_welcome_shown')).toBe('1')
 })
+
+it('总览请求失败时仍提供添加窗口入口', async () => {
+  vi.mocked(api.dataStatus).mockResolvedValue({ stats_pending: false, daily: { trading_days: 1 } } as DataStatus)
+  vi.mocked(api.overviewMarket).mockRejectedValueOnce(new Error('network unavailable'))
+  await render()
+  expect(host.textContent).toContain('市场总览加载失败')
+  expect(host.textContent).toContain('添加窗口')
+})

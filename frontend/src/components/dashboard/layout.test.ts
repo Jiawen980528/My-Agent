@@ -118,6 +118,16 @@ describe('normalizeDashboardLayout', () => {
     expect(items.map(it => it.i)).toEqual(['ext-1', 'ext-2'])
   })
 
+  it('keeps multiple native page windows and their selected pages', () => {
+    const items = normalizeDashboardLayout({ v: 1, items: [
+      { i: 'page-1', t: 'page-panel', x: 0, y: 0, w: 6, h: 12, p: { path: '/watchlist' } },
+      { i: 'page-2', t: 'page-panel', x: 6, y: 0, w: 6, h: 12, p: { path: '/screener' } },
+      { i: 'page-bad', t: 'page-panel', x: 0, y: 12, w: 6, h: 12, p: { path: 'javascript:alert(1)' } },
+    ] })
+    expect(items.map(it => it.p?.path)).toEqual(['/watchlist', '/screener'])
+    expect(items.map(it => it.i)).toEqual(['page-1', 'page-2'])
+  })
+
   it('resolves overlapping coordinates from a saved blob (later item sinks)', () => {
     // 两项完全同格重叠的异常 blob → 后者下沉到不冲突行, 输出两两无重叠
     const items = normalizeDashboardLayout({

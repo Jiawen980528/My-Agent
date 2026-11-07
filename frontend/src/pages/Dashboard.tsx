@@ -14,11 +14,11 @@ import { SettingsModal } from '@/components/data/SettingsModal'
 import { useAdjFactorSyncGate } from '@/components/AdjFactorSyncGate'
 import { STAGE_LABELS } from '@/components/data/ActiveJobCard'
 import { scoreColor, quoteAge } from '@/components/dashboard/shared'
-import { DashboardGrid } from '@/components/dashboard/DashboardGrid'
+import { DashboardGrid, normalizeDashboardLayout } from '@/components/dashboard/DashboardGrid'
 import { AddWidgetPanel } from '@/components/dashboard/AddWidgetPanel'
 import { useDashboardLayout } from '@/components/dashboard/useDashboardLayout'
 import { DEFAULT_LAYOUT, widgetDef, type WidgetCtx } from '@/components/dashboard/registry'
-import { cloneItems, GRID_COLS, type WidgetType } from '@/components/dashboard/layout'
+import { cloneItems, GRID_COLS, MAX_ITEMS, type WidgetType } from '@/components/dashboard/layout'
 
 /** 兼容旧后端的预热标志; 同步/自动修复也会使统计暂不可用。 */
 export function isDataStatusPending(ds?: DataStatus): boolean {
@@ -53,22 +53,66 @@ export function Dashboard() {
   const [dimensionTarget, setDimensionTarget] = useState<DimensionMembersTarget | null>(null)
   // 自定义网格布局(持久化 hook: 后端偏好加载 + 本地改动防抖落盘);
   // 注意必须在早退 return 之前 — Hooks 顺序不可随数据加载状态变化。
-  const { items: dashItems, setItems: setDashItems } = useDashboardLayout()
+  const { items: dashItems, setItems: setDashItems, saveError, retrySave } = useDashboardLayout()
   // 布局编辑态: 入口与控制组(添加组件/恢复默认/完成)在头部「重载」右侧
   const [dashEditing, setDashEditing] = useState(false)
+  const [layoutProfile, setLayoutProfile] = useState('market')
+  const [layoutProfileStatus, setLayoutProfileStatus] = useState('')
+  const layoutImportRef = useRef<HTMLInputElement>(null)
   const placedTypes = useMemo(() => new Set(dashItems.map(it => it.t)), [dashItems])
   const resetDashLayout = useCallback(() => {
     setDashItems(cloneItems(DEFAULT_LAYOUT))
   }, [setDashItems])
-  /** 追加组件: 放到当前布局最底部; ext-link 用唯一 id 支持多实例 */
+  const saveLayoutProfile = useCallback(async () => {
+    setLayoutProfileStatus('保存中…')
+    try {
+      const response = await fetch(`/quant/api/myagent/quant/layout/dashboard-${layoutProfile}`, {
+        method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ layout: JSON.stringify({ v: 1, items: dashItems }) }),
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      setLayoutProfileStatus('已保存')
+    } catch { setLayoutProfileStatus('保存失败') }
+  }, [dashItems, layoutProfile])
+  const loadLayoutProfile = useCallback(async () => {
+    setLayoutProfileStatus('读取中…')
+    try {
+      const response = await fetch(`/quant/api/myagent/quant/layout/dashboard-${layoutProfile}`, { credentials: 'include' })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const body = await response.json() as { layout?: string }
+      if (!body.layout) { setLayoutProfileStatus('该方案尚未保存'); return }
+      setDashItems(normalizeDashboardLayout(JSON.parse(body.layout)))
+      setLayoutProfileStatus('已加载')
+    } catch { setLayoutProfileStatus('读取失败') }
+  }, [layoutProfile, setDashItems])
+  const exportLayoutProfile = useCallback(() => {
+    const blob = new Blob([JSON.stringify({ v: 1, items: dashItems }, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url; link.download = `myagent-dashboard-${layoutProfile}.json`; link.click()
+    URL.revokeObjectURL(url); setLayoutProfileStatus('已导出')
+  }, [dashItems, layoutProfile])
+  const importLayoutProfile = useCallback(async (file?: File) => {
+    if (!file) return
+    try {
+      setDashItems(normalizeDashboardLayout(JSON.parse(await file.text())))
+      setLayoutProfileStatus('已导入，请确认后保存方案')
+    } catch { setLayoutProfileStatus('导入文件无效') }
+  }, [setDashItems])
+  /** 追加窗口后进入布局编辑，并定位到新窗口。 */
   const addDashWidget = useCallback((t: WidgetType, props?: Record<string, string>) => {
     const def = widgetDef(t)
     if (!def) return
+    if (dashItems.length >= MAX_ITEMS) return
     // 内置组件单实例: 已存在则忽略
-    if (t !== 'ext-link' && dashItems.some(it => it.t === t)) return
+    if (t !== 'ext-link' && t !== 'page-panel' && dashItems.some(it => it.t === t)) return
     const maxY = dashItems.reduce((m, it) => Math.max(m, it.y + it.h), 0)
-    const id = t === 'ext-link' ? `ext-link-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}` : t
-    setDashItems([...dashItems, { i: id, t, x: 0, y: maxY, w: Math.min(def.defW, GRID_COLS), h: def.defH, p: props }])
+    const id = t === 'ext-link' || t === 'page-panel' ? `${t}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}` : t
+    const w = Math.min(def.defW, GRID_COLS)
+    const x = t === 'fund-flow' || t === 'sector-watch' ? GRID_COLS - w : 0
+    setDashItems([...dashItems, { i: id, t, x, y: maxY, w, h: def.defH, p: props }])
+    setDashEditing(true)
+    window.setTimeout(() => document.querySelector(`[data-dashboard-widget="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 250)
   }, [dashItems, setDashItems])
   // 首次使用(无数据 + 未完成引导)自动弹窗: 同一会话只弹一次
   const [showWelcomeModal, setShowWelcomeModal] = useState(false)
@@ -187,11 +231,16 @@ export function Dashboard() {
 
   if (!data) {
     return (
-      <div className="flex h-full items-center justify-center bg-base p-6">
-        <div className="rounded-card border border-border bg-surface p-6 text-center">
-          <div className="text-sm text-danger">看板加载失败</div>
-          <button onClick={() => overview.refetch()} className="mt-3 rounded-btn bg-accent px-3 py-1.5 text-xs font-medium text-white">重试</button>
+      <div className="min-h-full bg-base p-3">
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-card border border-danger/40 bg-surface p-3 text-xs">
+          <strong className="mr-auto text-danger">市场总览加载失败；其他窗口仍可使用</strong>
+          <button onClick={() => overview.refetch()} className="rounded-btn border border-border px-2 py-1 text-accent">重试市场数据</button>
+          <AddWidgetPanel placedTypes={placedTypes} itemCount={dashItems.length} onAdd={addDashWidget} />
+          <button onClick={() => setDashEditing(value => !value)} className="rounded-btn border border-border px-2 py-1 text-accent">{dashEditing ? '完成布局' : '自定义布局'}</button>
         </div>
+        <DashboardGrid ctx={null} items={dashItems} onItemsChange={setDashItems} editing={dashEditing} onAddWidget={addDashWidget} />
+        {saveError && <div role="alert" className="fixed bottom-16 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-btn border border-danger/50 bg-surface px-3 py-2 text-xs text-danger shadow-xl">布局保存失败：{saveError}<button type="button" onClick={retrySave} className="text-accent underline">重试保存</button></div>}
+        {dashEditing && <button type="button" onClick={() => setDashEditing(false)} className="fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-btn bg-accent px-4 py-2 text-xs text-white shadow-xl">完成布局 · 启用窗口操作</button>}
       </div>
     )
   }
@@ -290,6 +339,18 @@ export function Dashboard() {
           >
             <RefreshCw className={`h-3 w-3 ${manualFetching ? 'animate-spin' : ''}`} />重载
           </button>
+          <AddWidgetPanel placedTypes={placedTypes} itemCount={dashItems.length} onAdd={addDashWidget} />
+          <div className="flex items-center gap-1 rounded-btn border border-border bg-elevated px-1 py-0.5">
+            <select aria-label="布局方案" value={layoutProfile} onChange={event => { setLayoutProfile(event.target.value); setLayoutProfileStatus('') }} className="max-w-24 bg-transparent text-[11px] text-secondary">
+              <option value="market">大盘</option><option value="holdings">持仓</option><option value="sector">板块</option><option value="t-trade">做T</option><option value="review">盘后复盘</option>
+            </select>
+            <button type="button" onClick={loadLayoutProfile} className="text-accent">加载</button>
+            <button type="button" onClick={saveLayoutProfile} className="text-accent">保存</button>
+            <button type="button" onClick={exportLayoutProfile} className="text-muted hover:text-foreground">导出</button>
+            <button type="button" onClick={() => layoutImportRef.current?.click()} className="text-muted hover:text-foreground">导入</button>
+            <input ref={layoutImportRef} type="file" accept="application/json,.json" className="hidden" onChange={event => { void importLayoutProfile(event.target.files?.[0]); event.currentTarget.value = '' }} />
+          </div>
+          {layoutProfileStatus && <span className={layoutProfileStatus.includes('失败') || layoutProfileStatus.includes('无效') ? 'text-danger' : 'text-muted'}>{layoutProfileStatus}</span>}
           {!dashEditing ? (
             <button
               onClick={() => setDashEditing(true)}
@@ -300,7 +361,6 @@ export function Dashboard() {
             </button>
           ) : (
             <>
-              <AddWidgetPanel placedTypes={placedTypes} onAdd={addDashWidget} />
               <button
                 onClick={resetDashLayout}
                 className="inline-flex items-center gap-1 rounded-btn border border-border bg-elevated px-2 py-1 text-[11px] text-secondary transition-colors hover:text-foreground"
@@ -330,7 +390,17 @@ export function Dashboard() {
         </div>
       )}
 
-      <DashboardGrid ctx={widgetCtx} items={dashItems} onItemsChange={setDashItems} editing={dashEditing} />
+      <DashboardGrid ctx={widgetCtx} items={dashItems} onItemsChange={setDashItems} editing={dashEditing} onAddWidget={addDashWidget} />
+
+      {saveError && <div role="alert" className="fixed bottom-16 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-btn border border-danger/50 bg-surface px-3 py-2 text-xs text-danger shadow-xl">
+        布局保存失败：{saveError}<button type="button" onClick={retrySave} className="text-accent underline">重试保存</button>
+      </div>}
+
+      {dashEditing && <button
+        type="button"
+        onClick={() => setDashEditing(false)}
+        className="fixed bottom-5 left-1/2 z-50 inline-flex -translate-x-1/2 items-center gap-1 rounded-btn bg-accent px-4 py-2 text-xs font-semibold text-white shadow-xl hover:bg-accent/90"
+      ><Check className="h-4 w-4" />完成布局 · 启用窗口操作</button>}
 
       <StockPreviewDialog
         symbol={previewStock?.symbol ?? null}

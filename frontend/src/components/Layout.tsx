@@ -33,6 +33,7 @@ import {
   Loader2,
   Tags,
   BarChart3,
+  Newspaper,
   Sparkles,
   CheckCircle2,
   ChevronRight,
@@ -47,6 +48,7 @@ import {
   PanelLeftOpen,
   Download,
   HardDriveDownload,
+  ArrowLeft,
 } from 'lucide-react'
 import {
   IconDashboard,
@@ -70,6 +72,7 @@ import { fmtPct } from '@/lib/format'
 import { findDataSource } from '@/lib/dataSources'
 import { toggleTheme, useTheme } from '@/lib/theme'
 import { setCurrentTotal as setAlertTotal, useUnreadAlerts } from '@/lib/monitorBadge'
+import { DEFAULT_INDEXES, useIndexWatchlist } from '@/lib/indexWatchlist'
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 import { getFrontendExtensionNavigation } from '@/extensions/registry'
 
@@ -77,12 +80,7 @@ import { getFrontendExtensionNavigation } from '@/extensions/registry'
 const BRAND = '#8B5CF6'
 
 // 核心四只指数 — 与后端 index_const.py 单一权威对齐 (前端展示层固定清单)
-export const CORE_INDEXES = [
-  { symbol: '000001.SH', name: '上证指数' },
-  { symbol: '399001.SZ', name: '深证成指' },
-  { symbol: '399006.SZ', name: '创业板指' },
-  { symbol: '000680.SH', name: '科创综指' },
-] as const
+export const CORE_INDEXES = DEFAULT_INDEXES
 
 type CoreIndex = (typeof CORE_INDEXES)[number]
 
@@ -90,6 +88,10 @@ const nav = [
   { to: '/',                 label: '看板',     icon: IconDashboard },
   { to: '/watchlist',        label: '自选',     icon: IconWatchlist },
   { to: '/screener',         label: '策略',     icon: IconStrategy },
+  { to: '/pick-model',       label: '拾贝模型', icon: IconStrategy },
+  { to: '/fund-flow',        label: '资金流向', icon: BarChart3 },
+  { to: '/market-news',      label: '市场新闻', icon: Newspaper },
+  { to: '/decision-guide',   label: '行情推演', icon: Sparkles },
   { to: '/factors',          label: '因子',     icon: IconFactors },
   { to: '/backtest',         label: '回测',     icon: IconBacktest },
   { to: '/regime',           label: '市场环境', icon: IconRegime },
@@ -518,9 +520,9 @@ export function Layout() {
     setNavStatePersist(navState === 'expanded' ? 'rail' : 'expanded')
   }
   // 指数条: 固定核心四只 (产品契约, 不再可配置), 常驻显示
-  const sidebarIndexes = CORE_INDEXES
+  const [sidebarIndexes] = useIndexWatchlist()
   const { data: sidebarIndexQuotes } = useQuery({
-    queryKey: [...QK.indexQuotes, 'sidebar', 'core'] as const,
+    queryKey: [...QK.indexQuotes, 'sidebar', sidebarIndexes.map(p => p.symbol).join(',')] as const,
     queryFn: () => api.indexQuotes(sidebarIndexes.map(p => p.symbol)),
     enabled: sidebarIndexes.length > 0,
     placeholderData: (prev) => prev,
@@ -640,6 +642,18 @@ export function Layout() {
 
   const hiddenIds = new Set(prefs?.nav_hidden ?? [])
   const visibleNavItems = navItems.filter(n => !hiddenIds.has(n.to) && !hiddenIds.has(n.to.replace(/^\/analysis\//, '')))
+  const [dragNavPath, setDragNavPath] = useState<string | null>(null)
+  const moveNavItem = (targetPath: string) => {
+    if (!dragNavPath || dragNavPath === targetPath) return
+    const next = navItems.map(item => item.to)
+    const from = next.indexOf(dragNavPath)
+    const to = next.indexOf(targetPath)
+    if (from < 0 || to < 0) return
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    setDragNavPath(null)
+    void api.saveNavOrder(next).then(() => qc.invalidateQueries({ queryKey: QK.preferences }))
+  }
 
   // 新装用户一次性种子: 扩展域页面默认隐藏, 菜单设置里可逐个开启。
   // 老用户 (升级前已完成 onboarding) 只写标记不动偏好, 升级前后侧栏一致。
@@ -822,7 +836,7 @@ export function Layout() {
             // 「自选」项 — 开启分组侧栏且未整体收起时, 渲染为可展开父项 + 二级分组
             const isWatchlistExpandable = to === '/watchlist' && groupsInNav && !railMode && watchlistGroups.length > 0
             return (
-              <div key={to}>
+              <div key={to} draggable={!railMode} onDragStart={() => setDragNavPath(to)} onDragOver={event => { if (!railMode) event.preventDefault() }} onDrop={() => moveNavItem(to)} onDragEnd={() => setDragNavPath(null)} className={dragNavPath === to ? 'opacity-50' : undefined}>
                 {isWatchlistExpandable ? (
                   /* 可展开的自选父项 — 点击切换展开, 不直接跳页 */
                   <button
@@ -958,6 +972,18 @@ export function Layout() {
               </div>
             )
           })}
+          <NavLink
+            to="/myagent-quant"
+            title={railMode ? 'MyAgent量化' : undefined}
+            className={cn(
+              'group relative flex items-center rounded-btn text-sm transition-all duration-150 ease-smooth',
+              railMode ? 'justify-center px-0 py-2' : 'gap-3 px-3 py-2',
+              'text-foreground/75 hover:bg-elevated/70 hover:text-foreground',
+            )}
+          >
+            <BarChart3 className="h-4 w-4 shrink-0 text-foreground/60 group-hover:text-foreground/85" />
+            {!railMode && <span className="truncate">MyAgent量化</span>}
+          </NavLink>
           <ExtensionSlot
             name="layout.navigation.extra"
             context={{ collapsed: railMode, pathname: location.pathname }}
@@ -1141,6 +1167,18 @@ export function Layout() {
               )}
             </NavLink>
           </div>
+          <a
+            href="https://agent.xdailab.com/"
+            title="返回 MyAgent 工作台"
+            aria-label="返回 MyAgent 工作台"
+            className={cn(
+              'mt-1 flex items-center rounded-btn text-sm text-foreground/75 transition-colors duration-150 ease-smooth hover:bg-elevated/70 hover:text-foreground',
+              railMode ? 'justify-center px-0 py-2' : 'gap-3 px-3 py-2',
+            )}
+          >
+            <ArrowLeft className="h-4 w-4 shrink-0 text-foreground/60" />
+            {!railMode && <span>返回 MyAgent 工作台</span>}
+          </a>
         </div>
       </aside>
 

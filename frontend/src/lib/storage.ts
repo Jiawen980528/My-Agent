@@ -119,6 +119,8 @@ export const storage = {
 
   /** 界面整体缩放 (0.8–1.5, 设置→系统→界面缩放; 桌面客户端无浏览器缩放快捷键) */
   pageZoom:             kv<number>('tf-page-zoom'),
+  /** 字体大小倍率，与界面整体缩放独立。 */
+  fontScale:            kv<number>('tf-font-scale'),
 
   /** 连板梯队板块筛选 */
   limitLadderBoard:     kv<string[]>('limit-ladder-board-filter'),

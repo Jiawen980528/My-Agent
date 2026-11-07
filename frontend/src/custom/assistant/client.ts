@@ -65,6 +65,13 @@ export interface AssistantContext {
   symbol?: string
 }
 
+export type AssistantMode = 'myagent' | 'tickflow'
+const MODE_KEY = 'tf-assistant-mode'
+export function getAssistantMode(): AssistantMode {
+  return localStorage.getItem(MODE_KEY) === 'tickflow' ? 'tickflow' : 'myagent'
+}
+export function setAssistantMode(mode: AssistantMode): void { localStorage.setItem(MODE_KEY, mode) }
+
 async function requestJson<T>(path: string): Promise<T> {
   const res = await fetch(path)
   if (!res.ok) throw new Error(`AI 助手接口请求失败: ${res.status}`)
@@ -72,7 +79,12 @@ async function requestJson<T>(path: string): Promise<T> {
 }
 
 export function fetchAssistantStatus(): Promise<AssistantStatus> {
-  return requestJson<AssistantStatus>('/api/custom/assistant/status')
+  if (getAssistantMode() === 'tickflow') return requestJson<AssistantStatus>('/api/custom/assistant/status')
+  return requestJson<{ model: string; api_key_configured: boolean; providers: { configured: boolean; label: string; model: string }[] }>('/api/myagent/config')
+    .then(config => ({ configured: config.api_key_configured,
+      provider: config.providers.find(p => p.configured)?.label ?? 'MyAgent',
+      model: config.providers.find(p => p.configured)?.model ?? config.model,
+      supports_tools: true }))
 }
 
 export function fetchAssistantSuggests(): Promise<QuickSuggest[]> {
@@ -95,10 +107,38 @@ export async function* assistantChatStream(
   body: { messages: ChatHistoryMessage[]; context?: AssistantContext },
   signal?: AbortSignal,
 ): AsyncGenerator<AssistantEvent> {
-  const res = await fetch('/api/custom/assistant/chat', {
+  if (getAssistantMode() === 'tickflow') {
+    const res = await fetch('/api/custom/assistant/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal,
+    })
+    if (!res.ok) throw new Error(`TickFlow 专业工具请求失败：${res.status}`)
+    if (!res.body) throw new Error('TickFlow 响应无内容')
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = ''
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop() ?? ''
+      for (const line of lines) {
+        const event = parseEventLine(line)
+        if (event) yield event
+      }
+    }
+    const tail = parseEventLine(buf)
+    if (tail) yield tail
+    return
+  }
+  const latest = [...body.messages].reverse().find(m => m.role === 'user')?.content?.trim()
+  if (!latest) throw new Error('请输入问题')
+  const location = [body.context?.page, body.context?.symbol].filter(Boolean).join(' · ')
+  const message = location ? `量化页面：${location}\n用户问题：${latest}` : latest
+  const res = await fetch('/api/myagent/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ message }),
     signal,
   })
   if (!res.ok) {
@@ -109,32 +149,14 @@ export async function* assistantChatStream(
     } catch { /* 忽略解析失败, 走状态码文案 */ }
     throw new Error(detail || `AI 助手请求失败: ${res.status}`)
   }
-  if (!res.body) throw new Error('响应无 body')
-
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buf = ''
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
-    const lines = buf.split('\n')
-    buf = lines.pop() ?? ''
-    for (const line of lines) {
-      const event = parseEventLine(line)
-      if (event) yield event
-    }
-  }
-  const tail = parseEventLine(buf)
-  if (tail) yield tail
+  const payload = await res.json() as { reply?: string }
+  if (!payload.reply) throw new Error('MyAgent 未返回回答')
+  yield { type: 'delta', content: payload.reply }
+  yield { type: 'done' }
 }
 
 function parseEventLine(line: string): AssistantEvent | null {
   const text = line.trim()
   if (!text) return null
-  try {
-    return JSON.parse(text) as AssistantEvent
-  } catch {
-    return null
-  }
+  try { return JSON.parse(text) as AssistantEvent } catch { return null }
 }

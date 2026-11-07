@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from datetime import date, datetime, timedelta
 from typing import Optional
 
 import polars as pl
+import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.indicators.pipeline import compute_enriched
@@ -24,6 +26,8 @@ _INDEX_MINUTE_CACHE_TTL = 10.0
 _INDEX_MINUTE_CACHE_MAX = 32
 _index_minute_cache: dict[tuple[str, str, str], tuple[float, pl.DataFrame]] = {}
 _index_minute_cache_lock = threading.Lock()
+_public_minute_cache: dict[str, tuple[float, dict]] = {}
+_PUBLIC_MINUTE_URL = "https://push2his.eastmoney.com/api/qt/stock/trends2/get"
 
 
 def _index_info(repo, symbol: str) -> dict:
@@ -125,6 +129,74 @@ def get_index_minute(
         "date": str(day),
         "rows": df.to_dicts(),
         "source": "live" if not df.is_empty() else "none",
+    }
+
+
+@router.get("/public-minute")
+async def get_public_index_minute(
+    symbol: str = Query(..., max_length=9),
+    trade_date: date | None = Query(None, alias="date"),
+):
+    """Public delayed index intraday curve, separate from licensed minute K-lines.
+
+    Eastmoney exposes at most a few recent trading days through this endpoint.
+    Never label its response as exchange-direct or use it to fill historical gaps.
+    """
+    normalized = symbol.upper()
+    if re.fullmatch(r"\d{6}", normalized):
+        normalized += ".SH" if normalized.startswith(("5", "6")) else ".BJ" if normalized.startswith(("4", "8")) else ".SZ"
+    if not re.fullmatch(r"\d{6}\.(SH|SZ|BJ)", normalized):
+        raise HTTPException(status_code=400, detail="代码格式应为 000001.SH 或 6 位数字")
+    secid = ("1." if normalized.endswith(".SH") else "0.") + normalized[:6]
+    cached = _public_minute_cache.get(normalized)
+    if cached and time.monotonic() - cached[0] < 45:
+        payload = cached[1]
+    else:
+        try:
+            async with httpx.AsyncClient(timeout=12) as client:
+                response = await client.get(_PUBLIC_MINUTE_URL, params={
+                    "secid": secid, "fields1": "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13",
+                    "fields2": "f51,f52,f53,f54,f55,f56,f57,f58", "iscr": "0", "ndays": "5",
+                })
+                response.raise_for_status()
+                payload = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise HTTPException(status_code=502, detail="东方财富公开分时数据暂不可用") from exc
+        if payload.get("rc") != 0 or not isinstance(payload.get("data"), dict):
+            raise HTTPException(status_code=502, detail="公开分时源未返回该指数")
+        _public_minute_cache[normalized] = (time.monotonic(), payload)
+        if len(_public_minute_cache) > 64:
+            oldest = min(_public_minute_cache, key=lambda key: _public_minute_cache[key][0])
+            del _public_minute_cache[oldest]
+
+    data = payload["data"]
+    target = (trade_date or cn_today()).isoformat()
+    available = (data.get("trends") or [""])[-1][:10]
+    display_date = target
+    if target == cn_today().isoformat() and not any(
+        str(line).startswith(target) for line in data.get("trends") or []
+    ) and available:
+        display_date = available
+    rows = []
+    for line in data.get("trends") or []:
+        values = line.split(",")
+        if len(values) < 8 or not values[0].startswith(display_date):
+            continue
+        try:
+            open_, close, high, low, volume, amount = (float(v) for v in values[1:7])
+            vendor_avg = float(values[7])
+            rows.append({"datetime": values[0], "open": open_ or close,
+                         "high": high, "low": low, "close": close,
+                         "volume": volume, "amount": amount,
+                         "avg_price": vendor_avg if vendor_avg > 0 else None})
+        except ValueError:
+            continue
+    return {
+        "symbol": normalized, "date": target, "rows": rows,
+        "display_date": display_date,
+        "prev_close": data.get("preClose"),
+        "source": "eastmoney_public_delayed", "source_label": "东方财富公开行情（可能延迟）",
+        "latest_available_date": available,
     }
 
 

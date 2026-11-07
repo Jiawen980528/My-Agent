@@ -203,7 +203,7 @@ export function SettingsAIPanel({ highlight }: { highlight?: string } = {}) {
     option.model === codexModel && option.effort === codexReasoningEffort,
   ) ?? CODEX_MODEL_OPTIONS[0]
   const codexModelSelectValue = selectedCodexModelOption.value
-  const canSave = isCodexProvider ? true : !!baseUrl.trim() && !!model.trim()
+  const canSave = isCodexProvider ? true : !!baseUrl.trim() && !!model.trim() && (!!apiKey.trim() || !!configured)
   // 测试按钮可用性: codex 恒可(探测 CLI 可用性); 其余需要地址+模型, 且
   // Key 草稿或已保存至少其一 (留空回退已保存 Key, 改模型/协议不必重输)
   const canTest = isCodexProvider || (!!baseUrl.trim() && !!model.trim() && (!!apiKey.trim() || !!configured))
@@ -507,7 +507,7 @@ export function SettingsAIPanel({ highlight }: { highlight?: string } = {}) {
                   ? <><span className="font-mono">{s?.ai_codex_command ?? CODEX_COMMAND}</span> · <span className="font-mono">{codexModelLabel(s?.ai_model, s?.ai_codex_reasoning_effort)}</span></>
                   : <><span className="font-mono">{s?.ai_model}</span><span className="text-muted"> · {s?.ai_api_key_masked}</span></>
               ) : (
-                <span className="text-muted">{isCodexProvider ? '使用本机 codex exec, 无需填写 Key' : '填写下方参数并保存即可启用'}</span>
+                <span className="text-muted">{isCodexProvider ? '使用本机 codex exec, 无需填写 Key' : '服务器尚未保存 API Key；浏览器自动填充不等于已配置'}</span>
               )}
             </span>
           </div>
@@ -721,11 +721,12 @@ export function SettingsAIPanel({ highlight }: { highlight?: string } = {}) {
 
               <Field label="API Key">
                 <div className="relative">
-                  <input type={showKey ? 'text' : 'password'} value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={configured ? `${s?.ai_api_key_masked} · 留空不修改` : 'sk-...'} className={`${INPUT_CLS} pr-9`} />
+                  <input type={showKey ? 'text' : 'password'} name="tickflow-ai-api-key" autoComplete="new-password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={configured ? `${s?.ai_api_key_masked} · 留空不修改` : '请输入 API Key'} className={`${INPUT_CLS} pr-9`} />
                   <button onClick={() => setShowKey(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted/40 hover:text-muted" tabIndex={-1} aria-label={showKey ? '隐藏' : '显示'}>
                     {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                   </button>
                 </div>
+                {!configured && <p className="mt-1 text-[11px] text-warning">服务器尚未保存 Key。请在此输入后点击“保存配置”；仅看到圆点不代表已保存。</p>}
               </Field>
 
               <div className="flex items-center gap-2 border-t border-border/30 pt-3.5">
@@ -780,7 +781,7 @@ export function SettingsAIPanel({ highlight }: { highlight?: string } = {}) {
             <p className="text-[11px] leading-relaxed text-muted">
               {isCodexProvider
                 ? 'Codex CLI 会复用本机已登录账户, 分析上下文将发送给 OpenAI/Codex。'
-                : 'API Key 仅保存在本机项目文件, 不会上传到任何服务器。'}
+                : '保存后 API Key 存在部署服务器的私有配置文件中，不会出现在公开页面。'}
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">

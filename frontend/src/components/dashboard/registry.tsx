@@ -16,11 +16,15 @@ import { SealedBadge } from '@/components/SealedBadge'
 import { scoreColor, fmtPrice, fmtStockPct, pctClass, compactCount, SectionTitle, MiniMetric, KpiCell } from './shared'
 import { EmotionScoreConfigDialog } from './EmotionScoreConfigDialog'
 import {
-  IndexTicker, BreadthBar, DistributionBars, EmotionRadar, LadderMini, StockList, HotRankCard, MonitorWidget,
+  IndexTickerList, BreadthBar, DistributionBars, EmotionRadar, LadderMini, StockList, HotRankCard, MonitorWidget,
   stockListNav, rankNav,
 } from './widgets'
 import type { DashboardItem, WidgetType } from './layout'
 import { ExternalLinkWidget } from './ExternalLinkWidget'
+import { FundFlowPanel } from '@/components/FundFlowPanel'
+import { HoldingsWidget, SectorWatchWidget, MarketNewsWidget } from './MyAgentWidgets'
+import { PortfolioMonitorWidget } from './PortfolioMonitorWidget'
+import { PageWidget } from './PageWidget'
 
 /** 渲染上下文: 数据切片与交互回调(由 Dashboard 页提供, 组件不自取数据) */
 export interface WidgetCtx {
@@ -162,11 +166,7 @@ function MonitorSection({ ctx }: { ctx: WidgetCtx }) {
 export const WIDGET_DEFS: WidgetDef[] = [
   {
     id: 'indices', label: '指数行情', icon: Gauge, minW: 4, minH: 2, defW: 12, defH: 2,
-    render: ctx => (
-      <div className="grid h-full grid-cols-2 gap-1 md:grid-cols-4">
-        {ctx.data.indices.map(item => <IndexTicker key={item.symbol} item={item} />)}
-      </div>
-    ),
+    render: ctx => <IndexTickerList fallback={ctx.data.indices} />,
   },
   {
     id: 'kpi', label: '大盘指标', icon: BarChart3, minW: 6, minH: 2, defW: 12, defH: 2,
@@ -260,6 +260,30 @@ export const WIDGET_DEFS: WidgetDef[] = [
     render: ctx => <MonitorSection ctx={ctx} />,
   },
   {
+    id: 'fund-flow', label: '资金流向', icon: LineChart, minW: 6, minH: 9, defW: 6, defH: 13,
+    render: () => <FundFlowPanel compact />,
+  },
+  {
+    id: 'holdings', label: '持仓涨跌', icon: BarChart3, minW: 4, minH: 8, defW: 6, defH: 12,
+    render: () => <HoldingsWidget />,
+  },
+  {
+    id: 'portfolio-monitor', label: '持仓·分时·板块·新闻', icon: LineChart, minW: 6, minH: 12, defW: 12, defH: 22,
+    render: () => <PortfolioMonitorWidget />,
+  },
+  {
+    id: 'sector-watch', label: '关联板块异动', icon: BellRing, minW: 4, minH: 8, defW: 6, defH: 12,
+    render: () => <SectorWatchWidget />,
+  },
+  {
+    id: 'market-news', label: '市场新闻', icon: BellRing, minW: 4, minH: 8, defW: 6, defH: 12,
+    render: () => <MarketNewsWidget />,
+  },
+  {
+    id: 'page-panel', label: '已有页面', icon: Link2, minW: 4, minH: 8, defW: 12, defH: 18,
+    render: (_ctx, item) => <PageWidget path={item.p?.path ?? ''} />,
+  },
+  {
     id: 'ext-link', label: '外部链接', icon: Link2, minW: 2, minH: 5, defW: 6, defH: 10,
     render: (_ctx, item) => <ExternalLinkWidget title={item.p?.title ?? '外部链接'} url={item.p?.url ?? 'about:blank'} />,
   },
@@ -286,15 +310,17 @@ export function minSizeOf(t: WidgetType): { w: number; h: number } {
 export const DEFAULT_LAYOUT: DashboardItem[] = [
   { i: 'indices', t: 'indices', x: 0, y: 0, w: 12, h: 2 },
   { i: 'kpi', t: 'kpi', x: 0, y: 2, w: 12, h: 2 },
-  { i: 'distribution', t: 'distribution', x: 0, y: 4, w: 3, h: 8 },
-  { i: 'radar', t: 'radar', x: 3, y: 4, w: 3, h: 8 },
-  { i: 'trend', t: 'trend', x: 6, y: 4, w: 3, h: 8 },
-  { i: 'ladder', t: 'ladder', x: 9, y: 4, w: 3, h: 8 },
-  { i: 'concept-rank', t: 'concept-rank', x: 0, y: 12, w: 4, h: 9 },
-  { i: 'industry-rank', t: 'industry-rank', x: 4, y: 12, w: 4, h: 9 },
-  { i: 'monitor', t: 'monitor', x: 8, y: 12, w: 4, h: 22 },
-  { i: 'gainers', t: 'gainers', x: 0, y: 21, w: 2, h: 13 },
-  { i: 'losers', t: 'losers', x: 2, y: 21, w: 2, h: 13 },
-  { i: 'turnover', t: 'turnover', x: 4, y: 21, w: 2, h: 13 },
-  { i: 'activity', t: 'activity', x: 6, y: 21, w: 2, h: 13 },
+  { i: 'portfolio-monitor', t: 'portfolio-monitor', x: 0, y: 4, w: 12, h: 22 },
+  { i: 'distribution', t: 'distribution', x: 0, y: 26, w: 3, h: 8 },
+  { i: 'radar', t: 'radar', x: 3, y: 26, w: 3, h: 8 },
+  { i: 'trend', t: 'trend', x: 6, y: 26, w: 3, h: 8 },
+  { i: 'ladder', t: 'ladder', x: 9, y: 26, w: 3, h: 8 },
+  { i: 'concept-rank', t: 'concept-rank', x: 0, y: 34, w: 4, h: 9 },
+  { i: 'industry-rank', t: 'industry-rank', x: 4, y: 34, w: 4, h: 9 },
+  { i: 'monitor', t: 'monitor', x: 8, y: 34, w: 4, h: 22 },
+  { i: 'gainers', t: 'gainers', x: 0, y: 43, w: 2, h: 13 },
+  { i: 'losers', t: 'losers', x: 2, y: 43, w: 2, h: 13 },
+  { i: 'turnover', t: 'turnover', x: 4, y: 43, w: 2, h: 13 },
+  { i: 'activity', t: 'activity', x: 6, y: 43, w: 2, h: 13 },
+  { i: 'market-news', t: 'market-news', x: 0, y: 56, w: 6, h: 12 },
 ]

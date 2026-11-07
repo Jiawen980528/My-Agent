@@ -38,6 +38,9 @@ import { usePreferences } from '@/lib/useSharedQueries'
 import { DEEPSEEK_FALLBACK_RANGE, discountRangeLabel, useSponsorModelItems } from '@/lib/sponsor-discount'
 import {
   fetchAssistantStatus,
+  getAssistantMode,
+  setAssistantMode,
+  type AssistantMode,
   fetchAssistantSuggests,
   type AssistantStatus,
   type QuickSuggest,
@@ -133,6 +136,7 @@ function DrawerPanel({
 }) {
   const { sessions, activeId } = useAssistantStore()
   const [status, setStatus] = useState<AssistantStatus | null>(null)
+  const [mode, setMode] = useState<AssistantMode>(getAssistantMode)
   const [suggests, setSuggests] = useState<QuickSuggest[]>([])
   const [width, setWidth] = useState(() => clampWidth(loadWidth()))
   const panelRef = useRef<HTMLElement>(null)
@@ -143,7 +147,7 @@ function DrawerPanel({
     fetchAssistantStatus().then(s => { if (!cancelled) setStatus(s) }).catch(() => {})
     fetchAssistantSuggests().then(list => { if (!cancelled) setSuggests(list) }).catch(() => {})
     return () => { cancelled = true }
-  }, [])
+  }, [mode])
 
   // 窗口缩放后重新夹取宽度, 保证面板不越出视口。
   useEffect(() => {
@@ -186,7 +190,8 @@ function DrawerPanel({
       role="complementary"
       aria-label="AI 助手"
     >
-      <DrawerHeader status={status} sessions={sessions} activeId={activeId} sending={sending} />
+      <DrawerHeader status={status} sessions={sessions} activeId={activeId} sending={sending} mode={mode}
+        onModeChange={next => { setAssistantMode(next); setMode(next); setStatus(null); newSession() }} />
       <MessageList messages={messages} sending={sending} status={status} suggests={suggests} />
       <InputArea sending={sending} blocked={status ? !status.supports_tools : false} />
 
@@ -271,11 +276,15 @@ function DrawerHeader({
   sessions,
   activeId,
   sending,
+  mode,
+  onModeChange,
 }: {
   status: AssistantStatus | null
   sessions: ReturnType<typeof useAssistantStore>['sessions']
   activeId: string
   sending: boolean
+  mode: AssistantMode
+  onModeChange: (mode: AssistantMode) => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -284,6 +293,10 @@ function DrawerHeader({
     <div className="relative flex h-14 shrink-0 items-center gap-2 border-b border-border px-4">
       <Sparkles className="h-4 w-4 shrink-0 text-accent" />
       <span className="shrink-0 text-sm font-semibold text-foreground">AI 助手</span>
+      <select aria-label="AI 工具模式" value={mode} disabled={sending} onChange={e => onModeChange(e.target.value as AssistantMode)}
+        className="rounded border border-border bg-base px-1 py-0.5 text-[10px] text-secondary disabled:opacity-50">
+        <option value="myagent">MyAgent 统一</option><option value="tickflow">TickFlow 专业工具</option>
+      </select>
       {status?.model && (
         <span
           className="min-w-0 truncate rounded-btn bg-elevated px-1.5 py-0.5 font-mono text-[10px] text-muted"

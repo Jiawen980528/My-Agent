@@ -6,6 +6,7 @@
  */
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowDownRight, ArrowUpRight, Flame } from 'lucide-react'
 import { api, type MarketSnapshotRow, type OverviewDimensionRankItem, type OverviewMarket, type AlertEvent } from '@/lib/api'
@@ -14,6 +15,7 @@ import { dimensionKindForSourceField, type DimensionMembersTarget } from '@/comp
 import { cn } from '@/lib/cn'
 import { cnSignal } from '@/lib/signals'
 import { useCustomSignalNames } from '@/lib/useCustomSignalNames'
+import { useIndexWatchlist } from '@/lib/indexWatchlist'
 import { strategyEventMeta, strategyName } from '@/lib/strategyMonitorEvents'
 import { boardTag } from '@/components/stock-table/primitives'
 import { toNavItems, type NavItem } from '@/lib/listNav'
@@ -31,6 +33,36 @@ export function rankNav(rank?: OverviewMarket['concept_rank']): NavItem[] {
 }
 
 // ===== 指数行情条 =====
+function MiniIndexCurve({ symbol, fallback }: { symbol: string; fallback: number | null | undefined }) {
+  const minute = useQuery({ queryKey: ['dashboard-index-minute', symbol], queryFn: () => api.indexMinute(symbol), refetchInterval: 60_000 })
+  const rows = minute.data?.rows ?? []
+  const values = rows.map(row => Number(row.close)).filter(Number.isFinite)
+  const live = values.at(-1) ?? (fallback == null ? null : Number(fallback))
+  const forecast = useMemo(() => {
+    if (values.length < 5 || live == null) return null
+    const recent = values.slice(-Math.min(15, values.length))
+    const slope = (recent.at(-1)! - recent[0]) / Math.max(1, recent.length - 1)
+    const remaining = 240 - values.length
+    return live + slope * Math.min(Math.max(remaining, 0), 60)
+  }, [values, live])
+  const points = values.slice(-80)
+  const all = forecast == null ? points : [...points, forecast]
+  const min = Math.min(...all, live ?? 0)
+  const max = Math.max(...all, live ?? 0)
+  const path = points.length > 1 ? points.map((value, i) => `${(i / (points.length - 1)) * 100},${28 - ((value - min) / Math.max(max - min, 0.00001)) * 24}`).join(' ') : ''
+  const forecastX = points.length > 1 ? 100 : 0
+  return <div className="col-span-2 mt-0.5 grid grid-cols-[1fr_auto] items-center gap-1 border-t border-border/40 pt-0.5">
+    <svg viewBox="0 0 100 28" preserveAspectRatio="none" className="h-7 w-full" aria-label={`${symbol}实时分时曲线`}>
+      {path && <polyline points={path} fill="none" stroke="currentColor" strokeWidth="1.4" className="text-accent" />}
+      {forecast != null && <line x1={forecastX} x2="100" y1={path ? Number(path.split(' ').at(-1)!.split(',')[1]) : 14} y2={28 - ((forecast - min) / Math.max(max - min, 0.00001)) * 24} stroke="currentColor" strokeDasharray="2 2" strokeWidth="1.2" className="text-warning" />}
+    </svg>
+    <div className="whitespace-nowrap text-right text-[9px] leading-3">
+      <div className="text-accent">实时 {live == null ? '—' : live.toFixed(2)}</div>
+      <div className="text-warning">预测 {forecast == null ? '—' : forecast.toFixed(2)}</div>
+    </div>
+  </div>
+}
+
 export function IndexTicker({ item }: { item: OverviewMarket['indices'][number] }) {
   const pct = item.change_pct
   const isUp = (pct ?? 0) >= 0
@@ -46,8 +78,28 @@ export function IndexTicker({ item }: { item: OverviewMarket['indices'][number] 
         {isUp ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
         {fmtPrice(item.last_price)}
       </div>
+      <MiniIndexCurve symbol={item.symbol} fallback={item.last_price} />
     </Link>
   )
+}
+
+export function IndexTickerList({ fallback }: { fallback: OverviewMarket['indices'] }) {
+  const [saved] = useIndexWatchlist()
+  const symbols = saved.map(item => item.symbol)
+  const quotes = useQuery({ queryKey: ['dashboard-index-quotes', symbols.join(',')],
+    queryFn: () => api.indexQuotes(symbols), enabled: symbols.length > 0, refetchInterval: 30_000 })
+  const bySymbol = new Map((quotes.data?.rows ?? []).map(item => [item.symbol, item]))
+  const old = new Map(fallback.map(item => [item.symbol, item]))
+  return <div className="flex h-full min-w-0 gap-1 overflow-x-auto">
+    {saved.map(row => {
+      const live = bySymbol.get(row.symbol)
+      const previous = old.get(row.symbol)
+      return <div key={row.symbol} className="min-w-40 flex-1"><IndexTicker item={{ symbol: row.symbol, name: row.name,
+        last_price: live?.last_price ?? live?.close ?? previous?.last_price,
+        change_pct: live?.change_pct ?? previous?.change_pct }} /></div>
+    })}
+    <Link to="/indices" className="flex shrink-0 items-center rounded border border-border px-2 text-[10px] text-accent">管理指数</Link>
+  </div>
 }
 
 // ===== 涨跌广度 =====
@@ -207,14 +259,22 @@ export function StockList({ title, rows, mode, onStockClick, activeSymbol }: {
   onStockClick?: (symbol: string, name?: string) => void;
   activeSymbol?: string;
 }) {
+  const [sort, setSort] = useState<'default' | 'pctAsc' | 'pctDesc' | 'codeAsc' | 'codeDesc'>('default')
+  const visible = [...rows].slice(0, 8)
+  if (sort === 'pctAsc') visible.sort((a, b) => Number(a.change_pct ?? 0) - Number(b.change_pct ?? 0))
+  if (sort === 'pctDesc') visible.sort((a, b) => Number(b.change_pct ?? 0) - Number(a.change_pct ?? 0))
+  if (sort === 'codeAsc') visible.sort((a, b) => a.symbol.localeCompare(b.symbol))
+  if (sort === 'codeDesc') visible.sort((a, b) => b.symbol.localeCompare(a.symbol))
   return (
     <div className="rounded-card border border-border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]">
       <div className="mb-1 flex items-center justify-between">
         <h3 className="text-xs font-semibold text-foreground">{title}</h3>
-        <span className="text-[9px] text-muted">TOP {Math.min(rows.length, 8)}</span>
+        <select aria-label={`${title}排序`} value={sort} onChange={e => setSort(e.target.value as typeof sort)} className="max-w-20 rounded border border-border bg-base text-[10px] text-secondary">
+          <option value="default">原顺序</option><option value="pctAsc">涨幅升序</option><option value="pctDesc">涨幅降序</option><option value="codeAsc">代码升序</option><option value="codeDesc">代码降序</option>
+        </select>
       </div>
       <div className="space-y-1">
-        {rows.slice(0, 8).map((r, idx) => (
+        {visible.map((r, idx) => (
           <div
             key={`${r.symbol}-${idx}`}
             className={`grid grid-cols-[18px_1fr_auto] items-center gap-1.5 rounded-md px-1.5 py-1 cursor-pointer transition-colors border ${r.symbol === activeSymbol ? 'bg-accent/10 border-accent/30' : 'bg-elevated/40 border-transparent hover:bg-elevated hover:brightness-110 hover:border-border/60'}`}
@@ -268,10 +328,16 @@ export function RankColumn({ title, rows, tone, onStockClick, onDimensionClick, 
   onDimensionClick?: (target: DimensionMembersTarget) => void;
   activeSymbol?: string;
 }) {
+  const [sort, setSort] = useState<'default' | 'pctAsc' | 'pctDesc' | 'countAsc' | 'countDesc'>('default')
+  const visible = [...rows].slice(0, 5)
+  if (sort === 'pctAsc') visible.sort((a, b) => a.avg_pct - b.avg_pct)
+  if (sort === 'pctDesc') visible.sort((a, b) => b.avg_pct - a.avg_pct)
+  if (sort === 'countAsc') visible.sort((a, b) => a.count - b.count)
+  if (sort === 'countDesc') visible.sort((a, b) => b.count - a.count)
   return (
     <div className="min-w-0 space-y-1">
-      <div className={`text-[10px] font-medium ${tone === 'bull' ? 'text-bull' : 'text-bear'}`}>{title}</div>
-      {rows.slice(0, 5).map((r, idx) => {
+      <div className="flex items-center justify-between gap-1"><span className={`text-[10px] font-medium ${tone === 'bull' ? 'text-bull' : 'text-bear'}`}>{title}</span><select aria-label={`${title}板块排序`} value={sort} onChange={e => setSort(e.target.value as typeof sort)} className="max-w-20 rounded border border-border bg-base text-[9px] text-muted"><option value="default">原顺序</option><option value="pctAsc">均涨升序</option><option value="pctDesc">均涨降序</option><option value="countAsc">数量升序</option><option value="countDesc">数量降序</option></select></div>
+      {visible.map((r, idx) => {
         const kind = r.source_field ? dimensionKindForSourceField(r.source_field) : null
         const clickable = !!(r.source_field && kind && onDimensionClick)
         const isActive = r.leader?.symbol != null && r.leader.symbol === activeSymbol

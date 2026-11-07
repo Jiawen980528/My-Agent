@@ -65,7 +65,7 @@ export const QK = {
   // 同上不嵌 symbols: 单 key + 按 symbol 增量合并, 请求集合由视口收敛
   // (见 lib/minuteBatchIncremental.ts)。
   minuteBatch:          () => ['minute-batch'] as const,
-  instrumentSearch:     (q: string, assetTypes?: string) => ['instrument-search', q, assetTypes ?? 'stock'] as const,
+  instrumentSearch:     (q: string, assetTypes?: string) => ['instrument-search', q, assetTypes ?? 'stock,etf'] as const,
 
   // Screener
   screener:             ['screener'] as const,

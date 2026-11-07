@@ -37,6 +37,11 @@ const SPECS: { ls: string; remote: string; codec: Codec }[] = [
   { ls: 'voice_broadcast_rate', remote: 'voice_broadcast_rate', codec: 'float' },
   { ls: 'stock_external_template', remote: 'stock_external_template', codec: 'json' },
   { ls: 'tf-page-zoom', remote: 'page_zoom', codec: 'json' },
+  { ls: 'tf-font-scale', remote: 'font_scale', codec: 'json' },
+  { ls: 'tf-index-symbols', remote: 'index_symbols', codec: 'string' },
+  { ls: 'tf-ma-lines', remote: 'ma_lines', codec: 'string' },
+  { ls: 'tf-news-sectors', remote: 'news_sectors', codec: 'string' },
+  { ls: 'tf-news-interval', remote: 'news_interval', codec: 'int' },
   // 局部界面状态也走跨端副本 (随配置备份迁移): 监控徽标/设置页收起/回测列表高度/导航形态
   { ls: 'monitor_badge_enabled', remote: 'monitor_badge_enabled', codec: 'bool01' },
   { ls: 'tf-settings-nav-collapsed', remote: 'settings_nav_collapsed', codec: 'bool01' },

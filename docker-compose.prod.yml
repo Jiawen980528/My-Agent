@@ -1,0 +1,17 @@
+services:
+  app:
+    # Production data predates the source checkout and lives outside it.  Keep
+    # credentials, sessions and market caches on this stable host path so a
+    # source refresh/rebuild cannot silently present a first-run setup screen.
+    volumes:
+      - /opt/tick-stock-panel-data:/app/data
+    networks:
+      default: {}
+      myagent:
+        aliases:
+          - tick-stock-panel
+
+networks:
+  myagent:
+    external: true
+    name: myagent_default

@@ -15,6 +15,7 @@ from app.api import (
     abnormal,
     alerts,
     analysis,
+    bridge,
     backtest,
     config_backup,
     data,
@@ -33,6 +34,7 @@ from app.api import (
     lots,
     market_recap,
     mining,
+    myagent_bridge,
     monitor_rules,
     overview,
     pages_admin,
@@ -254,6 +256,9 @@ async def _application_lifespan(app: FastAPI):
     try:
         daily_pipeline.set_app_state(app.state)  # 供 depth_finalize job 访问 depth_service
         scheduler = daily_pipeline.start_scheduler(repo, capset)
+        scheduler.add_job(myagent_bridge.archive_after_close, "cron", day_of_week="mon-fri",
+                          hour=15, minute=15, timezone="Asia/Shanghai", id="myagent_fund_flow_archive",
+                          replace_existing=True, max_instances=1)
         app.state.scheduler = scheduler
     except Exception as e:  # noqa: BLE001
         logger.warning("scheduler not started: %s", e)
@@ -594,7 +599,7 @@ app.add_middleware(
 #   2. 未设密码 + 公网       → 拒绝(403, 防裸奔也防抢占; 引导本机设密码)
 #   3. 已设密码              → 检查 session, 无效则 401(前端跳登录)
 # 白名单: /api/auth/* (设密码/登录本身)、/health 等探活。
-_AUTH_WHITELIST_PREFIX = ("/api/auth/",)
+_AUTH_WHITELIST_PREFIX = ("/api/auth/", "/api/bridge/")
 _AUTH_WHITELIST_EXACT = (
     "/health",
     "/api/health",
@@ -696,6 +701,7 @@ app.include_router(backtest.router)
 app.include_router(factors.router)
 app.include_router(definitions.router)
 app.include_router(mining.router)
+app.include_router(myagent_bridge.router)
 app.include_router(guardian.router)
 app.include_router(lab.router)
 app.include_router(intraday.router)
@@ -727,6 +733,7 @@ app.include_router(alerts.router)
 app.include_router(events.router)
 app.include_router(rps.router)
 app.include_router(sector_rotation.router)
+app.include_router(bridge.router)
 
 # 二次开发路由与小粒度策略在所有核心路由后注册, 禁止覆盖核心路径。
 extension_registry, extension_load_errors = configure_backend_extensions(app)

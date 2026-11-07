@@ -5,7 +5,7 @@
 
 import { toast } from '@/components/Toast'
 
-const BASE = ''
+const BASE = '/quant'
 
 type RequestOptions = RequestInit & {
   responseType?: 'json' | 'blob'
@@ -264,6 +264,8 @@ export interface MinuteKlineRow {
   close: number
   volume: number
   amount: number | null
+  /** Provider-supplied intraday average; index amount/volume cannot derive it. */
+  avg_price?: number | null
 }
 
 export interface MinuteKlineSession {
@@ -3346,7 +3348,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ symbols, date, ...(preferLocal ? { prefer_local: true } : {}), ...(since ? { since } : {}) }),
     }),
-  instrumentSearch: (q: string, limit = 20, assetTypes?: string) =>
+  instrumentSearch: (q: string, limit = 20, assetTypes = 'stock,etf') =>
     request<{ results: { symbol: string; name: string; code: string; asset_type?: string }[] }>(
       `/api/kline/instruments/search?q=${encodeURIComponent(q)}&limit=${limit}${assetTypes ? `&asset_types=${encodeURIComponent(assetTypes)}` : ''}`,
     ),
@@ -3408,6 +3410,27 @@ export const api = {
     }>(
       `/api/index/minute?symbol=${encodeURIComponent(symbol)}${date ? `&date=${date}` : ''}`,
     ),
+  indexPublicMinute: (symbol: string, date?: string) =>
+    request<{
+      symbol: string
+      date: string
+      display_date: string
+      rows: MinuteKlineRow[]
+      prev_close?: number | null
+      source: string
+      source_label: string
+      latest_available_date?: string
+    }>(`/api/index/public-minute?symbol=${encodeURIComponent(symbol)}${date ? `&date=${date}` : ''}`),
+  klinePublicMinute: (symbol: string, date?: string) =>
+    request<{
+      symbol: string
+      date: string
+      display_date: string
+      rows: MinuteKlineRow[]
+      prev_close?: number | null
+      source_label: string
+      latest_available_date?: string
+    }>(`/api/kline/public-minute?symbol=${encodeURIComponent(symbol)}${date ? `&date=${date}` : ''}`),
   syncIndexInstruments: () =>
     request<{ status: string; count: number }>('/api/index/sync_instruments', { method: 'POST' }),
   syncIndexDaily: (days = 365) =>

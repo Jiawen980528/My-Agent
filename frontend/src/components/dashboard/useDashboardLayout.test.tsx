@@ -19,7 +19,7 @@ vi.mock('@/lib/useSharedQueries', () => ({
 }))
 
 // 无 testing-library: 自建 harness 组件, 把 hook 结果外抛到变量
-let latest: { items: DashboardItem[]; setItems: (n: DashboardItem[]) => void } | null = null
+let latest: { items: DashboardItem[]; setItems: (n: DashboardItem[]) => void; saveError: string | null; retrySave: () => void } | null = null
 function Harness() {
   const h = useDashboardLayout()
   latest = h
@@ -112,15 +112,20 @@ describe('useDashboardLayout', () => {
     expect((saveMock.mock.calls[0][0] as { items: DashboardItem[] }).items[0].w).toBe(6)
   })
 
-  it('keeps local layout when save fails (silent)', async () => {
+  it('keeps local layout and exposes retry when save fails', async () => {
     saveMock.mockRejectedValueOnce(new Error('network down'))
     prefsData = { dashboard_layout: null }
     mountHarness()
     act(() => latest!.setItems(CUSTOM))
     act(() => vi.advanceTimersByTime(1000))
-    // 微任务冲刷(rejection 被 catch 吞掉, 不应有未处理拒绝)
     await act(async () => { await Promise.resolve() })
     expect(saveMock).toHaveBeenCalledTimes(1)
     expect(latest!.items).toEqual(CUSTOM)
+    expect(latest!.saveError).toBe('network down')
+    act(() => latest!.retrySave())
+    act(() => vi.advanceTimersByTime(900))
+    await act(async () => { await Promise.resolve() })
+    expect(saveMock).toHaveBeenCalledTimes(2)
+    expect(latest!.saveError).toBeNull()
   })
 })

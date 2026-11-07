@@ -19,7 +19,7 @@ export type WidgetType =
   | 'indices' | 'kpi' | 'distribution' | 'radar' | 'trend'
   | 'concept-rank' | 'industry-rank'
   | 'gainers' | 'losers' | 'turnover' | 'activity'
-  | 'ladder' | 'monitor' | 'ext-link'
+  | 'ladder' | 'monitor' | 'fund-flow' | 'holdings' | 'portfolio-monitor' | 'sector-watch' | 'market-news' | 'page-panel' | 'ext-link'
 
 export interface DashboardItem {
   /** 实例 id: 内置组件 = type; 外部链接 = ext-link-<seq> */
@@ -81,8 +81,8 @@ export function normalizeLayout(
     const t = typeof r.t === 'string' ? r.t : ''
     if (!isKnownType(t)) continue
     // 内置组件单实例: 重复类型只保留首个
-    if (t !== 'ext-link' && seenTypes.has(t)) continue
-    const i = typeof r.i === 'string' && r.i ? r.i : (t === 'ext-link' ? `ext-link-${out.length}` : t)
+    if (t !== 'ext-link' && t !== 'page-panel' && seenTypes.has(t)) continue
+    const i = typeof r.i === 'string' && r.i ? r.i : (t === 'ext-link' || t === 'page-panel' ? `${t}-${out.length}` : t)
     if (seenIds.has(i)) continue
     seenIds.add(i)
     seenTypes.add(t)
@@ -99,6 +99,11 @@ export function normalizeLayout(
       if (!url) continue // 外链缺合法 URL → 整项剔除
       const title = typeof p?.title === 'string' && p.title.trim() ? p.title.trim().slice(0, 30) : new URL(url).hostname
       item = { ...item, p: { title, url } }
+    } else if (t === 'page-panel') {
+      const p = (typeof r.p === 'object' && r.p !== null ? r.p : undefined) as Record<string, unknown> | undefined
+      const path = typeof p?.path === 'string' ? p.path : ''
+      if (path.length > 120 || !/^\/[a-z][a-z0-9-]*(?:\/[a-z][a-z0-9-]*)*$/.test(path)) continue
+      item = { ...item, p: { path } }
     }
     out.push(item)
   }

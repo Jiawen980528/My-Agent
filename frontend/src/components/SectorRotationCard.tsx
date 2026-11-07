@@ -24,6 +24,7 @@ import { useChartTheme } from '@/lib/theme'
 import { cn } from '@/lib/cn'
 import { toast } from '@/components/Toast'
 import { CORE_INDEXES } from '@/components/Layout'
+import { useIndexWatchlist } from '@/lib/indexWatchlist'
 
 const FLOW_LS_PREFIX = 'sector_rotation_flow_'
 const INDEX_LS_PREFIX = 'sector_rotation_index_'
@@ -315,6 +316,7 @@ const NO_DATA_HINTS: Record<string, string> = {
 }
 
 export function SectorRotationCard({ kind }: { kind: 'concept' | 'industry' }) {
+  const [indexChoices] = useIndexWatchlist()
   const dimLabel = kind === 'industry' ? '行业' : '概念'
   const [flow, setFlow] = useState<string>(() => localStorage.getItem(`${FLOW_LS_PREFIX}${kind}`) ?? '')
   const [bucket, setBucket] = useState(5)
@@ -417,7 +419,7 @@ export function SectorRotationCard({ kind }: { kind: 'concept' | 'industry' }) {
   const [indexSymbol, setIndexSymbol] = useState<string>(
     () => localStorage.getItem(`${INDEX_LS_PREFIX}${kind}`) ?? CORE_INDEXES[0].symbol,
   )
-  const indexLabel = CORE_INDEXES.find(item => item.symbol === indexSymbol)?.name ?? indexSymbol
+  const indexLabel = indexChoices.find(item => item.symbol === indexSymbol)?.name ?? indexSymbol
   const indexMinuteQuery = useQuery({
     queryKey: QK.sectorRotationIndexMinute(indexSymbol, data?.date),
     queryFn: () => api.indexMinute(indexSymbol, data!.date!),
@@ -1124,7 +1126,7 @@ export function SectorRotationCard({ kind }: { kind: 'concept' | 'industry' }) {
               value={indexSymbol}
               onChange={event => onIndexChange(event.target.value)}
             >
-              {CORE_INDEXES.map(item => <option key={item.symbol} value={item.symbol}>{item.name}</option>)}
+              {indexChoices.map(item => <option key={item.symbol} value={item.symbol}>{item.name}</option>)}
             </select>
           </label>
           <label className="flex items-center gap-1.5 text-[10px] text-muted">

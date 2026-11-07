@@ -28,6 +28,16 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/kline", tags=["kline"])
 
+
+@router.get("/public-minute")
+async def public_minute(
+    symbol: str = Query(..., max_length=9),
+    trade_date: date | None = Query(None, alias="date"),
+):
+    """Public delayed intraday curve for stock, ETF or index symbols."""
+    from app.api.indices import get_public_index_minute
+    return await get_public_index_minute(symbol=symbol, trade_date=trade_date)
+
 # 批量端点 (daily-batch / minute-batch) 单次 symbols 上限: 千只级自选整表直发
 # 会在服务端构造百万行级的 Python dict 峰值 (内存暴涨主因之一)。上限值是可配置
 # 偏好 (见 services/preferences.py), 前端分块大小读同一配置 —— 不再各处硬编码,
@@ -226,12 +236,11 @@ def search_instruments(
     request: Request,
     q: str = Query("", min_length=0, max_length=50, description="搜索关键词"),
     limit: int = Query(20, ge=1, le=50),
-    asset_types: str = Query("stock", description="逗号分隔的资产类型: stock,etf"),
+    asset_types: str = Query("stock,etf", description="逗号分隔的资产类型: stock,etf,index"),
 ):
     """模糊搜索标的 (代码 / 名称)。从内存 instruments 缓存中查。
 
-    默认只搜股票, 保持既有调用方行为不变; 自选等场景传 asset_types=stock,etf
-    可一并搜出 ETF, 结果附带 asset_type 字段供前端区分。
+    默认搜索股票和 ETF；结果附带 asset_type 字段供前端区分。
     """
     if not q.strip():
         return {"results": []}

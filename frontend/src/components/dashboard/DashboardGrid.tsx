@@ -15,7 +15,8 @@
  * - onLayoutChange 仅编辑态提交(挂载期 RGL 的规范化回调被忽略, 避免
  *   非编辑状态下布局意外写回)。
  */
-import { useCallback, useMemo, type ReactNode } from 'react'
+import { useCallback, useMemo, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import GridLayout, { useContainerWidth, setTransform, type Layout } from 'react-grid-layout'
 import { getPageScale } from '@/lib/pageZoom'
 
@@ -39,7 +40,7 @@ import './grid.css'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { GRID_COLS, GRID_MARGIN, GRID_ROW_HEIGHT, compactLayout, normalizeLayout, type DashboardItem } from './layout'
-import { DEFAULT_LAYOUT, isKnownWidgetType, minSizeOf, widgetDef } from './registry'
+import { DEFAULT_LAYOUT, WIDGET_DEFS, isKnownWidgetType, minSizeOf, widgetDef } from './registry'
 import type { WidgetCtx } from './registry'
 
 export function normalizeDashboardLayout(blob: unknown): DashboardItem[] {
@@ -47,15 +48,17 @@ export function normalizeDashboardLayout(blob: unknown): DashboardItem[] {
 }
 
 export interface DashboardGridProps {
-  ctx: WidgetCtx
+  ctx: WidgetCtx | null
   items: DashboardItem[]
   onItemsChange: (items: DashboardItem[]) => void
   /** 编辑态由 Dashboard 页头部控制组持有, 受控传入 */
   editing: boolean
+  onAddWidget?: (type: DashboardItem['t']) => void
 }
 
-export function DashboardGrid({ ctx, items, onItemsChange, editing }: DashboardGridProps) {
+export function DashboardGrid({ ctx, items, onItemsChange, editing, onAddWidget }: DashboardGridProps) {
   const { width, containerRef, mounted } = useContainerWidth({ measureBeforeMount: true })
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
 
   const rglLayout = useMemo(
     () => items.map(it => {
@@ -83,13 +86,31 @@ export function DashboardGrid({ ctx, items, onItemsChange, editing }: DashboardG
 
   const renderWidget = (it: DashboardItem): ReactNode => {
     const def = widgetDef(it.t)
-    return def ? def.render(ctx, it) : null
+    if (!def) return null
+    // 独立窗口无需大盘总览；总览故障时仍可查看持仓、资金流及已有页面。
+    if (!ctx && !['fund-flow', 'holdings', 'portfolio-monitor', 'sector-watch', 'market-news', 'page-panel', 'ext-link'].includes(it.t)) {
+      return <section className="h-full rounded-card border border-border bg-surface p-3 text-xs text-muted">{def.label}：市场总览暂不可用</section>
+    }
+    return def.render(ctx as WidgetCtx, it)
   }
 
   const isMobile = mounted && width < 768
 
   return (
-    <div ref={containerRef as unknown as React.RefObject<HTMLDivElement>} className={cn('dash-grid relative', editing && 'dash-grid-editing')}>
+    <div ref={containerRef as unknown as React.RefObject<HTMLDivElement>} className={cn('dash-grid relative', editing && 'dash-grid-editing')}
+      onContextMenu={event => {
+        if (!onAddWidget || (event.target as HTMLElement).closest('[data-dashboard-widget="portfolio-monitor"]')) return
+        event.preventDefault()
+        setContextMenu({ x: Math.max(8, Math.min(event.clientX, window.innerWidth - 230)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - 360)) })
+      }}>
+      {contextMenu && createPortal(<div className="fixed z-[10000] max-h-[70vh] w-56 overflow-y-auto rounded border border-border bg-surface p-2 text-xs shadow-2xl"
+        style={{ left: contextMenu.x, top: contextMenu.y }} onMouseLeave={() => setContextMenu(null)}>
+        <b className="block px-2 pb-1">添加看板窗口</b>
+        {WIDGET_DEFS.filter(def => !['page-panel', 'ext-link'].includes(def.id)).map(def =>
+          <button key={def.id} type="button" disabled={items.some(item => item.t === def.id)}
+            onClick={() => { onAddWidget?.(def.id); setContextMenu(null) }}
+            className="block w-full rounded px-2 py-1 text-left hover:bg-elevated disabled:opacity-40">{def.label}</button>)}
+      </div>, document.body)}
       {/* 编辑态操作提示 (入口与控制组在页面头部「重载」右侧) */}
       {editing && (
         <div className="mb-1.5 text-[11px] text-muted">
@@ -103,7 +124,7 @@ export function DashboardGrid({ ctx, items, onItemsChange, editing }: DashboardG
         /* 移动端: 不挂网格, 纵排 */
         <div className="space-y-1.5">
           {items.map(it => (
-            <div key={it.i} className="min-h-16">{renderWidget(it)}</div>
+            <div key={it.i} data-dashboard-widget={it.i} className="min-h-16">{renderWidget(it)}</div>
           ))}
         </div>
       ) : (
@@ -127,6 +148,7 @@ export function DashboardGrid({ ctx, items, onItemsChange, editing }: DashboardG
             return (
               <div
                 key={it.i}
+                data-dashboard-widget={it.i}
                 className={cn(
                   // overflow-hidden 根除内容溢出压盖相邻组件(卡片内容自然高度可能大于格子);
                   editing && 'cursor-grab select-none rounded-card ring-1 ring-accent/30 hover:ring-accent/60 active:cursor-grabbing',

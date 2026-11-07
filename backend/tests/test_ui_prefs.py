@@ -41,11 +41,13 @@ def test_set_and_get_roundtrip(prefs_file):
         "alert_toast_max": 5,
         "voice_broadcast_enabled": True,
         "page_zoom": 1.15,
+        "font_scale": 1.2,
         "stock_external_template": "https://x/{code}",
     })
     assert saved["alert_toast_max"] == 5
     assert saved["voice_broadcast_enabled"] is True
     assert saved["page_zoom"] == 1.15
+    assert saved["font_scale"] == 1.2
     assert preferences.get_ui_prefs()["stock_external_template"] == "https://x/{code}"
 
 

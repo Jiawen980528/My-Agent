@@ -1,5 +1,5 @@
-import { lazy, Suspense } from 'react'
-import { createBrowserRouter, Navigate, useSearchParams } from 'react-router-dom'
+import { lazy, Suspense, useEffect } from 'react'
+import { createBrowserRouter, Navigate, useRouteError, useSearchParams } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { useSettings } from './lib/useSharedQueries'
 import { Logo } from './components/Logo'
@@ -19,6 +19,11 @@ const Backtest = lazy(() => import('./pages/Backtest').then(m => ({ default: m.B
 const Factors = lazy(() => import('./pages/Factors').then(m => ({ default: m.Factors })))
 const Data = lazy(() => import('./pages/Data').then(m => ({ default: m.Data })))
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
+const PickModel = lazy(() => import('./pages/PickModel').then(m => ({ default: m.PickModel })))
+const MyAgentQuant = lazy(() => import('./pages/MyAgentQuant').then(m => ({ default: m.MyAgentQuant })))
+const FundFlow = lazy(() => import('./pages/FundFlow').then(m => ({ default: m.FundFlow })))
+const MarketNews = lazy(() => import('./pages/MarketNews').then(m => ({ default: m.MarketNews })))
+const DecisionGuide = lazy(() => import('./pages/DecisionGuide').then(m => ({ default: m.DecisionGuide })))
 const AnalysisDetail = lazy(() => import('./pages/AnalysisDetail').then(m => ({ default: m.AnalysisDetail })))
 const Indices = lazy(() => import('./pages/Indices').then(m => ({ default: m.Indices })))
 const Branding = lazy(() => import('./pages/Branding').then(m => ({ default: m.Branding })))
@@ -50,6 +55,11 @@ const CORE_ROUTE_PATHS = new Set([
   '/settings/keys',
   '/settings/ai',
   '/settings/queries',
+  '/pick-model',
+  '/myagent-quant',
+  '/fund-flow',
+  '/market-news',
+  '/decision-guide',
 ])
 
 finalizeFrontendExtensions(CORE_ROUTE_PATHS)
@@ -103,6 +113,28 @@ function RouteFallback() {
   )
 }
 
+function RouteErrorFallback() {
+  const error = useRouteError()
+  const message = error instanceof Error ? error.message : String(error)
+  useEffect(() => {
+    if (!/Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module/i.test(message)) return
+    const key = 'tf-last-chunk-reload'
+    let last = 0
+    try { last = Number(sessionStorage.getItem(key) || 0) } catch { /* 存储不可用时仍显示手动重载 */ }
+    if (Date.now() - last < 30_000) return
+    try { sessionStorage.setItem(key, String(Date.now())) } catch { /* 存储不可用时仍可刷新 */ }
+    window.location.reload()
+  }, [message])
+  return <div className="min-h-screen bg-base p-6 text-foreground">
+    <div className="mx-auto max-w-lg rounded-card border border-border bg-surface p-5">
+      <h1 className="text-base font-semibold">页面加载失败</h1>
+      <p className="mt-2 text-xs text-muted">页面更新或网络中断后，旧页面可能无法加载新模块。</p>
+      <p className="mt-2 break-all text-xs text-danger">{message}</p>
+      <button onClick={() => window.location.reload()} className="mt-4 rounded-btn bg-accent px-3 py-2 text-xs text-white">重新加载页面</button>
+    </div>
+  </div>
+}
+
 export const router = createBrowserRouter([
   {
     path: '/onboarding',
@@ -122,6 +154,7 @@ export const router = createBrowserRouter([
   },
   {
     path: '/',
+    errorElement: <RouteErrorFallback />,
     element: (
       <OnboardingGuard>
         <Layout />
@@ -129,6 +162,9 @@ export const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <Dashboard /> },
+      { path: 'pick-model', element: <PickModel /> },
+      { path: 'myagent-quant', element: <MyAgentQuant /> },
+      { path: 'fund-flow', element: <FundFlow /> },
       { path: 'overview', element: <Navigate to="/" replace /> },
       { path: 'analysis', element: <Navigate to="/settings?tab=pages&section=ext-pages" replace /> },
       { path: 'analysis/:menuId', element: <AnalysisDetail /> },
@@ -139,6 +175,8 @@ export const router = createBrowserRouter([
       { path: 'mining', element: <MiningRedirect /> },
       { path: 'data', element: <Data /> },
       { path: 'indices', element: <Indices /> },
+      { path: 'market-news', element: <MarketNews /> },
+      { path: 'decision-guide', element: <DecisionGuide /> },
     { path: 'regime', element: <Regime /> },
       { path: 'branding', element: <Branding /> },
       { path: 'settings', element: <Settings /> },
@@ -161,4 +199,4 @@ export const router = createBrowserRouter([
       }),
     ],
   },
-])
+], { basename: '/quant' })

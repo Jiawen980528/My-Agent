@@ -15,6 +15,7 @@ import { createAppPersister, shouldPersistQuery, PERSIST_BUSTER } from './lib/qu
 import { hydrateUiPrefs } from './lib/uiPrefs'
 import { applyPageZoom, getPageZoom } from './lib/pageZoom'
 import { applyTheme, getTheme } from './lib/theme'
+import { applyFontScale, getFontScale } from './lib/fontScale'
 // 字体自托管 (@fontsource): 替代 rsms.me / Google Fonts 渲染阻塞外链,
 // 内网/离线部署不再白屏等字体。权重覆盖 tailwind 全部用量 (300-900)。
 import '@fontsource/inter/300.css'
@@ -28,6 +29,18 @@ import '@fontsource/jetbrains-mono/500.css'
 import '@fontsource/jetbrains-mono/600.css'
 import '@fontsource/jetbrains-mono/700.css'
 import './index.css'
+
+// 部署新版本后，已打开的旧页面可能继续引用被替换的哈希模块。
+// Vite 在动态模块加载失败时发出此事件；自动刷新一次以取得新入口与新模块名。
+window.addEventListener('vite:preloadError', (event) => {
+  const key = 'tf-last-chunk-reload'
+  let last = 0
+  try { last = Number(sessionStorage.getItem(key) || 0) } catch { /* 私密模式仍允许刷新 */ }
+  if (Date.now() - last < 30_000) return
+  event.preventDefault()
+  try { sessionStorage.setItem(key, String(Date.now())) } catch { /* 浏览器禁用存储 */ }
+  window.location.reload()
+})
 
 // 全局认证拦截: 任何 query/mutation 收到 401 (未登录/会话过期) → 跳登录页。
 // api.ts 的 request() 已对 401 静默 (不弹 toast), 这里统一负责跳转。
@@ -44,10 +57,15 @@ const _redirectToLogin = (() => {
     const isNotInit = msg.includes('尚未初始化访问密码') || msg.includes('NOT_INITIALIZED')
     if (!is401 && !isNotInit) return
     // 已在登录页则不跳(避免死循环)
-    if (window.location.pathname === '/login') return
+    if (window.location.pathname === '/quant/login') return
     redirecting = true
-    const redirect = encodeURIComponent(window.location.pathname + window.location.search)
-    window.location.href = `/login?redirect=${redirect}`
+    // RouterProvider already owns the /quant basename. Store only the
+    // application-relative path, otherwise login returns to /quant/quant/.
+    const appPath = window.location.pathname.startsWith('/quant')
+      ? (window.location.pathname.slice('/quant'.length) || '/')
+      : window.location.pathname
+    const redirect = encodeURIComponent(appPath + window.location.search)
+    window.location.href = `/quant/login?redirect=${redirect}`
   }
 })()
 
@@ -70,11 +88,12 @@ const queryClient = new QueryClient({
 async function bootstrap() {
   // 界面偏好回填: 桌面版启动端口从 3018 起递增, 端口一变 origin 就变, 只存
   // localStorage 的设置 (通知/声效/语音/外链模板/缩放) 会读不到。后端保存权威
-  // 副本，回填后重放主题与缩放，更新已挂载的界面和图表。首帧仍由内联脚本应用缓存。
+  // 副本，回填后重放主题、页面缩放和字体缩放；首帧仍由内联脚本应用缓存。
   // 不 await: 网络慢时不能拖住首屏。
   void hydrateUiPrefs().then(() => {
     applyPageZoom(getPageZoom())
     applyTheme(getTheme())
+    applyFontScale(getFontScale())
   })
   await initializeFrontendExtensions()
   // 页面插件能力桥: 共享 api/QK/cn/format 和宿主 UI 操作，不复制弹窗状态。

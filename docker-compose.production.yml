@@ -1,0 +1,42 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tick-stock-panel
+    ports:
+      - "127.0.0.1:8001:3018"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /app/data
+      TZ: Asia/Shanghai
+      CODEX_DOCKER_HOST: host.docker.internal
+      MYAGENT_BRIDGE_URL: http://myagent:8000
+    networks:
+      - default
+      - myagent
+    volumes:
+      - /opt/tick-stock-panel-data:/app/data
+      - ./tiers.yaml:/app/tiers.yaml:ro
+      - ./.env:/app/.env:ro
+    restart: unless-stopped
+    mem_limit: 3g
+    memswap_limit: 4g
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3018/health', timeout=5).read()"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+networks:
+  myagent:
+    external: true
+    name: myagent_default
