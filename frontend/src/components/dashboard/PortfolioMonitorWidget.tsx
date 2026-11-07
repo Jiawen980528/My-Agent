@@ -495,8 +495,8 @@ export function PortfolioMonitorWidget() {
       <span className="text-muted">详情布局</span><div className="flex gap-1"><button type="button" onClick={() => chooseLayout('side')} className={`rounded px-2 py-0.5 ${layoutMode === 'side' ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>左侧列表</button><button type="button" onClick={() => chooseLayout('strip')} className={`rounded px-2 py-0.5 ${layoutMode === 'strip' ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>横向长条</button><button type="button" onClick={() => chooseLayout('grid')} className={`rounded px-2 py-0.5 ${layoutMode === 'grid' ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>网格总览</button></div>
     </div>
     {layoutMode === 'grid' && <HoldingsOverview items={shown} minuteData={minute.data?.data || {}} source={minute.data?.source} onSelect={symbol => { setSelected(symbol); chooseLayout('side') }} />}
-    {layoutMode !== 'grid' && <div ref={splitRef} className={layoutMode === 'side' ? 'grid gap-y-2 md:gap-x-0' : 'space-y-2'}
-      style={layoutMode === 'side' ? { gridTemplateColumns: `minmax(145px, ${paneWidths.left}px) 8px minmax(260px, 1fr) 8px minmax(210px, ${paneWidths.right}px)` } : undefined}>
+    {layoutMode !== 'grid' && <div ref={splitRef} className={layoutMode === 'side' ? 'portfolio-detail-split grid gap-y-2 md:gap-x-0' : 'space-y-2'}
+      style={layoutMode === 'side' ? { '--portfolio-left': `${paneWidths.left}px`, '--portfolio-right': `${paneWidths.right}px` } as React.CSSProperties : undefined}>
       {layoutMode === 'strip' && <div className="flex gap-1 overflow-x-auto rounded border border-border bg-base/50 p-1">{shown.map(item => <button key={item.symbol} type="button" onClick={() => { setSelected(item.symbol); setSelectedBoard('') }} className={`min-w-44 rounded border border-border px-2 py-1 text-left hover:bg-elevated ${active?.symbol === item.symbol ? 'bg-accent/15' : ''}`}><div className="flex justify-between gap-1 text-xs"><b className="truncate">{item.name}</b><span className={Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}>{pct(item.change_pct)}</span></div><div className="text-[10px] text-muted">{item.symbol} · {price(item.price)}</div></button>)}</div>}
       {layoutMode === 'side' && <aside className="min-w-0 rounded border border-border bg-base/50 p-1">
         <div className="flex gap-1 border-b border-border p-1 text-[11px]"><button type="button" onClick={() => setListMode('all')} className={listMode === 'all' ? 'text-accent' : 'text-muted'}>全部监控 {allItems.length}</button><button type="button" onClick={() => setListMode('recorded')} className={listMode === 'recorded' ? 'text-accent' : 'text-muted'}>已录持仓 {items.filter(x => x.holding_source).length}</button></div>
@@ -511,13 +511,13 @@ export function PortfolioMonitorWidget() {
         {!shown.length && <p className="p-2 text-xs text-muted">暂无已录入持仓</p>}
       </aside>}
       {layoutMode === 'side' && <div role="separator" aria-label="拖动调整持仓列表宽度" aria-orientation="vertical" title="拖动调整持仓列表宽度"
-        onPointerDown={event => resizePane('left', event)} className="cursor-ew-resize touch-none bg-border/60 hover:bg-accent active:bg-accent" />}
+        onPointerDown={event => resizePane('left', event)} className="portfolio-split-handle cursor-ew-resize touch-none bg-border/60 hover:bg-accent active:bg-accent" />}
       {selectedBoard ? <BoardDetail code={selectedBoard} day={day} news={news.data?.items || []} visible={visible} />
         : active ? <Detail item={active} day={day} latestBars={minute.data?.data?.[active.symbol] || []} news={news.data?.items || []} visible={visible}
           trades={(tradeHistory.data?.trades || []).filter(trade => trade.symbol === active.symbol)} linkedBoardCode={linkedBoards[active.symbol] || ''} boardOptions={sectorCatalog.data?.items || []} onLinkedBoardChange={code => setLinkedBoard(active.symbol, code)} />
         : <p className="p-4 text-xs text-muted">暂无监控标的</p>}
       {layoutMode === 'side' && <div role="separator" aria-label="拖动调整策略栏宽度" aria-orientation="vertical" title="拖动调整策略栏宽度"
-        onPointerDown={event => resizePane('right', event)} className="cursor-ew-resize touch-none bg-border/60 hover:bg-accent active:bg-accent" />}
+        onPointerDown={event => resizePane('right', event)} className="portfolio-split-handle cursor-ew-resize touch-none bg-border/60 hover:bg-accent active:bg-accent" />}
       {layoutMode === 'side' && <DecisionGuidePanel items={shown} minuteData={minute.data?.data || {}} source={minute.data?.source} />}
     </div>}</>}
     <section className="mt-2 rounded border border-border bg-base/50 p-2 text-xs">

@@ -130,3 +130,12 @@
 .dash-grid-editing .react-grid-item.react-draggable-dragging {
   opacity: 0.88;
 }
+
+.portfolio-detail-split { grid-template-columns: minmax(0, 1fr); }
+.portfolio-detail-split .portfolio-split-handle { display: none; }
+@media (min-width: 768px) {
+  .portfolio-detail-split {
+    grid-template-columns: minmax(145px, var(--portfolio-left)) 8px minmax(260px, 1fr) 8px minmax(210px, var(--portfolio-right));
+  }
+  .portfolio-detail-split .portfolio-split-handle { display: block; }
+}
