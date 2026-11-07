@@ -1,0 +1,8 @@
+FROM 93b3065ba6cbf8c699002840b5bb9c2c86cdfdf8c11091d0caa55d86b5487a36 AS frontend_builder
+COPY frontend/ /build/
+RUN cd /build && pnpm build
+FROM tick-stock-panel-app:backup-20261107-190332
+WORKDIR /app
+COPY backend/app/ /app/app/
+COPY backend/pyproject.toml backend/uv.lock /app/
+COPY --from=frontend_builder /build/dist/ /app/static/

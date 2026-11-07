@@ -141,7 +141,7 @@ export function useQuoteStream(
 
     const connect = () => {
       _setStatus(failCount > 0 ? 'reconnecting' : _streamStatus)
-      const es = new EventSource('/api/intraday/stream')
+      const es = new EventSource(`${import.meta.env.BASE_URL}api/intraday/stream`)
       esRef.current = es
 
       es.onopen = () => {
