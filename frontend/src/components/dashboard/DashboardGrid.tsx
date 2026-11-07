@@ -80,7 +80,8 @@ export function DashboardGrid({ ctx, items, onItemsChange, editing, onAddWidget 
     onItemsChange(compactLayout(next))
   }, [items, onItemsChange])
 
-  const handleResizeStop = useCallback((layout: Layout, oldItem: Layout[number], newItem: Layout[number]) => {
+  const handleResizeStop = useCallback((layout: Layout, oldItem: Layout[number] | null, newItem: Layout[number] | null) => {
+    if (!oldItem || !newItem) { handleLayoutChange(layout); return }
     const live = new Map(layout.map(item => [item.i, item]))
     const next = items.map(item => {
       const current = live.get(item.i)
@@ -125,7 +126,7 @@ export function DashboardGrid({ ctx, items, onItemsChange, editing, onAddWidget 
       }
     }
     onItemsChange(compactLayout(next))
-  }, [items, onItemsChange])
+  }, [handleLayoutChange, items, onItemsChange])
 
   const removeItem = useCallback((id: string) => {
     onItemsChange(items.filter(it => it.i !== id))
