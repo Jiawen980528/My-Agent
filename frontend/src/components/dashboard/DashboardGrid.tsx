@@ -97,7 +97,7 @@ export function DashboardGrid({ ctx, items, onItemsChange, editing, onAddWidget 
   const isMobile = mounted && width < 768
 
   return (
-    <div ref={containerRef as unknown as React.RefObject<HTMLDivElement>} className={cn('dash-grid relative', editing && 'dash-grid-editing')}
+    <div ref={containerRef as unknown as React.RefObject<HTMLDivElement>} className={cn('dash-grid dash-grid-resizable relative', editing && 'dash-grid-editing')}
       onContextMenu={event => {
         if (!onAddWidget || (event.target as HTMLElement).closest('[data-dashboard-widget="portfolio-monitor"]')) return
         event.preventDefault()
@@ -139,7 +139,8 @@ export function DashboardGrid({ ctx, items, onItemsChange, editing, onAddWidget 
             cancel: '.dash-widget-remove',
             threshold: 3,
           }}
-          resizeConfig={{ enabled: editing, handles: ['n', 'e', 's', 'w', 'ne', 'nw', 'se', 'sw'] }}
+          resizeConfig={{ enabled: true, handles: ['e', 's', 'se', ...(editing ? ['n', 'w', 'ne', 'nw', 'sw'] as const : [])] }}
+          onResizeStop={handleLayoutChange}
           onLayoutChange={editing ? handleLayoutChange : undefined}
         >
           {items.map(it => {

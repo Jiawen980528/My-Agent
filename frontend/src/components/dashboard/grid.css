@@ -7,8 +7,28 @@
 
 /* 浏览态: RGL 在 enabled=false 时仍渲染手柄 span(不卸载), 隐形元素会挡住
  * 卡片边缘的点击与列表滚动条 — 整组 display:none 根除。 */
-.dash-grid:not(.dash-grid-editing) .react-grid-item > .react-resizable-handle {
+.dash-grid:not(.dash-grid-editing):not(.dash-grid-resizable) .react-grid-item > .react-resizable-handle {
   display: none;
+}
+
+/* 浏览时也能直接拖右边、底边或右下角；只有悬停时显示提示。 */
+.dash-grid-resizable:not(.dash-grid-editing) .react-grid-item > .react-resizable-handle {
+  z-index: 20;
+  opacity: 0;
+  background: none;
+}
+.dash-grid-resizable:not(.dash-grid-editing) .react-grid-item:hover > .react-resizable-handle { opacity: 1; }
+.dash-grid-resizable:not(.dash-grid-editing) .react-grid-item > .react-resizable-handle-e {
+  top: 18px; bottom: 18px; right: 0; width: 8px; height: auto; cursor: ew-resize;
+}
+.dash-grid-resizable:not(.dash-grid-editing) .react-grid-item > .react-resizable-handle-s {
+  left: 18px; right: 18px; bottom: 0; width: auto; height: 8px; cursor: ns-resize;
+}
+.dash-grid-resizable:not(.dash-grid-editing) .react-grid-item > .react-resizable-handle-se {
+  right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize;
+}
+.dash-grid-resizable:not(.dash-grid-editing) .react-grid-item > .react-resizable-handle::after {
+  border-color: hsl(var(--accent));
 }
 
 .dash-grid-editing .react-grid-item > .react-resizable-handle {

@@ -89,21 +89,32 @@ function EmotionRadarCard({ ctx }: { ctx: WidgetCtx }) {
 
 function KpiWidget({ ctx }: { ctx: WidgetCtx }) {
   const { data, hasDepth, isSealedDegrade, sealedReady } = ctx
+  const [selectedMetric, setSelectedMetric] = useState<number | null>(null)
   const strongUp = data.breadth.strong_up ?? 0
   const strongDown = data.breadth.strong_down ?? 0
+  const names = ['个股涨 / 平 / 跌', '强势 / 弱势', '涨停 / 跌停', '最高连板', '成交额', '换手 / 量比']
+  const details = [
+    `上涨 ${data.breadth.up}、平盘 ${data.breadth.flat}、下跌 ${data.breadth.down}；上涨率 ${data.breadth.up_pct.toFixed(1)}%。`,
+    `涨幅达到 3%：${strongUp} 只；跌幅达到 3%：${strongDown} 只。`,
+    `涨停 ${data.limit.limit_up} 只，跌停 ${data.limit.limit_down} 只，封板率 ${(data.limit.seal_rate ?? 0).toFixed(0)}%。`,
+    `最高连板 ${data.limit.max_boards || 0} 板。`,
+    `总成交额 ${fmtBigNum(data.amount.total)}，平均成交额 ${fmtBigNum(data.amount.avg)}。`,
+    `平均换手 ${fmtPrice(data.activity.avg_turnover, 1)}%，量比 ${fmtPrice(data.activity.vol_ratio, 2)}。`,
+  ]
   return (
     <div className="grid h-full grid-cols-3 gap-1 xl:grid-cols-6">
-      <KpiCell label="个股涨 / 平 / 跌" value={<><span className="text-bull">{data.breadth.up}</span><span className="text-muted">/</span><span className="text-muted">{data.breadth.flat}</span><span className="text-muted">/</span><span className="text-bear">{data.breadth.down}</span></>} sub={`上涨率 ${data.breadth.up_pct.toFixed(1)}%`} />
-      <KpiCell label="强势 / 弱势" value={<><span className="text-bull">{strongUp}</span><span className="text-muted">/</span><span className="text-bear">{strongDown}</span></>} sub="涨跌 ≥3%" />
-      <KpiCell label={<span className="inline-flex items-center gap-1">涨停 / 跌停<SealedBadge degraded={isSealedDegrade} hasDepth={hasDepth} isHistorical={false} sealedReady={sealedReady} sealedCountsUp={{ real: data.limit.limit_up, fake: data.limit.fake_up ?? 0, pending: 0 }} sealedCountsDown={{ real: data.limit.limit_down, fake: data.limit.fake_down ?? 0, pending: 0 }} rawUp={data.limit.limit_up + (data.limit.fake_up ?? 0)} rawDown={data.limit.limit_down + (data.limit.fake_down ?? 0)} invalidateKeys={['overview-market', 'limit-ladder']} /></span>} value={<><span className="text-bull">{data.limit.limit_up}</span><span className="text-muted">/</span><span className="text-bear">{data.limit.limit_down}</span></>} sub={`封板率 ${(data.limit.seal_rate ?? 0).toFixed(0)}%`} />
-      <KpiCell label="最高连板" value={`${data.limit.max_boards || 0}板`} sub={(() => {
+      {selectedMetric != null && <div role="dialog" aria-label="市场指标详情" className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/70 p-4" onClick={() => setSelectedMetric(null)}><div className="w-full max-w-md rounded-card border border-border bg-surface p-4 text-sm shadow-2xl" onClick={event => event.stopPropagation()}><div className="flex justify-between"><b>{names[selectedMetric]}</b><button type="button" onClick={() => setSelectedMetric(null)}>关闭</button></div><p className="mt-3">{details[selectedMetric]}</p><p className="mt-2 text-xs text-muted">当前市场快照；本指标暂无可验证的未来数值预测。</p><Link to="/decision-guide" className="mt-3 inline-block text-accent">查看今日场景与下个交易日观察 ↗</Link></div></div>}
+      <KpiCell onClick={() => setSelectedMetric(0)} label="个股涨 / 平 / 跌" value={<><span className="text-bull">{data.breadth.up}</span><span className="text-muted">/</span><span className="text-muted">{data.breadth.flat}</span><span className="text-muted">/</span><span className="text-bear">{data.breadth.down}</span></>} sub={`上涨率 ${data.breadth.up_pct.toFixed(1)}%`} />
+      <KpiCell onClick={() => setSelectedMetric(1)} label="强势 / 弱势" value={<><span className="text-bull">{strongUp}</span><span className="text-muted">/</span><span className="text-bear">{strongDown}</span></>} sub="涨跌 ≥3%" />
+      <KpiCell onClick={() => setSelectedMetric(2)} label={<span className="inline-flex items-center gap-1">涨停 / 跌停<SealedBadge degraded={isSealedDegrade} hasDepth={hasDepth} isHistorical={false} sealedReady={sealedReady} sealedCountsUp={{ real: data.limit.limit_up, fake: data.limit.fake_up ?? 0, pending: 0 }} sealedCountsDown={{ real: data.limit.limit_down, fake: data.limit.fake_down ?? 0, pending: 0 }} rawUp={data.limit.limit_up + (data.limit.fake_up ?? 0)} rawDown={data.limit.limit_down + (data.limit.fake_down ?? 0)} invalidateKeys={['overview-market', 'limit-ladder']} /></span>} value={<><span className="text-bull">{data.limit.limit_up}</span><span className="text-muted">/</span><span className="text-bear">{data.limit.limit_down}</span></>} sub={`封板率 ${(data.limit.seal_rate ?? 0).toFixed(0)}%`} />
+      <KpiCell onClick={() => setSelectedMetric(3)} label="最高连板" value={`${data.limit.max_boards || 0}板`} sub={(() => {
         const top = data.limit.tiers.find(t => t.boards === data.limit.max_boards)
         const stocks = top?.stocks ?? []
         if (stocks.length > 0 && stocks.length <= 3) return stocks.map(s => s.name || s.symbol).join(' · ')
         return `梯队 ${data.limit.tiers.length}`
       })()} tone="accent" />
-      <KpiCell label="成交额" value={fmtBigNum(data.amount.total)} sub={`均额 ${fmtBigNum(data.amount.avg)}`} />
-      <KpiCell label="换手 / 量比" value={`${fmtPrice(data.activity.avg_turnover, 1)}% / ${fmtPrice(data.activity.vol_ratio, 2)}`} sub={`高换手 ${data.activity.high_turnover} · 放量占比 ${fmtPrice(data.activity.high_vol_ratio, 1)}%`} tone="accent" />
+      <KpiCell onClick={() => setSelectedMetric(4)} label="成交额" value={fmtBigNum(data.amount.total)} sub={`均额 ${fmtBigNum(data.amount.avg)}`} />
+      <KpiCell onClick={() => setSelectedMetric(5)} label="换手 / 量比" value={`${fmtPrice(data.activity.avg_turnover, 1)}% / ${fmtPrice(data.activity.vol_ratio, 2)}`} sub={`高换手 ${data.activity.high_turnover} · 放量占比 ${fmtPrice(data.activity.high_vol_ratio, 1)}%`} tone="accent" />
     </div>
   )
 }

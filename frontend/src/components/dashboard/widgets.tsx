@@ -42,23 +42,23 @@ function MiniIndexCurve({ symbol, fallback }: { symbol: string; fallback: number
     if (values.length < 5 || live == null) return null
     const recent = values.slice(-Math.min(15, values.length))
     const slope = (recent.at(-1)! - recent[0]) / Math.max(1, recent.length - 1)
-    const remaining = 240 - values.length
-    return live + slope * Math.min(Math.max(remaining, 0), 60)
+    // 简单斜率外推 15 根一分钟K，仅作情景提示，非经过验证的预测模型。
+    return live + slope * 15
   }, [values, live])
   const points = values.slice(-80)
   const all = forecast == null ? points : [...points, forecast]
   const min = Math.min(...all, live ?? 0)
   const max = Math.max(...all, live ?? 0)
-  const path = points.length > 1 ? points.map((value, i) => `${(i / (points.length - 1)) * 100},${28 - ((value - min) / Math.max(max - min, 0.00001)) * 24}`).join(' ') : ''
-  const forecastX = points.length > 1 ? 100 : 0
+  const path = points.length > 1 ? points.map((value, i) => `${(i / (points.length - 1)) * 82},${28 - ((value - min) / Math.max(max - min, 0.00001)) * 24}`).join(' ') : ''
+  const forecastX = points.length > 1 ? 82 : 0
   return <div className="col-span-2 mt-0.5 grid grid-cols-[1fr_auto] items-center gap-1 border-t border-border/40 pt-0.5">
-    <svg viewBox="0 0 100 28" preserveAspectRatio="none" className="h-7 w-full" aria-label={`${symbol}实时分时曲线`}>
+    <svg viewBox="0 0 100 28" preserveAspectRatio="none" className="h-7 w-full" aria-label={`${symbol}分钟曲线及未来15分钟线性外推情景`}>
       {path && <polyline points={path} fill="none" stroke="currentColor" strokeWidth="1.4" className="text-accent" />}
       {forecast != null && <line x1={forecastX} x2="100" y1={path ? Number(path.split(' ').at(-1)!.split(',')[1]) : 14} y2={28 - ((forecast - min) / Math.max(max - min, 0.00001)) * 24} stroke="currentColor" strokeDasharray="2 2" strokeWidth="1.2" className="text-warning" />}
     </svg>
     <div className="whitespace-nowrap text-right text-[9px] leading-3">
       <div className="text-accent">实时 {live == null ? '—' : live.toFixed(2)}</div>
-      <div className="text-warning">预测 {forecast == null ? '—' : forecast.toFixed(2)}</div>
+      <div className="text-warning" title="未来15分钟线性外推情景，仅用最近15根真实分钟K的斜率计算；非交易信号">15分情景 {forecast == null ? '—' : forecast.toFixed(2)}</div>
     </div>
   </div>
 }

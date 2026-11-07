@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import * as echarts from 'echarts'
 import { api } from '@/lib/api'
+import { getPageScale } from '@/lib/pageZoom'
 
 const API = '/quant/api/myagent/quant'
 const PUBLIC_API = '/quant/api/myagent'
@@ -158,6 +159,7 @@ function Detail({ item, day, latestBars, news, visible, trades, linkedBoardCode,
   item: Holding; day: string; latestBars: Bar[]; news: News['items']; visible: Record<Panel, boolean>; trades: Trade[]
   linkedBoardCode?: string; boardOptions: { sector: string; theme?: string }[]; onLinkedBoardChange: (code: string) => void
 }) {
+  const [flowScope, setFlowScope] = useState<'linked' | 'market'>('linked')
   const isLatest = day === (quoteDate(item) || marketDay())
   const selectedMinute = useQuery({ queryKey: ['portfolio-selected-minute', item.symbol, day],
     queryFn: () => json<{ rows: Bar[]; source: string }>(`${API}/portfolio/minute/${item.symbol}?trade_date=${day}`),
@@ -169,6 +171,11 @@ function Detail({ item, day, latestBars, news, visible, trades, linkedBoardCode,
     json<{ name: string; rows: { time: string; close: number; high: number; low: number; volume: number }[]; source: string; latest_time: string }>(
       `${PUBLIC_API}/fund-flow/sector-kline?sector=${encodeURIComponent(linkedBoardCode || '')}&period=1m`),
     enabled: !!linkedBoardCode, staleTime: 30_000, refetchInterval: isLatest && tradingNow() ? 60_000 : false })
+  const selectedFlow = useQuery({ queryKey: ['portfolio-selected-flow', flowScope, linkedBoardCode],
+    queryFn: () => json<{ rows: { time: string; main: number }[]; source: string; latest_time: string }>(
+      `${PUBLIC_API}/fund-flow/live${flowScope === 'linked' && linkedBoardCode ? `?sector=${encodeURIComponent(linkedBoardCode)}` : ''}`),
+    enabled: flowScope === 'market' || !!linkedBoardCode, staleTime: 30_000,
+    refetchInterval: isLatest && tradingNow() ? 60_000 : false })
   const history = useQuery({ queryKey: ['portfolio-minute-range', item.symbol],
     queryFn: () => api.klineMinuteRange(item.symbol, 20), staleTime: 60_000 })
   const [requestedDays, setRequestedDays] = useState(1)
@@ -223,7 +230,7 @@ function Detail({ item, day, latestBars, news, visible, trades, linkedBoardCode,
       <div><b className="text-sm">{item.name}</b><span className="ml-2 text-xs text-muted">{item.symbol}</span>
         <span className="ml-2 text-xs text-accent">{price(item.price)}</span>
         <span className={`ml-2 text-xs ${Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}`}>{pct(item.change_pct)}</span></div>
-      <div className="flex items-center gap-2"><label className="text-[11px] text-muted">关联板块
+      <div className="flex items-center gap-2"><label className="text-xs text-muted">关联板块
         <select aria-label={`${item.name}关联板块`} value={linkedBoardCode || ''} onChange={event => onLinkedBoardChange(event.target.value)} className="ml-1 max-w-44 rounded border border-border bg-base px-1 py-0.5 text-[11px]">
           <option value="">自动关联（{item.board?.name || '未绑定'}）</option>
           {boardOptions.map(option => <option key={option.sector} value={option.sector}>{option.sector}{option.theme ? ` · ${option.theme}` : ''}</option>)}
@@ -245,9 +252,12 @@ function Detail({ item, day, latestBars, news, visible, trades, linkedBoardCode,
       <p className="px-1 text-[11px] text-muted">区间涨跌 {pct(boardMove)} · {linkedBoard.data?.latest_time || board.data?.last_market_time || '暂无时间'}；{linkedBoardCode ? `自选板块 ${linkedBoardCode}` : '自动关联板块'}</p>
     </section>}
     <div className="grid gap-1.5 lg:grid-cols-2">
-      {visible.flow && <section className="rounded border border-border bg-base/50 p-2 text-xs"><b>板块资金流向</b>
-        <p className="mt-1">主力净流 {flow ? `${flow.main_yi.toFixed(2)} 亿` : board.data?.flow_status || '数据源未接入'}</p>
-        <p className="text-[11px] text-muted">独立供应商口径 · {flow?.datetime || '暂无更新时间'}</p></section>}
+      {visible.flow && <section className="rounded border border-border bg-base/50 p-2 text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-1"><b>资金流向</b><select aria-label="资金流向范围" value={flowScope} onChange={event => setFlowScope(event.target.value as 'linked' | 'market')} className="rounded border border-border bg-base px-1 py-0.5"><option value="linked">关联板块</option><option value="market">全市场</option></select></div>
+        <p className="mt-1">主力净流 {selectedFlow.data?.latest_time?.slice(0, 10) === day && selectedFlow.data.rows.length
+          ? `${selectedFlow.data.rows.at(-1)!.main.toFixed(2)} 亿` : flowScope === 'linked' && !linkedBoardCode && flow ? `${flow.main_yi.toFixed(2)} 亿` : '数据源未接入或该日期无数据'}</p>
+        <p className="text-[11px] text-muted">{selectedFlow.data?.source || board.data?.source || '独立资金流供应商'} · {selectedFlow.data?.latest_time || flow?.datetime || '暂无更新时间'}</p>
+        <Link to="/fund-flow" className="text-accent">查看完整资金走势 ↗</Link></section>}
       {visible.signal && <section className="rounded border border-border bg-base/50 p-2 text-xs"><b>做T观察</b>
         <p className="mt-1">{observation}</p><p className="text-[11px] text-muted">依据截至 {last?.datetime || '—'} 的分钟价和板块走势；下一分钟可能失效。非买卖指令。</p></section>}
     </div>
@@ -341,6 +351,30 @@ function DecisionGuidePanel({ items, minuteData, source }: { items: Holding[]; m
 }
 
 export function PortfolioMonitorWidget() {
+  const splitRef = useRef<HTMLDivElement>(null)
+  const [paneWidths, setPaneWidths] = useState(() => loadObject('portfolio-terminal-pane-widths', { left: 175, right: 260 }))
+  const resizePane = (side: 'left' | 'right', event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const handle = event.currentTarget
+    const startX = event.clientX
+    const start = paneWidths[side]
+    handle.setPointerCapture(event.pointerId)
+    const move = (moveEvent: PointerEvent) => {
+      const containerWidth = splitRef.current?.clientWidth || 900
+      const delta = (moveEvent.clientX - startX) / getPageScale() * (side === 'left' ? 1 : -1)
+      setPaneWidths(current => ({ ...current, [side]: Math.round(Math.max(side === 'left' ? 145 : 210,
+        Math.min(containerWidth - current[side === 'left' ? 'right' : 'left'] - 280, start + delta))) }))
+    }
+    const stop = () => {
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', stop)
+      handle.removeEventListener('lostpointercapture', stop)
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', stop)
+    handle.addEventListener('lostpointercapture', stop)
+  }
+  useEffect(() => { localStorage.setItem('portfolio-terminal-pane-widths', JSON.stringify(paneWidths)) }, [paneWidths])
   const snapshot = useQuery({ queryKey: ['portfolio-widget-snapshot'],
     queryFn: () => json<{ items: Holding[]; source: string }>(`${API}/portfolio/snapshot`),
     refetchInterval: tradingNow() ? 30_000 : false })
@@ -461,7 +495,8 @@ export function PortfolioMonitorWidget() {
       <span className="text-muted">详情布局</span><div className="flex gap-1"><button type="button" onClick={() => chooseLayout('side')} className={`rounded px-2 py-0.5 ${layoutMode === 'side' ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>左侧列表</button><button type="button" onClick={() => chooseLayout('strip')} className={`rounded px-2 py-0.5 ${layoutMode === 'strip' ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>横向长条</button><button type="button" onClick={() => chooseLayout('grid')} className={`rounded px-2 py-0.5 ${layoutMode === 'grid' ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>网格总览</button></div>
     </div>
     {layoutMode === 'grid' && <HoldingsOverview items={shown} minuteData={minute.data?.data || {}} source={minute.data?.source} onSelect={symbol => { setSelected(symbol); chooseLayout('side') }} />}
-    {layoutMode !== 'grid' && <div className={layoutMode === 'side' ? 'grid gap-2 md:grid-cols-[175px_minmax(0,1fr)_260px]' : 'space-y-2'}>
+    {layoutMode !== 'grid' && <div ref={splitRef} className={layoutMode === 'side' ? 'grid gap-y-2 md:gap-x-0' : 'space-y-2'}
+      style={layoutMode === 'side' ? { gridTemplateColumns: `minmax(145px, ${paneWidths.left}px) 8px minmax(260px, 1fr) 8px minmax(210px, ${paneWidths.right}px)` } : undefined}>
       {layoutMode === 'strip' && <div className="flex gap-1 overflow-x-auto rounded border border-border bg-base/50 p-1">{shown.map(item => <button key={item.symbol} type="button" onClick={() => { setSelected(item.symbol); setSelectedBoard('') }} className={`min-w-44 rounded border border-border px-2 py-1 text-left hover:bg-elevated ${active?.symbol === item.symbol ? 'bg-accent/15' : ''}`}><div className="flex justify-between gap-1 text-xs"><b className="truncate">{item.name}</b><span className={Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}>{pct(item.change_pct)}</span></div><div className="text-[10px] text-muted">{item.symbol} · {price(item.price)}</div></button>)}</div>}
       {layoutMode === 'side' && <aside className="min-w-0 rounded border border-border bg-base/50 p-1">
         <div className="flex gap-1 border-b border-border p-1 text-[11px]"><button type="button" onClick={() => setListMode('all')} className={listMode === 'all' ? 'text-accent' : 'text-muted'}>全部监控 {allItems.length}</button><button type="button" onClick={() => setListMode('recorded')} className={listMode === 'recorded' ? 'text-accent' : 'text-muted'}>已录持仓 {items.filter(x => x.holding_source).length}</button></div>
@@ -475,10 +510,14 @@ export function PortfolioMonitorWidget() {
           className={`block w-full px-1.5 py-1 text-left text-xs hover:bg-elevated ${selectedBoard === code ? 'bg-accent/15 text-accent' : ''}`}>{code} · 板块行情</button>)}</div>
         {!shown.length && <p className="p-2 text-xs text-muted">暂无已录入持仓</p>}
       </aside>}
+      {layoutMode === 'side' && <div role="separator" aria-label="拖动调整持仓列表宽度" aria-orientation="vertical" title="拖动调整持仓列表宽度"
+        onPointerDown={event => resizePane('left', event)} className="cursor-ew-resize touch-none bg-border/60 hover:bg-accent active:bg-accent" />}
       {selectedBoard ? <BoardDetail code={selectedBoard} day={day} news={news.data?.items || []} visible={visible} />
         : active ? <Detail item={active} day={day} latestBars={minute.data?.data?.[active.symbol] || []} news={news.data?.items || []} visible={visible}
           trades={(tradeHistory.data?.trades || []).filter(trade => trade.symbol === active.symbol)} linkedBoardCode={linkedBoards[active.symbol] || ''} boardOptions={sectorCatalog.data?.items || []} onLinkedBoardChange={code => setLinkedBoard(active.symbol, code)} />
         : <p className="p-4 text-xs text-muted">暂无监控标的</p>}
+      {layoutMode === 'side' && <div role="separator" aria-label="拖动调整策略栏宽度" aria-orientation="vertical" title="拖动调整策略栏宽度"
+        onPointerDown={event => resizePane('right', event)} className="cursor-ew-resize touch-none bg-border/60 hover:bg-accent active:bg-accent" />}
       {layoutMode === 'side' && <DecisionGuidePanel items={shown} minuteData={minute.data?.data || {}} source={minute.data?.source} />}
     </div>}</>}
     <section className="mt-2 rounded border border-border bg-base/50 p-2 text-xs">
