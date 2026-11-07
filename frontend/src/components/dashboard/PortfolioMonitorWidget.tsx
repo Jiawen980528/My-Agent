@@ -163,10 +163,22 @@ function Detail({ item, day, latestBars, news, visible, trades, linkedBoardCode,
   const [boardSearch, setBoardSearch] = useState('')
   const [boardChoiceError, setBoardChoiceError] = useState('')
   const boardListId = `linked-board-${item.symbol.replace(/\W/g, '-')}`
+  const boardSearchQuery = useQuery({
+    queryKey: ['linked-board-search', boardSearch.trim()],
+    queryFn: () => json<{ items: { code: string; name: string; pct?: number | null }[] }>(`${PUBLIC_API}/fund-flow/sectors?q=${encodeURIComponent(boardSearch.trim())}&limit=20`),
+    enabled: boardSearch.trim().length >= 1, staleTime: 60_000,
+  })
+  const boardSuggestions = useMemo(() => {
+    const remote = boardSearchQuery.data?.items || []
+    if (remote.length) return remote.slice(0, 8)
+    const query = boardSearch.trim().toLowerCase()
+    return boardOptions.filter(option => `${option.name} ${option.code}`.toLowerCase().includes(query)).slice(0, 8)
+  }, [boardSearch, boardSearchQuery.data?.items, boardOptions])
   useEffect(() => {
     const selected = boardOptions.find(option => option.code === linkedBoardCode)
-    setBoardSearch(selected ? `${selected.name} (${selected.code})` : linkedBoardCode || '')
+    setBoardSearch(selected ? `${selected.name} (${selected.code})` : '')
     setBoardChoiceError('')
+    if (linkedBoardCode && boardOptions.length && !selected) onLinkedBoardChange('')
   }, [item.symbol, linkedBoardCode, boardOptions])
   const applyBoardSearch = () => {
     const raw = boardSearch.trim()
@@ -248,8 +260,9 @@ function Detail({ item, day, latestBars, news, visible, trades, linkedBoardCode,
         <span className="ml-2 text-xs text-accent">{price(item.price)}</span>
         <span className={`ml-2 text-xs ${Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}`}>{pct(item.change_pct)}</span></div>
       <div className="flex flex-wrap items-center justify-end gap-1"><label className="text-xs text-muted">关联板块
-        <input aria-label={`${item.name}关联板块搜索`} list={boardListId} value={boardSearch} onChange={event => { setBoardSearch(event.target.value); setBoardChoiceError('') }} onKeyDown={event => { if (event.key === 'Enter') applyBoardSearch() }} placeholder="输入名称或 BK 代码" className="ml-1 w-52 rounded border border-border bg-base px-1 py-0.5 text-[11px]" />
-        <datalist id={boardListId}>{boardOptions.map(option => <option key={option.code} value={`${option.name} (${option.code})`}>{option.pct == null ? '' : `${option.pct > 0 ? '+' : ''}${option.pct}%`}</option>)}</datalist></label>
+        <span className="relative ml-1 inline-block"><input aria-label={`${item.name}关联板块搜索`} list={boardListId} value={boardSearch} onChange={event => { setBoardSearch(event.target.value); setBoardChoiceError('') }} onKeyDown={event => { if (event.key === 'Enter') applyBoardSearch() }} placeholder="输入名称或 BK 代码" className="w-52 rounded border border-border bg-base px-1 py-0.5 text-[11px]" />
+          {!!boardSearch.trim() && !!boardSuggestions.length && <span className="absolute left-0 top-full z-50 mt-1 block max-h-48 w-72 overflow-auto rounded border border-border bg-surface p-1 shadow-2xl">{boardSuggestions.map(option => <button type="button" key={option.code} onClick={() => { setBoardSearch(`${option.name} (${option.code})`); onLinkedBoardChange(option.code); setBoardChoiceError('') }} className="block w-full px-2 py-1 text-left text-[11px] hover:bg-elevated"><b>{option.name}</b><span className="ml-2 font-mono text-muted">{option.code}</span>{option.pct != null && <span className={`float-right ${option.pct >= 0 ? 'text-bull' : 'text-bear'}`}>{option.pct > 0 ? '+' : ''}{option.pct}%</span>}</button>)}</span>}
+        </span><datalist id={boardListId}>{boardOptions.map(option => <option key={option.code} value={`${option.name} (${option.code})`} />)}</datalist></label>
         <button type="button" onClick={applyBoardSearch} className="rounded border border-border px-1.5 py-0.5 text-[11px] text-accent">应用</button>
         <button type="button" onClick={() => { setBoardSearch(''); onLinkedBoardChange(''); setBoardChoiceError('') }} className="px-1 text-[11px] text-muted">自动</button>
         <span className="text-[11px] text-muted">{item.holding_source ? `已录入 ${item.quantity ?? '—'} 股/份` : '监控标的 · 持仓未核实'}</span>
