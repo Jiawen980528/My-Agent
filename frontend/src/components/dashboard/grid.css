@@ -27,6 +27,21 @@
 .dash-grid-resizable:not(.dash-grid-editing) .react-grid-item > .react-resizable-handle-se {
   right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize;
 }
+.dash-grid-resizable:not(.dash-grid-editing) .react-grid-item > .react-resizable-handle-w {
+  top: 18px; bottom: 18px; left: 0; width: 8px; height: auto; cursor: ew-resize;
+}
+.dash-grid-resizable:not(.dash-grid-editing) .react-grid-item > .react-resizable-handle-n {
+  left: 18px; right: 18px; top: 0; width: auto; height: 8px; cursor: ns-resize;
+}
+.dash-grid-resizable:not(.dash-grid-editing) .react-grid-item > .react-resizable-handle-ne {
+  right: 0; top: 0; width: 14px; height: 14px; cursor: nesw-resize;
+}
+.dash-grid-resizable:not(.dash-grid-editing) .react-grid-item > .react-resizable-handle-nw {
+  left: 0; top: 0; width: 14px; height: 14px; cursor: nwse-resize;
+}
+.dash-grid-resizable:not(.dash-grid-editing) .react-grid-item > .react-resizable-handle-sw {
+  left: 0; bottom: 0; width: 14px; height: 14px; cursor: nesw-resize;
+}
 .dash-grid-resizable:not(.dash-grid-editing) .react-grid-item > .react-resizable-handle::after {
   border-color: hsl(var(--accent));
 }

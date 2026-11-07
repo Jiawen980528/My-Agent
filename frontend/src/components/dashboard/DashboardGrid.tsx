@@ -80,6 +80,53 @@ export function DashboardGrid({ ctx, items, onItemsChange, editing, onAddWidget 
     onItemsChange(compactLayout(next))
   }, [items, onItemsChange])
 
+  const handleResizeStop = useCallback((layout: Layout, oldItem: Layout[number], newItem: Layout[number]) => {
+    const live = new Map(layout.map(item => [item.i, item]))
+    const next = items.map(item => {
+      const current = live.get(item.i)
+      return current ? { ...item, x: current.x, y: current.y, w: current.w, h: current.h } : item
+    })
+    const oldRight = oldItem.x + oldItem.w
+    const newRight = newItem.x + newItem.w
+    const oldBottom = oldItem.y + oldItem.h
+    const newBottom = newItem.y + newItem.h
+    const overlapsY = (item: DashboardItem) => item.y < oldBottom && item.y + item.h > oldItem.y
+    const overlapsX = (item: DashboardItem) => item.x < oldRight && item.x + item.w > oldItem.x
+    const patch = (id: string, values: Partial<DashboardItem>) => {
+      const index = next.findIndex(item => item.i === id)
+      if (index >= 0) next[index] = { ...next[index], ...values }
+    }
+
+    // 共用边界联动：拖一侧时，相邻窗口同步补位，不再被占用网格卡住。
+    if (newRight !== oldRight && newItem.x === oldItem.x) {
+      const delta = newRight - oldRight
+      for (const neighbor of items.filter(item => item.i !== oldItem.i && item.x === oldRight && overlapsY(item))) {
+        const min = minSizeOf(neighbor.t)
+        if (neighbor.w - delta >= min.w) patch(neighbor.i, { x: neighbor.x + delta, w: neighbor.w - delta, y: neighbor.y })
+      }
+    } else if (newItem.x !== oldItem.x && newRight === oldRight) {
+      const delta = newItem.x - oldItem.x
+      for (const neighbor of items.filter(item => item.i !== oldItem.i && item.x + item.w === oldItem.x && overlapsY(item))) {
+        const min = minSizeOf(neighbor.t)
+        if (neighbor.w + delta >= min.w) patch(neighbor.i, { w: neighbor.w + delta, y: neighbor.y })
+      }
+    }
+    if (newBottom !== oldBottom && newItem.y === oldItem.y) {
+      const delta = newBottom - oldBottom
+      for (const neighbor of items.filter(item => item.i !== oldItem.i && item.y === oldBottom && overlapsX(item))) {
+        const min = minSizeOf(neighbor.t)
+        if (neighbor.h - delta >= min.h) patch(neighbor.i, { y: neighbor.y + delta, h: neighbor.h - delta, x: neighbor.x })
+      }
+    } else if (newItem.y !== oldItem.y && newBottom === oldBottom) {
+      const delta = newItem.y - oldItem.y
+      for (const neighbor of items.filter(item => item.i !== oldItem.i && item.y + item.h === oldItem.y && overlapsX(item))) {
+        const min = minSizeOf(neighbor.t)
+        if (neighbor.h + delta >= min.h) patch(neighbor.i, { h: neighbor.h + delta, x: neighbor.x })
+      }
+    }
+    onItemsChange(compactLayout(next))
+  }, [items, onItemsChange])
+
   const removeItem = useCallback((id: string) => {
     onItemsChange(items.filter(it => it.i !== id))
   }, [items, onItemsChange])
@@ -134,14 +181,14 @@ export function DashboardGrid({ ctx, items, onItemsChange, editing, onAddWidget 
           positionStrategy={scaledStrategy(getPageScale())}
           gridConfig={{ cols: GRID_COLS, rowHeight: GRID_ROW_HEIGHT, margin: [GRID_MARGIN, GRID_MARGIN], containerPadding: null, maxRows: Infinity }}
           dragConfig={{
-            enabled: editing,
-            // 整卡可拖(不限把手); ✕ 移除钮不触发拖拽 — RGL 自动并入 .react-resizable-handle
+            enabled: true,
+            handle: '.dash-widget-drag-handle',
             cancel: '.dash-widget-remove',
             threshold: 3,
           }}
-          resizeConfig={{ enabled: true, handles: ['e', 's', 'se', ...(editing ? ['n', 'w', 'ne', 'nw', 'sw'] as const : [])] }}
-          onResizeStop={handleLayoutChange}
-          onLayoutChange={editing ? handleLayoutChange : undefined}
+          resizeConfig={{ enabled: true, handles: ['n', 'e', 's', 'w', 'ne', 'nw', 'se', 'sw'] }}
+          onResizeStop={handleResizeStop}
+          onDragStop={handleLayoutChange}
         >
           {items.map(it => {
             const def = widgetDef(it.t)
@@ -172,6 +219,7 @@ export function DashboardGrid({ ctx, items, onItemsChange, editing, onAddWidget 
                     </button>
                   </div>
                 )}
+                <button type="button" className="dash-widget-drag-handle absolute left-1/2 top-0 z-20 h-3 w-12 -translate-x-1/2 cursor-grab rounded-b border border-t-0 border-border bg-surface/95 text-[9px] leading-none text-muted opacity-30 hover:text-accent hover:opacity-100 active:cursor-grabbing" title="拖动窗口位置" aria-label={`拖动${def?.label ?? it.t}窗口`}>•••</button>
                 {/* 编辑态阻断组件内部交互(点击/悬停/iframe), 拖拽由外层网格项接管;
                     卡片撑满格子(h-full), 内容超出格子时在本组件边界内裁切 */}
                 <div className={cn('h-full [&>div]:h-full', editing && 'pointer-events-none')}>{renderWidget(it)}</div>

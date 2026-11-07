@@ -786,6 +786,7 @@ def market_snapshot(request: Request):
         "symbol", "name", "close", "change_pct", "amount", "volume",
         "turnover_rate", "vol_ratio_5d", "total_shares", "float_shares",
         "market_cap", "float_market_cap", "consecutive_limit_ups",
+        "signal_limit_up", "signal_limit_down", "signal_broken_limit_up",
     ]
     df = df.select([c for c in cols if c in df.columns])
     rows = df.to_dicts()
