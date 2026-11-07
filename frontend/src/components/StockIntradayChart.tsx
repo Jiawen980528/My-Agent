@@ -1,16 +1,18 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
 import { api, type MinuteKlineRow } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { klineMinuteQueryOptions, minuteRefetchInterval } from '@/lib/kline'
-import { EChartsIntraday } from '@/components/EChartsIntraday'
-import { EChartsCandlestick } from '@/components/EChartsCandlestick'
-import { resampleMinutes } from '@/lib/minuteResample'
 import type { DailySummary } from '@/lib/intraday-chart'
+import type { ChartRenderer } from '@/lib/chart-types'
+
+const EChartsIntraday = lazy(() => import('./EChartsIntraday').then(m => ({ default: m.EChartsIntraday })))
+const LightweightIntraday = lazy(() => import('./charts/LightweightIntraday').then(m => ({ default: m.LightweightIntraday })))
 
 interface Props {
   symbol: string
+  renderer?: ChartRenderer
   date: string | null
   height?: number
   prevClose?: number
@@ -26,6 +28,7 @@ interface Props {
 
 export function StockIntradayChart({
   symbol,
+  renderer = 'echarts',
   date,
   height = 520,
   prevClose,
@@ -39,7 +42,6 @@ export function StockIntradayChart({
 }: Props) {
   const qc = useQueryClient()
   const [minuteDismissed, setMinuteDismissed] = useState(false)
-  const [period, setPeriod] = useState(1)
 
   const minute = useQuery({
     // 轮询上下文 (个股详情) 传 live: 当日盘中后端直接实时拉取最新K,
@@ -48,33 +50,25 @@ export function StockIntradayChart({
     enabled: !!symbol && !!date,
     refetchInterval: minuteRefetchInterval(refetchIntervalMs),
   })
-  const publicMinute = useQuery({
-    queryKey: ['kline-public-minute', symbol, date],
-    queryFn: () => api.klinePublicMinute(symbol, date ?? undefined),
-    enabled: !!symbol && !!date && (minute.isError || (minute.isSuccess && !minute.data?.rows?.length)),
-    refetchInterval: refetchIntervalMs ? Math.max(60_000, refetchIntervalMs) : false,
-  })
 
   const fetchMinute = useMutation({
     mutationFn: () => api.syncMinuteSingle(symbol),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['kline-minute', symbol] })
       qc.invalidateQueries({ queryKey: QK.klineMinute(symbol, date ?? '') })
+      qc.invalidateQueries({ queryKey: QK.minuteBatch() })
       setMinuteDismissed(false)
     },
   })
 
-  const licensedRows: MinuteKlineRow[] = minute.data?.rows ?? []
-  const minuteRows: MinuteKlineRow[] = useMemo(
-    () => licensedRows.length ? licensedRows : publicMinute.data?.rows ?? [],
-    [licensedRows, publicMinute.data?.rows],
-  )
-  const periodRows = useMemo(() => period === 1 ? [] : resampleMinutes(minuteRows, period), [minuteRows, period])
+  const minuteRows: MinuteKlineRow[] = useMemo(() => minute.data?.rows ?? [], [minute.data?.rows])
   // source=none 表示本地无数据且 TickFlow 也拉不到 (停牌/复牌延迟/非交易日)
   // 此时不弹"是否获取"询问窗, 只做静态提示, 避免误导用户去拉明知拉不到的数据
   const sourceIsNone = minute.data?.source === 'none'
   // 指数分钟K无本地存储且不支持落库获取 (后端 sync_minute_single 显式拒绝), 不显示获取按钮
   const isIndex = minute.data?.asset_type === 'index'
+  const Chart = renderer === 'lightweight' ? LightweightIntraday : EChartsIntraday
+  const chartHeight = renderer === 'lightweight' && minute.data?.source === 'local_partial' ? Math.max(260, height - 32) : height
 
   useEffect(() => {
     setMinuteDismissed(false)
@@ -84,17 +78,11 @@ export function StockIntradayChart({
   if (!symbol || !date) return null
 
   return (
-    <div className={className} style={{ height, flexShrink: 0 }}>
-      {(minute.isLoading || publicMinute.isLoading) && <div className="text-xs text-muted py-2">分时加载中…</div>}
-      {!minute.isLoading && !publicMinute.isLoading && minuteRows.length === 0 && (
+    <div className={className} style={{ height: renderer === 'lightweight' && minuteRows.length > 0 ? undefined : height, minHeight: height, flexShrink: 0 }}>
+      {minute.isLoading && <div className="text-xs text-muted py-2">分时加载中…</div>}
+      {!minute.isLoading && minuteRows.length === 0 && (
         <>
-          {publicMinute.isError || publicMinute.isSuccess ? (
-            <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-xs text-muted">
-              <span>{publicMinute.isError ? '公开分时源暂不可用' : '该日期没有可用的公开分时'}</span>
-              <span>公开源仅提供最近几个交易日；历史分钟K需要独立数据源。</span>
-              <a href="/quant/settings?tab=data-sources" className="text-accent hover:underline">配置分钟数据源</a>
-            </div>
-          ) : fetchMinute.isPending ? (
+          {fetchMinute.isPending ? (
             <div className="flex items-center justify-center h-full gap-2 text-xs text-accent">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               <span>正在获取分钟K数据…</span>
@@ -146,13 +134,6 @@ export function StockIntradayChart({
       )}
       {minuteRows.length > 0 && (
         <>
-          {!licensedRows.length && <div className="mb-1 text-xs text-muted">东方财富公开行情（可能延迟） · {publicMinute.data?.display_date ?? date}{publicMinute.data?.display_date !== date ? ' · 上一交易日' : ''}</div>}
-          <div className="mb-1 flex flex-wrap gap-1" aria-label="分钟图周期">
-            {[1, 5, 10, 15, 30, 60].map(value => <button key={value} type="button" aria-pressed={period === value}
-              onClick={() => setPeriod(value)} className={`rounded px-2 py-0.5 text-xs ${period === value ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>
-              {value}分
-            </button>)}
-          </div>
           {minute.data?.source === 'local_partial' && (
             <div className="mb-1 flex items-center gap-2 rounded border border-warning/30 bg-warning/5 px-2 py-1 text-[10px] text-warning">
               <span>
@@ -168,19 +149,22 @@ export function StockIntradayChart({
               </button>
             </div>
           )}
-          {period === 1 ? <EChartsIntraday
+          <Suspense fallback={<div className="text-xs text-muted py-4">正在加载图表…</div>}>
+          <Chart
+            assetType={minute.data?.asset_type}
+            symbol={symbol}
             data={minuteRows}
-            height={Math.max(300, height - 34)}
-            prevClose={licensedRows.length ? minute.data?.prev_close ?? prevClose : publicMinute.data?.prev_close ?? prevClose}
+            height={chartHeight}
+            prevClose={minute.data?.prev_close ?? prevClose}
             dailySummary={dailySummary}
-            date={licensedRows.length ? date : publicMinute.data?.display_date ?? date}
+            date={date}
             priceLimit={minute.data?.price_limit ?? undefined}
             onPriceHover={onPriceHover}
             onPriceDoubleClick={onPriceDoubleClick}
             currentPrice={currentPrice}
             priceLines={priceLines}
-          /> : <EChartsCandlestick data={periodRows} height={Math.max(300, height - 34)}
-            showMA={false} showInfoBar={false} showMarkers={false} activeIndicators={['vol']} visibleBars="all" />}
+          />
+          </Suspense>
         </>
       )}
     </div>
