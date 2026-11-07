@@ -35,6 +35,11 @@ type LayoutMode = 'side' | 'strip' | 'grid'
 const PANEL_LABEL: Record<Panel, string> = { chart: '个股分时', board: '关联板块', flow: '资金流向', news: '关联新闻', signal: '做T观察' }
 const defaults: Record<Panel, boolean> = { chart: true, board: true, flow: true, news: true, signal: true }
 
+function usableBoardName(name?: string | null) {
+  const text = String(name || '').trim()
+  return Boolean(text) && !/(季报|年报|中报|首亏|预亏|预增|扭亏|公告|减持|增持|重组|摘帽)/.test(text)
+}
+
 async function json<T>(url: string): Promise<T> {
   const response = await fetch(url, { credentials: 'include' })
   const body = await response.json()
@@ -241,10 +246,11 @@ function Detail({ item, day, latestBars, news, visible, trades, linkedBoardCode,
     return [...byDate].filter(([date]) => selectedDates.has(date)).sort(([a], [b]) => a.localeCompare(b))
       .flatMap(([, rows]) => rows)
   }, [sessions, fetchedHistory.data?.sessions, stockRows, day, requestedDates])
-  const boardName = linkedBoard.data?.name || board.data?.board?.name || item.board?.name || '关联板块待绑定'
-  const boardRows = linkedBoardCode ? (linkedBoard.data?.rows || []).map(row => ({ ...row, datetime: row.time })) : board.data?.rows || []
+  const autoBoardName = usableBoardName(board.data?.board?.name) ? board.data?.board?.name : usableBoardName(item.board?.name) ? item.board?.name : undefined
+  const boardName = linkedBoard.data?.name || autoBoardName || '关联行业板块待绑定'
+  const boardRows = linkedBoardCode ? (linkedBoard.data?.rows || []).map(row => ({ ...row, datetime: row.time })) : autoBoardName ? (board.data?.rows || []) : []
   const flow = linkedBoardCode ? undefined : board.data?.flow?.at(-1)
-  const relatedNews = news.filter(row => row.sector_names?.some(name => name === boardName || name.includes(boardName) || boardName.includes(name))).slice(0, 5)
+  const relatedNews = usableBoardName(boardName) ? news.filter(row => row.sector_names?.some(name => name === boardName || name.includes(boardName) || boardName.includes(name))).slice(0, 5) : []
   const last = stockRows.at(-1), first = stockRows[0], bLast = boardRows.at(-1), bFirst = boardRows[0]
   const stockMove = first && last ? (last.close / first.close - 1) * 100 : null
   const boardMove = bFirst && bLast ? (bLast.close / bFirst.close - 1) * 100 : null
@@ -281,7 +287,7 @@ function Detail({ item, day, latestBars, news, visible, trades, linkedBoardCode,
     {visible.board && <section className="rounded border border-border bg-base/50 p-1.5">
       <div className="flex justify-between gap-1 px-1 text-xs"><b>{boardName} · 板块分时</b><span className="text-muted">{board.data?.source || '数据源待确认'}</span></div>
       <TimeChart rows={boardRows} title={boardName} color="#e3a54d" height={150} />
-      <p className="px-1 text-[11px] text-muted">区间涨跌 {pct(boardMove)} · {linkedBoard.data?.latest_time || board.data?.last_market_time || '暂无时间'}；{linkedBoardCode ? `自选板块 ${linkedBoardCode}` : '自动关联板块'}</p>
+      <p className="px-1 text-[11px] text-muted">区间涨跌 {pct(boardMove)} · {linkedBoard.data?.latest_time || board.data?.last_market_time || '暂无时间'}；{linkedBoardCode ? `自选板块 ${linkedBoardCode}` : autoBoardName ? '自动关联行业板块' : '请先选择真实行业/指数板块'}</p>
     </section>}
     <div className="grid gap-1.5 lg:grid-cols-2">
       {visible.flow && <section className="rounded border border-border bg-base/50 p-2 text-xs">

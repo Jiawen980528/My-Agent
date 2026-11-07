@@ -28,6 +28,13 @@ _history_cache: dict[str, tuple[float, dict]] = {}
 _history_lock = asyncio.Lock()
 _board_catalog_cache: tuple[float, list[dict]] | None = None
 _board_catalog_lock = asyncio.Lock()
+# 排除季报/公告/预亏等事件标签，避免被误当成持仓关联行业板块。
+_EVENT_BOARD_WORDS = ("季报", "年报", "中报", "首亏", "预亏", "预增", "扭亏", "公告", "减持", "增持", "重组", "摘帽")
+
+
+def _is_linkable_board_name(name: str) -> bool:
+    text = str(name or "").strip()
+    return bool(text) and not any(word in text for word in _EVENT_BOARD_WORDS)
 logger = logging.getLogger(__name__)
 _ptrade_upload_times: dict[str, list[float]] = {}
 
@@ -203,7 +210,7 @@ async def _fetch_board_catalog(client: httpx.AsyncClient) -> list[dict]:
                 rows[code] = {"code": code, "name": name, "pct": item.get("f3")}
         if len(items) < 100:
             break
-    return sorted(rows.values(), key=lambda item: item["name"])
+    return sorted((item for item in rows.values() if _is_linkable_board_name(item["name"])), key=lambda item: item["name"])
 
 
 @router.get("/fund-flow/sectors")

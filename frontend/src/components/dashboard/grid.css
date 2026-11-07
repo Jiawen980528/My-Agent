@@ -148,6 +148,12 @@
 
 .portfolio-detail-split { grid-template-columns: minmax(0, 1fr); }
 .portfolio-detail-split .portfolio-split-handle { display: none; }
+@media (max-width: 767px) {
+  .portfolio-detail-split { display: flex; flex-direction: column; min-width: 0; }
+  .portfolio-detail-split > aside,
+  .portfolio-detail-split > section { min-width: 0; width: 100%; }
+  .portfolio-detail-split .portfolio-split-handle { display: none; }
+}
 @media (min-width: 768px) {
   .portfolio-detail-split {
     grid-template-columns: minmax(145px, var(--portfolio-left)) 8px minmax(260px, 1fr) 8px minmax(210px, var(--portfolio-right));
