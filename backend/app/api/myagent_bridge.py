@@ -26,6 +26,8 @@ _flow_cache: dict[str, tuple[float, dict]] = {}
 _flow_lock = asyncio.Lock()
 _history_cache: dict[str, tuple[float, dict]] = {}
 _history_lock = asyncio.Lock()
+_board_catalog_cache: tuple[float, list[dict]] | None = None
+_board_catalog_lock = asyncio.Lock()
 logger = logging.getLogger(__name__)
 _ptrade_upload_times: dict[str, list[float]] = {}
 
@@ -179,6 +181,53 @@ async def _fetch_ranking(client: httpx.AsyncClient, descending: bool, limit: int
         "net_yi": round(float(item.get("f62") or 0) / 1e8, 3),
         "pct": item.get("f3"),
     } for item in items if item.get("f12") and item.get("f14")]
+
+
+async def _fetch_board_catalog(client: httpx.AsyncClient) -> list[dict]:
+    """Load Eastmoney industry/concept boards, not only the current top fund-flow ranks."""
+    rows: dict[str, dict] = {}
+    for page in range(1, 4):
+        response = await client.get(_RANK_URL, params={
+            "fid": "f3", "po": "1", "pz": "500", "pn": str(page), "np": "1",
+            "fltt": "2", "invt": "2", "ut": _FLOW_UT,
+            "fs": "m:90+t:2,m:90+t:3", "fields": "f3,f12,f14",
+        })
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("rc") != 0:
+            raise ValueError("板块目录暂不可用")
+        items = (payload.get("data") or {}).get("diff") or []
+        for item in items:
+            code, name = str(item.get("f12") or ""), str(item.get("f14") or "")
+            if code.startswith("BK") and name:
+                rows[code] = {"code": code, "name": name, "pct": item.get("f3")}
+        if len(items) < 500:
+            break
+    return sorted(rows.values(), key=lambda item: item["name"])
+
+
+@router.get("/fund-flow/sectors")
+async def fund_flow_sectors(q: str = Query("", max_length=40), limit: int = Query(1200, ge=1, le=1200)):
+    """Searchable Eastmoney board catalog for user-defined holding links."""
+    global _board_catalog_cache
+    cached = _board_catalog_cache
+    if not cached or time.monotonic() - cached[0] >= 600:
+        async with _board_catalog_lock:
+            cached = _board_catalog_cache
+            if not cached or time.monotonic() - cached[0] >= 600:
+                try:
+                    async with httpx.AsyncClient(timeout=15.0) as client:
+                        items = await _fetch_board_catalog(client)
+                    _board_catalog_cache = (time.monotonic(), items)
+                    cached = _board_catalog_cache
+                except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+                    if not cached:
+                        raise HTTPException(status_code=502, detail=f"板块目录暂不可用：{type(exc).__name__}") from exc
+    items = cached[1]
+    keyword = q.strip().casefold()
+    if keyword:
+        items = [item for item in items if keyword in f"{item['name']} {item['code']}".casefold()]
+    return {"items": items[:limit], "total": len(items), "source": "东方财富公开板块目录"}
 
 
 @router.get("/fund-flow/live")

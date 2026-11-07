@@ -157,9 +157,26 @@ function TimeChart({ rows, title, color, height, multiDay = false, previousClose
 
 function Detail({ item, day, latestBars, news, visible, trades, linkedBoardCode, boardOptions, onLinkedBoardChange }: {
   item: Holding; day: string; latestBars: Bar[]; news: News['items']; visible: Record<Panel, boolean>; trades: Trade[]
-  linkedBoardCode?: string; boardOptions: { sector: string; theme?: string }[]; onLinkedBoardChange: (code: string) => void
+  linkedBoardCode?: string; boardOptions: { code: string; name: string; pct?: number | null }[]; onLinkedBoardChange: (code: string) => void
 }) {
   const [flowScope, setFlowScope] = useState<'linked' | 'market'>('linked')
+  const [boardSearch, setBoardSearch] = useState('')
+  const [boardChoiceError, setBoardChoiceError] = useState('')
+  const boardListId = `linked-board-${item.symbol.replace(/\W/g, '-')}`
+  useEffect(() => {
+    const selected = boardOptions.find(option => option.code === linkedBoardCode)
+    setBoardSearch(selected ? `${selected.name} (${selected.code})` : linkedBoardCode || '')
+    setBoardChoiceError('')
+  }, [item.symbol, linkedBoardCode, boardOptions])
+  const applyBoardSearch = () => {
+    const raw = boardSearch.trim()
+    if (!raw) { onLinkedBoardChange(''); setBoardChoiceError(''); return }
+    const code = raw.match(/BK\d{4}/i)?.[0]?.toUpperCase()
+    const match = boardOptions.find(option => option.code === code || option.name === raw || raw.includes(option.code))
+      || boardOptions.find(option => option.name.includes(raw))
+    if (!match) { setBoardChoiceError('未找到该板块，请输入名称或 BK 代码'); return }
+    onLinkedBoardChange(match.code); setBoardSearch(`${match.name} (${match.code})`); setBoardChoiceError('')
+  }
   const isLatest = day === (quoteDate(item) || marketDay())
   const selectedMinute = useQuery({ queryKey: ['portfolio-selected-minute', item.symbol, day],
     queryFn: () => json<{ rows: Bar[]; source: string }>(`${API}/portfolio/minute/${item.symbol}?trade_date=${day}`),
@@ -230,11 +247,13 @@ function Detail({ item, day, latestBars, news, visible, trades, linkedBoardCode,
       <div><b className="text-sm">{item.name}</b><span className="ml-2 text-xs text-muted">{item.symbol}</span>
         <span className="ml-2 text-xs text-accent">{price(item.price)}</span>
         <span className={`ml-2 text-xs ${Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}`}>{pct(item.change_pct)}</span></div>
-      <div className="flex items-center gap-2"><label className="text-xs text-muted">关联板块
-        <select aria-label={`${item.name}关联板块`} value={linkedBoardCode || ''} onChange={event => onLinkedBoardChange(event.target.value)} className="ml-1 max-w-44 rounded border border-border bg-base px-1 py-0.5 text-[11px]">
-          <option value="">自动关联（{item.board?.name || '未绑定'}）</option>
-          {boardOptions.map(option => <option key={option.sector} value={option.sector}>{option.sector}{option.theme ? ` · ${option.theme}` : ''}</option>)}
-        </select></label><span className="text-[11px] text-muted">{item.holding_source ? `已录入 ${item.quantity ?? '—'} 股/份` : '监控标的 · 持仓未核实'}</span></div>
+      <div className="flex flex-wrap items-center justify-end gap-1"><label className="text-xs text-muted">关联板块
+        <input aria-label={`${item.name}关联板块搜索`} list={boardListId} value={boardSearch} onChange={event => { setBoardSearch(event.target.value); setBoardChoiceError('') }} onKeyDown={event => { if (event.key === 'Enter') applyBoardSearch() }} placeholder="输入名称或 BK 代码" className="ml-1 w-52 rounded border border-border bg-base px-1 py-0.5 text-[11px]" />
+        <datalist id={boardListId}>{boardOptions.map(option => <option key={option.code} value={`${option.name} (${option.code})`}>{option.pct == null ? '' : `${option.pct > 0 ? '+' : ''}${option.pct}%`}</option>)}</datalist></label>
+        <button type="button" onClick={applyBoardSearch} className="rounded border border-border px-1.5 py-0.5 text-[11px] text-accent">应用</button>
+        <button type="button" onClick={() => { setBoardSearch(''); onLinkedBoardChange(''); setBoardChoiceError('') }} className="px-1 text-[11px] text-muted">自动</button>
+        <span className="text-[11px] text-muted">{item.holding_source ? `已录入 ${item.quantity ?? '—'} 股/份` : '监控标的 · 持仓未核实'}</span>
+        {boardChoiceError && <span className="basis-full text-right text-[10px] text-danger">{boardChoiceError}</span>}</div>
     </header>
     {visible.chart && <section className="rounded border border-border bg-base/50 p-1.5">
       <div className="flex flex-wrap items-center justify-between gap-1 px-1 text-xs"><b>个股分时 · {day}</b>
@@ -396,11 +415,13 @@ export function PortfolioMonitorWidget() {
     try { return JSON.parse(localStorage.getItem('portfolio-terminal-extra-boards') || '[]') }
     catch { return [] }
   })
-  const sectorCatalog = useQuery({ queryKey: ['quant-sector-catalog'], queryFn: () => json<{ items: { sector: string; theme?: string }[] }>(`${PUBLIC_API}/sectors`), staleTime: 10 * 60_000 })
+  const sectorCatalog = useQuery({ queryKey: ['fund-flow-sector-catalog'], queryFn: () =>
+    json<{ items: { code: string; name: string; pct?: number | null }[]; source: string }>(`${PUBLIC_API}/fund-flow/sectors?limit=1200`), staleTime: 10 * 60_000 })
+  const boardOptions = useMemo(() => sectorCatalog.data?.items || [], [sectorCatalog.data?.items])
   const boardMatches = useMemo(() => {
     const query = boardInput.trim().toLowerCase()
     if (!query) return []
-    return (sectorCatalog.data?.items || []).filter(item => `${item.sector} ${item.theme || ''}`.toLowerCase().includes(query)).slice(0, 6)
+    return (sectorCatalog.data?.items || []).filter(item => `${item.code} ${item.name}`.toLowerCase().includes(query)).slice(0, 8)
   }, [boardInput, sectorCatalog.data?.items])
   const allItems = useMemo<Holding[]>(() => [...items, ...extraSymbols.filter(symbol => !items.some(item => item.symbol === symbol))
     .map(symbol => ({ symbol, name: symbol + ' · 名称待核对' }))], [items, extraSymbols])
@@ -464,8 +485,8 @@ export function PortfolioMonitorWidget() {
   const addBoard = (inputValue = boardInput) => {
     const raw = inputValue.trim()
     const directCode = raw.toUpperCase()
-    const matched = sectorCatalog.data?.items?.find(item => item.sector === raw)
-    const code = /^BK\d{4}$/.test(directCode) ? directCode : matched?.sector || boardMatches[0]?.sector
+    const matched = sectorCatalog.data?.items?.find(item => item.code === directCode || item.name === raw)
+    const code = /^BK\d{4}$/.test(directCode) ? directCode : matched?.code || boardMatches[0]?.code
     if (!code) { setBoardError('请输入板块名称或代码，例如“半导体芯片”或 BK1036'); return }
     if (!extraBoards.includes(code)) {
       const next = [...extraBoards, code]
@@ -514,7 +535,7 @@ export function PortfolioMonitorWidget() {
         onPointerDown={event => resizePane('left', event)} className="portfolio-split-handle cursor-ew-resize touch-none bg-border/60 hover:bg-accent active:bg-accent" />}
       {selectedBoard ? <BoardDetail code={selectedBoard} day={day} news={news.data?.items || []} visible={visible} />
         : active ? <Detail item={active} day={day} latestBars={minute.data?.data?.[active.symbol] || []} news={news.data?.items || []} visible={visible}
-          trades={(tradeHistory.data?.trades || []).filter(trade => trade.symbol === active.symbol)} linkedBoardCode={linkedBoards[active.symbol] || ''} boardOptions={sectorCatalog.data?.items || []} onLinkedBoardChange={code => setLinkedBoard(active.symbol, code)} />
+          trades={(tradeHistory.data?.trades || []).filter(trade => trade.symbol === active.symbol)} linkedBoardCode={linkedBoards[active.symbol] || ''} boardOptions={boardOptions} onLinkedBoardChange={code => setLinkedBoard(active.symbol, code)} />
         : <p className="p-4 text-xs text-muted">暂无监控标的</p>}
       {layoutMode === 'side' && <div role="separator" aria-label="拖动调整策略栏宽度" aria-orientation="vertical" title="拖动调整策略栏宽度"
         onPointerDown={event => resizePane('right', event)} className="portfolio-split-handle cursor-ew-resize touch-none bg-border/60 hover:bg-accent active:bg-accent" />}
@@ -567,8 +588,8 @@ export function PortfolioMonitorWidget() {
         onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addBoard() }} placeholder="搜索板块名称或 BK1036" className="min-w-0 w-full rounded border border-border bg-base px-1" />
         <button type="button" onClick={() => addBoard()} className="text-accent">添加</button></div>
       {!!boardMatches.length && <div className="mt-1 max-h-32 overflow-auto rounded border border-border bg-base">
-        {boardMatches.map(item => <button type="button" key={item.sector} onClick={() => { setBoardInput(item.sector); setBoardError(''); addBoard(item.sector) }}
-          className="block w-full px-2 py-1 text-left hover:bg-elevated"><b>{item.sector}</b>{item.theme && <span className="ml-1 text-[10px] text-muted">{item.theme}</span>}</button>)}
+        {boardMatches.map(item => <button type="button" key={item.code} onClick={() => { setBoardInput(item.name); setBoardError(''); addBoard(item.name) }}
+          className="block w-full px-2 py-1 text-left hover:bg-elevated"><b>{item.name}</b><span className="ml-1 font-mono text-[10px] text-muted">{item.code}</span>{item.pct != null && <span className={`float-right text-[10px] ${item.pct >= 0 ? 'text-bull' : 'text-bear'}`}>{item.pct > 0 ? '+' : ''}{item.pct}%</span>}</button>)}
       </div>}
       {boardError && <p className="px-2 text-danger">{boardError}</p>}
       <div className="mt-1 border-t border-border px-2 py-1 font-semibold">选择关联板块</div>
