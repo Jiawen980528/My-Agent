@@ -135,3 +135,5 @@ AI 桥接来源修复：`shared_context` 不再固定返回 `tickflow`，而是�
 
 数据源入口加载修复：设置页“数据源”面板改为随设置主模块同步加载，避免点击左侧菜单时额外请求 `DataSources-*.js` 造成旧 HTML/新资源不一致的动态模块失败；其他设置面板仍保持懒加载。构建产物中不再生成独立 `DataSources-*.js` chunk，`tsc --noEmit` 和 Vite 构建均退出码 `0`。该修复尚需生产静态资源切换后在真实域名验证，当前未部署。
 
+统一报价新鲜度修复：自定义实时源仅返回 `datetime`/`market_time` 而没有 `timestamp` 时，报价服务现在仍使用该实际时间计算 `market_time`、`age_seconds` 和 `stale`，不再把真实报价误标为过期。市场数据服务与报价链测试 `11/11` 通过。
+

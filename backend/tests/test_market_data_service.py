@@ -96,6 +96,21 @@ class MarketDataServiceTests(unittest.TestCase):
         provider.get_realtime_symbols.assert_called_once_with(["159558.SZ"], asset_type="etf")
         _get_client.assert_not_called()
 
+    @patch("app.services.market_data_service._get_client")
+    @patch("app.data_providers.custom.get_provider")
+    @patch("app.data_providers.custom.provider_has_dataset", return_value=True)
+    @patch("app.services.preferences.get_realtime_data_provider", return_value="fuyao")
+    def test_custom_datetime_is_used_for_freshness(self, _selected, _has_dataset, get_provider, _get_client):
+        provider = MagicMock()
+        provider.get_realtime_symbols.return_value = [{
+            "symbol": "600000.SH", "price": 10.3,
+            "datetime": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
+        }]
+        get_provider.return_value = provider
+        result = quote_snapshot(["600000.SH"])
+        self.assertFalse(result["items"][0]["stale"])
+        self.assertIsNotNone(result["items"][0]["market_time"])
+
 
 if __name__ == "__main__":
     unittest.main()

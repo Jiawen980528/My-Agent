@@ -96,6 +96,7 @@ def quote_snapshot(symbols: list[str], *, asset_types: dict[str, str] | None = N
     items = []
     for row in rows:
         ext = row.get("ext") or {}
+        timestamp = row.get("timestamp", row.get("datetime", row.get("market_time")))
         item = {
             "source": source,
             "symbol": normalize_symbol(row.get("symbol")),
@@ -106,9 +107,9 @@ def quote_snapshot(symbols: list[str], *, asset_types: dict[str, str] | None = N
             "low": row.get("low"),
             "amount": row.get("amount"),
             "volume": row.get("volume"),
-            "timestamp": row.get("timestamp", row.get("datetime", row.get("market_time"))),
+            "timestamp": timestamp,
         }
-        item.update(freshness(row.get("timestamp"), received_at=received))
+        item.update(freshness(timestamp, received_at=received))
         items.append(item)
     latest = next((item["market_time"] for item in reversed(items) if item["market_time"]), None)
     status = freshness(latest, received_at=received)
