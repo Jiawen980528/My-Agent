@@ -68,21 +68,36 @@ def quote_snapshot(symbols: list[str]) -> dict[str, Any]:
     if not requested:
         return {"source": "TickFlow", "items": [], "missing_symbols": [], "complete": True,
                 **freshness(None, received_at=received)}
-    rows = _get_client().quotes.get(symbols=requested) or []
+    from app.services import preferences
+    provider_name = preferences.get_realtime_data_provider()
+    if provider_name == "tickflow":
+        rows = _get_client().quotes.get(symbols=requested) or []
+        source = "TickFlow"
+    else:
+        # Reuse the configured provider contract and fail closed.  Do not
+        # silently fall back to TickFlow when the user selected another source.
+        from app.data_providers import custom
+        if not custom.provider_has_dataset(provider_name, "realtime"):
+            raise PermissionError(f"实时数据源 {provider_name} 未配置 realtime 能力")
+        provider = custom.get_provider(provider_name)
+        fetch_symbols = getattr(provider, "get_realtime_symbols", None)
+        rows = fetch_symbols(requested, asset_type="stock") if callable(fetch_symbols) else provider.get_realtime()
+        rows = [row for row in (rows or []) if normalize_symbol(row.get("symbol")) in requested]
+        source = provider_name
     items = []
     for row in rows:
         ext = row.get("ext") or {}
         item = {
-            "source": "TickFlow",
+            "source": source,
             "symbol": normalize_symbol(row.get("symbol")),
-            "name": ext.get("name"),
-            "price": row.get("last_price"),
+            "name": row.get("name") or ext.get("name"),
+            "price": row.get("last_price", row.get("price", row.get("close"))),
             "prev_close": row.get("prev_close"),
             "high": row.get("high"),
             "low": row.get("low"),
             "amount": row.get("amount"),
             "volume": row.get("volume"),
-            "timestamp": row.get("timestamp"),
+            "timestamp": row.get("timestamp", row.get("datetime", row.get("market_time"))),
         }
         item.update(freshness(row.get("timestamp"), received_at=received))
         items.append(item)
@@ -90,7 +105,7 @@ def quote_snapshot(symbols: list[str]) -> dict[str, Any]:
     status = freshness(latest, received_at=received)
     returned = {str(item.get("symbol") or "") for item in items}
     missing = [symbol for symbol in requested if symbol not in returned]
-    return {"source": "TickFlow", "items": items, "missing_symbols": missing,
+    return {"source": source, "items": items, "missing_symbols": missing,
             "complete": not missing, **status}
 
 

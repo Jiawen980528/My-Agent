@@ -1,6 +1,6 @@
 import unittest
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 from app.services.kline_sync import selected_minute_source
@@ -65,6 +65,23 @@ class MarketDataServiceTests(unittest.TestCase):
     @patch("app.services.kline_sync.preferences.load", return_value={"minute_data_provider": "fuyao"})
     def test_selected_minute_source_does_not_claim_tickflow_for_custom_source(self, _load, _provider):
         self.assertEqual(selected_minute_source(), "fuyao")
+
+    @patch("app.services.market_data_service._get_client")
+    @patch("app.data_providers.custom.get_provider")
+    @patch("app.data_providers.custom.provider_has_dataset", return_value=True)
+    @patch("app.services.preferences.get_realtime_data_provider", return_value="fuyao")
+    def test_quote_snapshot_uses_selected_custom_source(self, _selected, _has_dataset, get_provider, _get_client):
+        provider = MagicMock()
+        provider.get_realtime_symbols.return_value = [{
+            "symbol": "600000.SH", "name": "测试自定义源", "price": 10.3,
+            "prev_close": 10.0, "datetime": "2026-11-08T10:00:00+08:00",
+        }]
+        get_provider.return_value = provider
+        result = quote_snapshot(["600000.SH"])
+        self.assertEqual(result["source"], "fuyao")
+        self.assertEqual(result["items"][0]["source"], "fuyao")
+        self.assertEqual(result["items"][0]["price"], 10.3)
+        _get_client.assert_not_called()
 
 
 if __name__ == "__main__":
