@@ -146,6 +146,9 @@ async def decision_assist(request: Request):
         if not isinstance(payload, dict):
             raise ValueError("请求体必须为 JSON 对象")
         risk_budget = float(payload.pop("risk_budget", 5000))
+        # API callers must opt into an explicitly non-strict research preview;
+        # the default decision path requires the full market context.
+        payload.setdefault("strict_context", True)
         return build_decision(payload, risk_budget=risk_budget)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

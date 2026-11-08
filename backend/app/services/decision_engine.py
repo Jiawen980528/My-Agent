@@ -44,11 +44,21 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
     if not account_verified:
         reasons.append(f"账户数据来源为 {account_source}，未核验为券商实时账户")
 
+    breadth = snapshot.get("market_breadth") if isinstance(snapshot.get("market_breadth"), dict) else {}
+    turnover = snapshot.get("turnover_forecast") if isinstance(snapshot.get("turnover_forecast"), dict) else {}
+    defensive = snapshot.get("defensive") if isinstance(snapshot.get("defensive"), dict) else {}
+    trades_today = snapshot.get("trades_today") if isinstance(snapshot.get("trades_today"), list) else []
+    context_missing = [key for key, value in (("market_breadth", breadth), ("turnover_forecast", turnover),
+                                               ("defensive", defensive)) if not value]
+    if snapshot.get("strict_context") is True and context_missing:
+        reasons.append("缺少决策上下文：" + ", ".join(context_missing))
+
     action = "WAIT"
     rating = "不可评估" if reasons else "观察"
     trigger = None
     invalidation = None
     max_loss = 0.0
+    max_qty = 0
     basis: list[str] = []
     if not reasons:
         quote = snapshot["quote"]
@@ -67,9 +77,35 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
             invalidation = round(max(support * 0.99, 0.0), 4)
             risk_per_share = max(price - invalidation, 0.0)
             max_qty = int(budget / risk_per_share) if risk_per_share > 0 else 0
+            available_cash = _num(account.get("available_cash"))
+            if available_cash is not None and price > 0:
+                max_qty = min(max_qty, int(available_cash / price))
+            used_risk = _num(account.get("day_risk_used")) or 0.0
+            max_qty = min(max_qty, int(max(0.0, budget - used_risk) / risk_per_share)) if risk_per_share > 0 else 0
             max_loss = round(max_qty * risk_per_share, 2)
             basis.extend(["个股价格/支撑/压力", "大盘涨跌", "关联板块涨跌", "账户风险预算"])
-            if market_pct is None or board_pct is None or volume_ratio is None:
+            if breadth:
+                up = _num(breadth.get("up_count"))
+                down = _num(breadth.get("down_count"))
+                basis.append("市场广度")
+                if up is not None and down is not None and down > up:
+                    reasons.append("市场下跌家数多于上涨家数")
+            if turnover:
+                basis.append("全市场真实成交额预测")
+                if turnover.get("status") != "ok":
+                    reasons.append("全市场成交额预测不可用")
+            if defensive:
+                defensive_pct = _num(defensive.get("pct"))
+                basis.append("防守板块相对强弱")
+                if defensive_pct is not None and market_pct is not None and defensive_pct > market_pct + 1:
+                    reasons.append("防守板块明显强于大盘，风险偏好偏弱")
+            if trades_today:
+                basis.append("当日已成交记录")
+            if reasons:
+                action, rating = "WAIT", "等待上下文"
+                max_qty = 0
+                max_loss = 0.0
+            elif market_pct is None or board_pct is None or volume_ratio is None:
                 reasons.append("市场广度、板块或成交额预测数据不完整")
             elif market_pct < 0 and board_pct < 0:
                 action, rating = "WAIT", "偏弱，等待"
@@ -87,6 +123,13 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
         "rating": rating,
         "reasons": reasons,
         "basis": basis,
+        "evidence": {
+            "market_breadth": breadth or None,
+            "turnover_forecast": turnover or None,
+            "defensive": defensive or None,
+            "trades_today_count": len(trades_today),
+            "context_missing": context_missing,
+        },
         "trigger_price": trigger,
         "invalidation_price": invalidation,
         "suggested_qty": 0 if action != "CONDITIONAL_ADD" else max_qty,

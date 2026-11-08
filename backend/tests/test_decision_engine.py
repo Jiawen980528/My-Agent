@@ -34,6 +34,34 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertFalse(result["account_verified"])
         self.assertIn("未核验", "；".join(result["reasons"]))
 
+    def test_context_evidence_and_cash_cap_are_exposed(self):
+        result = build_decision({
+            "freshness": {"stale": False, "market_time": "2026-11-08T10:00:00+08:00"},
+            "quote": {"price": 9.95, "support": 9.9, "resistance": 10.5},
+            "market": {"pct": 0.5, "turnover_ratio": 1.1},
+            "board": {"pct": 0.8},
+            "market_breadth": {"up_count": 3000, "down_count": 1000},
+            "turnover_forecast": {"status": "ok", "forecast_amount": 1_000_000},
+            "defensive": {"pct": 0.1},
+            "trades_today": [{"symbol": "600000.SH", "side": "buy"}],
+            "account": {"available_cash": 100, "day_risk_used": 0, "source": "qmt", "verified": True},
+        }, risk_budget=5000)
+        self.assertEqual(result["action"], "CONDITIONAL_ADD")
+        self.assertEqual(result["suggested_qty"], 10)
+        self.assertEqual(result["evidence"]["trades_today_count"], 1)
+        self.assertIn("全市场真实成交额预测", result["basis"])
+
+    def test_strict_context_waits_when_market_context_is_missing(self):
+        result = build_decision({
+            "strict_context": True,
+            "freshness": {"stale": False, "market_time": "2026-11-08T10:00:00+08:00"},
+            "quote": {"price": 9.95, "support": 9.9, "resistance": 10.5},
+            "market": {"pct": 0.5, "turnover_ratio": 1.1}, "board": {"pct": 0.8},
+            "account": {"available_cash": 20000, "source": "qmt", "verified": True},
+        })
+        self.assertEqual(result["action"], "WAIT")
+        self.assertIn("market_breadth", result["evidence"]["context_missing"])
+
 
 if __name__ == "__main__":
     unittest.main()
