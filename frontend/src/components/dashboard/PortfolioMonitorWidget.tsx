@@ -4,13 +4,15 @@ import { Link } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import * as echarts from 'echarts'
 import { api } from '@/lib/api'
+import { resampleMinutes } from '@/lib/minuteResample'
+import type { MinuteKlineRow } from '@/lib/api'
 import { getPageScale } from '@/lib/pageZoom'
 import { setUiPref } from '@/lib/uiPrefs'
 import { usePreferences } from '@/lib/useSharedQueries'
 
 const API = '/quant/api/myagent/quant'
 const PUBLIC_API = '/quant/api/myagent'
-type Bar = { datetime: string; close: number; high: number; low: number; volume?: number; amount?: number | null }
+type Bar = { datetime: string; open?: number | null; close: number; high: number; low: number; volume?: number; amount?: number | null }
 type Holding = { symbol: string; name: string; holding_source?: string | null; quantity?: number | null;
   price?: number | null; prev_close?: number | null; change_pct?: number | null; market_timestamp?: string | number | null;
   board?: { name: string; code: string } | null }
@@ -36,6 +38,7 @@ type Replay = { actual_vs_no_trade: string; realised_t_pnl: string; extra_positi
     realised_t_pnl: string; extra_position_effect: string | null; hindsight_optimal_pnl: string | null }[] }
 type Panel = 'chart' | 'board' | 'flow' | 'news' | 'signal'
 type LayoutMode = 'side' | 'strip' | 'grid'
+type ChartPeriod = '1m' | '5m' | '15m' | '30m' | '60m' | '1d' | '1w'
 const PANEL_LABEL: Record<Panel, string> = { chart: '个股分时', board: '关联板块', flow: '资金流向', news: '关联新闻', signal: '做T观察' }
 const defaults: Record<Panel, boolean> = { chart: true, board: true, flow: true, news: true, signal: true }
 
@@ -88,6 +91,28 @@ function previousWeekdays(day: string, count: number): string[] {
     if (date.getDay() !== 0 && date.getDay() !== 6) out.push(date.toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }))
   }
   return out
+}
+
+function weeklyRows(rows: { date: string; open: number; high: number; low: number; close: number; volume?: number }[]): Bar[] {
+  const grouped = new Map<string, Bar>()
+  for (const row of rows) {
+    const date = String(row.date || '').slice(0, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue
+    const parsed = new Date(`${date}T12:00:00+08:00`)
+    const weekday = parsed.getUTCDay()
+    const monday = new Date(parsed)
+    monday.setUTCDate(monday.getUTCDate() - (weekday === 0 ? 6 : weekday - 1))
+    const key = monday.toISOString().slice(0, 10)
+    const existing = grouped.get(key)
+    if (!existing) grouped.set(key, { datetime: key, open: row.open, high: row.high, low: row.low, close: row.close, volume: row.volume })
+    else {
+      existing.high = Math.max(existing.high, row.high)
+      existing.low = Math.min(existing.low, row.low)
+      existing.close = row.close
+      existing.volume = (existing.volume || 0) + (row.volume || 0)
+    }
+  }
+  return [...grouped.values()].sort((a, b) => a.datetime.localeCompare(b.datetime))
 }
 
 function TimeChart({ rows, title, color, height, multiDay = false, previousCloses = {}, trades = [] }: {
@@ -169,6 +194,7 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
   linkedBoardCode?: string; boardOptions: { code: string; name: string; pct?: number | null }[]; onLinkedBoardChange: (code: string) => void
 }) {
   const [flowScope, setFlowScope] = useState<'linked' | 'market'>('linked')
+  const [chartPeriod, setChartPeriod] = useState<ChartPeriod>('1m')
   const [boardSearch, setBoardSearch] = useState('')
   const [boardChoiceError, setBoardChoiceError] = useState('')
   const boardListId = `linked-board-${item.symbol.replace(/\W/g, '-')}`
@@ -216,6 +242,8 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
     refetchInterval: isLatest && tradingNow() ? 60_000 : false })
   const history = useQuery({ queryKey: ['portfolio-minute-range', item.symbol],
     queryFn: () => api.klineMinuteRange(item.symbol, 20), staleTime: 60_000 })
+  const dailyHistory = useQuery({ queryKey: ['portfolio-daily-range', item.symbol],
+    queryFn: () => api.klineDaily(item.symbol, 260), enabled: chartPeriod === '1d' || chartPeriod === '1w', staleTime: 5 * 60_000 })
   const [requestedDays, setRequestedDays] = useState(1)
   const requestedDates = useMemo(() => previousWeekdays(day, requestedDays - 1), [day, requestedDays])
   const fetchedHistory = useQuery({ queryKey: ['portfolio-history-days', item.symbol, day, requestedDays],
@@ -250,6 +278,15 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
     return [...byDate].filter(([date]) => selectedDates.has(date)).sort(([a], [b]) => a.localeCompare(b))
       .flatMap(([, rows]) => rows)
   }, [sessions, fetchedHistory.data?.sessions, stockRows, day, requestedDates])
+  const chartRows = useMemo(() => {
+    if (chartPeriod === '1d') return (dailyHistory.data?.rows || []).map(row => ({ datetime: row.date, open: row.open, high: row.high, low: row.low, close: row.close, volume: row.volume }))
+    if (chartPeriod === '1w') return weeklyRows(dailyHistory.data?.rows || [])
+    const sourceRows = chartPeriod === '1m' ? historyRows : stockRows
+    if (chartPeriod === '1m') return sourceRows
+    const period = Number(chartPeriod.slice(0, -1))
+    const input: MinuteKlineRow[] = sourceRows.map(row => ({ datetime: row.datetime, open: row.close, high: row.high, low: row.low, close: row.close, volume: row.volume || 0, amount: row.amount ?? null }))
+    return resampleMinutes(input, period).map(row => ({ datetime: row.date, open: row.open, high: row.high, low: row.low, close: row.close, volume: row.volume }))
+  }, [chartPeriod, dailyHistory.data?.rows, historyRows, stockRows])
   const autoBoardName = usableBoardName(board.data?.board?.name) ? board.data?.board?.name : usableBoardName(item.board?.name) ? item.board?.name : undefined
   const boardName = linkedBoard.data?.name || autoBoardName || '关联行业板块待绑定'
   const boardRows = linkedBoardCode ? (linkedBoard.data?.rows || []).map(row => ({ ...row, datetime: row.time })) : autoBoardName ? (board.data?.rows || []) : []
@@ -279,11 +316,14 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
         {boardChoiceError && <span className="basis-full text-right text-[10px] text-danger">{boardChoiceError}</span>}</div>
     </header>
     {visible.chart && <section className="rounded border border-border bg-base/50 p-1.5">
-      <div className="flex flex-wrap items-center justify-between gap-1 px-1 text-xs"><b>个股分时 · {day}</b>
-        <div className="flex items-center gap-1"><span className="text-muted">历史范围</span>{([1, 5, 10, 20] as const).map(n =>
-          <button key={n} type="button" onClick={() => setRequestedDays(n)} className={`rounded px-1 py-0.5 ${requestedDays === n ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>{n}日</button>)}</div></div>
-      <TimeChart rows={historyRows.length ? historyRows : stockRows} title={item.name} color="#5aaaff" height={260} multiDay={historyRows.length > stockRows.length} previousCloses={previousCloses} trades={trades} />
-      <p className="px-1 text-[11px] text-muted">滚轮缩放 · 拖动下方时间条跨日查看 · 鼠标悬停看分钟详情 · 已有 {new Set(historyRows.map(row => dateOf(row.datetime))).size} 个交易日 · 选中日 {stockRows.length} 根 · {last?.datetime || '暂无时间'} · {isLatest ? (minuteSource || selectedMinute.data?.source || '来源未标注') : (selectedMinute.data?.source || minuteSource || '读取中')}</p>
+      <div className="flex flex-wrap items-center justify-between gap-1 px-1 text-xs"><b>{chartPeriod === '1d' || chartPeriod === '1w' ? '个股K线' : '个股分时'} · {day}</b>
+        <div className="flex flex-wrap items-center gap-1"><span className="text-muted">周期</span>{(['1m', '5m', '15m', '30m', '60m', '1d', '1w'] as const).map(period =>
+          <button key={period} type="button" onClick={() => setChartPeriod(period)} className={`rounded px-1 py-0.5 ${chartPeriod === period ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>{period === '1d' ? '日K' : period === '1w' ? '周K' : period}</button>)}
+          {chartPeriod === '1m' && <><span className="ml-1 text-muted">历史范围</span>{([1, 5, 10, 20] as const).map(n =>
+            <button key={n} type="button" onClick={() => setRequestedDays(n)} className={`rounded px-1 py-0.5 ${requestedDays === n ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>{n}日</button>)}</>}</div></div>
+      <TimeChart rows={chartRows} title={`${item.name} · ${chartPeriod}`} color="#5aaaff" height={260} multiDay={chartPeriod === '1m' && historyRows.length > stockRows.length} previousCloses={previousCloses} trades={chartPeriod === '1m' ? trades : []} />
+      <p className="px-1 text-[11px] text-muted">滚轮缩放 · 拖动下方时间条浏览 · 鼠标悬停看具体信息 · {chartPeriod === '1m' ? `已有 ${new Set(historyRows.map(row => dateOf(row.datetime))).size} 个交易日 · 选中日 ${stockRows.length} 根` : `${chartRows.length} 根真实${chartPeriod === '1d' ? '日K' : chartPeriod === '1w' ? '周K' : chartPeriod}数据`} · {chartRows.at(-1)?.datetime || '暂无时间'} · {chartPeriod === '1d' || chartPeriod === '1w' ? (dailyHistory.data?.source || '来源未标注') : (isLatest ? (minuteSource || selectedMinute.data?.source || '来源未标注') : (selectedMinute.data?.source || minuteSource || '读取中'))}</p>
+      {(chartPeriod === '1d' || chartPeriod === '1w') && dailyHistory.isError && <p className="px-1 text-[11px] text-warning">日K/周K读取失败，请检查当前数据源权限。</p>}
       {history.isError && <p className="px-1 text-[11px] text-warning">跨日缓存读取失败；仍可按日期查看单日。</p>}
       {fetchedHistory.isFetching && <p className="px-1 text-[11px] text-accent">正在按数据源权限补取历史分钟K…</p>}
       {!!fetchedHistory.data?.failed && <p className="px-1 text-[11px] text-warning">{fetchedHistory.data.failed} 个候选日期读取失败，曲线仅展示成功取得的真实数据。</p>}
