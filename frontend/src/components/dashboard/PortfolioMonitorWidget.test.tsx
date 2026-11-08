@@ -104,3 +104,16 @@ it('adds a security by name from the right-click search results', async () => {
   localStorage.removeItem('portfolio-terminal-extra-symbols')
   localStorage.removeItem('portfolio-terminal-extra-symbol-names')
 })
+
+it('exposes real multi-period chart controls in the holding detail', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as typeof ResizeObserver
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  await act(async () => root.render(<MemoryRouter><PortfolioMonitorWidget /></MemoryRouter>))
+  for (const label of ['1m', '5m', '15m', '30m', '60m', '日K', '周K']) expect(host.textContent).toContain(label)
+  const fiveMinute = [...host.querySelectorAll('button')].find(button => button.textContent === '5m')!
+  await act(async () => fiveMinute.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  expect(host.textContent).toContain('真实5m数据')
+  await act(async () => root.unmount())
+})
