@@ -128,7 +128,8 @@ def minute_quality(items: list[dict[str, Any]]) -> dict[str, Any]:
         "duplicate_timestamps": len(timestamps) - len(unique_timestamps),
         "sorted": timestamps == sorted(timestamps),
         "timezone": "Asia/Shanghai",
-        "valid": len(timestamps) == len(unique_timestamps) and timestamps == sorted(timestamps),
+        "valid": bool(timestamps) and all(bool(timestamp) for timestamp in timestamps)
+        and len(timestamps) == len(unique_timestamps) and timestamps == sorted(timestamps),
     }
 
 

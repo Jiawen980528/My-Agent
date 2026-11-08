@@ -55,6 +55,10 @@ class MarketDataServiceTests(unittest.TestCase):
         self.assertEqual(result["duplicate_timestamps"], 1)
         self.assertFalse(result["sorted"])
 
+    def test_minute_quality_rejects_empty_or_missing_timestamps(self):
+        self.assertFalse(minute_quality([])["valid"])
+        self.assertFalse(minute_quality([{"datetime": ""}])["valid"])
+
     def test_batch_completeness_reports_empty_and_error_symbols(self):
         result = batch_completeness({"600000.SH": [{"datetime": "x"}], "159558.SZ": []}, {"159558.SZ": "PermissionError"})
         self.assertEqual(result["missing_symbols"], ["159558.SZ"])
