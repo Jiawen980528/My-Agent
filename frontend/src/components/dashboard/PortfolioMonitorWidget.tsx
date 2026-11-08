@@ -164,8 +164,8 @@ function TimeChart({ rows, title, color, height, multiDay = false, previousClose
   </div>
 }
 
-function Detail({ item, day, latestBars, news, visible, trades, linkedBoardCode, boardOptions, onLinkedBoardChange }: {
-  item: Holding; day: string; latestBars: Bar[]; news: News['items']; visible: Record<Panel, boolean>; trades: Trade[]
+function Detail({ item, day, latestBars, minuteSource, news, visible, trades, linkedBoardCode, boardOptions, onLinkedBoardChange }: {
+  item: Holding; day: string; latestBars: Bar[]; minuteSource?: string; news: News['items']; visible: Record<Panel, boolean>; trades: Trade[]
   linkedBoardCode?: string; boardOptions: { code: string; name: string; pct?: number | null }[]; onLinkedBoardChange: (code: string) => void
 }) {
   const [flowScope, setFlowScope] = useState<'linked' | 'market'>('linked')
@@ -283,7 +283,7 @@ function Detail({ item, day, latestBars, news, visible, trades, linkedBoardCode,
         <div className="flex items-center gap-1"><span className="text-muted">历史范围</span>{([1, 5, 10, 20] as const).map(n =>
           <button key={n} type="button" onClick={() => setRequestedDays(n)} className={`rounded px-1 py-0.5 ${requestedDays === n ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>{n}日</button>)}</div></div>
       <TimeChart rows={historyRows.length ? historyRows : stockRows} title={item.name} color="#5aaaff" height={260} multiDay={historyRows.length > stockRows.length} previousCloses={previousCloses} trades={trades} />
-      <p className="px-1 text-[11px] text-muted">滚轮缩放 · 拖动下方时间条跨日查看 · 鼠标悬停看分钟详情 · 已有 {new Set(historyRows.map(row => dateOf(row.datetime))).size} 个交易日 · 选中日 {stockRows.length} 根 · {last?.datetime || '暂无时间'} · {isLatest ? 'TickFlow Pro' : selectedMinute.data?.source || '读取中'}</p>
+      <p className="px-1 text-[11px] text-muted">滚轮缩放 · 拖动下方时间条跨日查看 · 鼠标悬停看分钟详情 · 已有 {new Set(historyRows.map(row => dateOf(row.datetime))).size} 个交易日 · 选中日 {stockRows.length} 根 · {last?.datetime || '暂无时间'} · {isLatest ? (minuteSource || selectedMinute.data?.source || '来源未标注') : (selectedMinute.data?.source || minuteSource || '读取中')}</p>
       {history.isError && <p className="px-1 text-[11px] text-warning">跨日缓存读取失败；仍可按日期查看单日。</p>}
       {fetchedHistory.isFetching && <p className="px-1 text-[11px] text-accent">正在按数据源权限补取历史分钟K…</p>}
       {!!fetchedHistory.data?.failed && <p className="px-1 text-[11px] text-warning">{fetchedHistory.data.failed} 个候选日期读取失败，曲线仅展示成功取得的真实数据。</p>}
@@ -595,7 +595,7 @@ export function PortfolioMonitorWidget() {
       {layoutMode === 'side' && <div role="separator" aria-label="拖动调整持仓列表宽度" aria-orientation="vertical" title="拖动调整持仓列表宽度"
         onPointerDown={event => resizePane('left', event)} className="portfolio-split-handle cursor-ew-resize touch-none bg-border/60 hover:bg-accent active:bg-accent" />}
       {selectedBoard ? <BoardDetail code={selectedBoard} day={day} news={news.data?.items || []} visible={visible} />
-        : active ? <Detail item={active} day={day} latestBars={usableMinuteData[active.symbol] || []} news={news.data?.items || []} visible={visible}
+        : active ? <Detail item={active} day={day} latestBars={usableMinuteData[active.symbol] || []} minuteSource={minute.data?.source} news={news.data?.items || []} visible={visible}
           trades={(tradeHistory.data?.trades || []).filter(trade => trade.symbol === active.symbol)} linkedBoardCode={linkedBoards[active.symbol] || ''} boardOptions={boardOptions} onLinkedBoardChange={code => setLinkedBoard(active.symbol, code)} />
         : <p className="p-4 text-xs text-muted">暂无监控标的</p>}
       {layoutMode === 'side' && <div role="separator" aria-label="拖动调整策略栏宽度" aria-orientation="vertical" title="拖动调整策略栏宽度"
