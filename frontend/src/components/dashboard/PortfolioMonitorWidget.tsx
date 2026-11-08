@@ -525,6 +525,10 @@ export function PortfolioMonitorWidget() {
     if (linked && typeof linked === 'object' && !Array.isArray(linked)) setLinkedBoards(linked as Record<string, string>)
     const symbols = remote.portfolio_terminal_extra_symbols
     if (Array.isArray(symbols)) setExtraSymbols(symbols.filter((value): value is string => typeof value === 'string'))
+    const symbolNames = remote.portfolio_terminal_extra_symbol_names
+    if (symbolNames && typeof symbolNames === 'object' && !Array.isArray(symbolNames)) {
+      setExtraSymbolNames(Object.fromEntries(Object.entries(symbolNames).filter(([, value]) => typeof value === 'string')))
+    }
     const boards = remote.portfolio_terminal_extra_boards
     if (Array.isArray(boards)) setExtraBoards(boards.filter((value): value is string => typeof value === 'string'))
     const widths = remote.portfolio_terminal_pane_widths
