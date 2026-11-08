@@ -111,3 +111,5 @@
 
 推演曲线交互：`76f783cc` 为每日行情推演的真实分钟曲线增加鼠标悬停十字线，显示时间、价格、成交量和该分钟数据源；曲线数据不足时仍明确显示不可用，不生成模拟点。TypeScript 编译器已执行且未输出错误；原有未相关的 pnpm 构建脚本审批限制仍单独保留。
 
+AI 桥接来源修复：`shared_context` 不再固定返回 `tickflow`，而是根据实际日K接口结果返回单一来源、`mixed` 或 `unavailable`，并提供逐标的 `kline_sources`。`test_bridge_context.py` 与报价链回归共 `2/2` 通过。
+

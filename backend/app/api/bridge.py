@@ -75,6 +75,7 @@ def shared_context(
     requested = requested[:12]
     overview = market_overview(request)
     klines = []
+    kline_sources: dict[str, str] = {}
     for symbol in requested:
         try:
             # MyAgent uses bare six-digit codes; TickFlow's repository uses
@@ -83,12 +84,16 @@ def shared_context(
             if "." not in qualified and len(qualified) == 6 and qualified.isdigit():
                 suffix = ".SH" if qualified.startswith(("5", "6", "688")) else ".BJ" if qualified.startswith(("4", "8")) else ".SZ"
                 qualified = qualified + suffix
-            klines.append(get_daily(request, symbol=qualified, days=days))
+            result = get_daily(request, symbol=qualified, days=days)
+            klines.append(result)
+            kline_sources[qualified] = str(result.get("source") or "unlabeled")
         except Exception:
             # One unavailable symbol must not prevent the rest of the context.
             continue
+    sources = sorted(set(kline_sources.values()))
     return {
-        "source": "tickflow",
+        "source": sources[0] if len(sources) == 1 else "mixed" if sources else "unavailable",
+        "kline_sources": kline_sources,
         "as_of": overview.get("as_of"),
         "market": overview,
         "symbols": requested,
