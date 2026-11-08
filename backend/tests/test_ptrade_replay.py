@@ -34,6 +34,18 @@ class PTradeReplayTests(unittest.TestCase):
         self.assertEqual(result["extra_qty"], 12600)
         self.assertIsNone(result["versus_no_trade"])
 
+    def test_generic_trade_csv_is_idempotent_and_replayable(self):
+        raw = ("trade_id,symbol,datetime,side,qty,price,fee,source\n"
+               "fill-1,600000.SH,2026-11-07T10:00:00+08:00,buy,100,10.0,5,manual\n").encode()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(replay.save_trade_csv(root, raw)["count"], 1)
+            self.assertEqual(replay.save_trade_csv(root, raw)["count"], 1)
+            rows = replay.load_trade_rows(root, "600000.SH", "2026-11-07")
+            result = replay.replay("600000.SH", [], trade_date="2026-11-07", trades=rows)
+            self.assertEqual(len(result["trades"]), 1)
+            self.assertEqual(result["fees"], 5)
+
 
 if __name__ == "__main__":
     unittest.main()

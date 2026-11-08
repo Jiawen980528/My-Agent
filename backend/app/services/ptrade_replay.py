@@ -19,10 +19,96 @@ TRADES = {
                   ("13:40", "buy", 7700, 1.291)],
 }
 FIELDS = ("symbol", "datetime", "open", "high", "low", "close", "volume", "amount", "source")
+TRADE_FIELDS = ("trade_id", "symbol", "datetime", "side", "qty", "price", "fee", "source")
 
 
 def _db(data_dir: Path) -> Path:
     return data_dir / "ptrade_etf_replay.sqlite3"
+
+
+def _trade_rows_db(data_dir: Path) -> Path:
+    return data_dir / "trade_ledger.sqlite3"
+
+
+def _default_trade_rows(symbol: str, trade_date: str) -> list[dict]:
+    if trade_date != TARGET_DAY or symbol not in TRADES:
+        return []
+    return [{"trade_id": f"legacy-{symbol}-{index}", "symbol": symbol,
+             "datetime": f"{trade_date}T{hm}:00+08:00", "side": side,
+             "qty": qty, "price": price, "fee": None, "source": "legacy_seed"}
+            for index, (hm, side, qty, price) in enumerate(TRADES[symbol], 1)]
+
+
+def parse_trade_csv(raw: bytes) -> list[dict]:
+    """Parse a generic, broker-neutral transaction CSV.
+
+    This records transactions only; it never accepts account passwords or order
+    instructions. Fees are optional and are calculated by replay when absent.
+    """
+    if len(raw) > 300_000:
+        raise ValueError("成交 CSV 超过 300 KB")
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise ValueError("成交 CSV 必须使用 UTF-8 编码") from exc
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames or set(reader.fieldnames) != set(TRADE_FIELDS):
+        raise ValueError("成交 CSV 字段必须为 trade_id,symbol,datetime,side,qty,price,fee,source")
+    rows: list[dict] = []
+    seen: set[str] = set()
+    for line, item in enumerate(reader, 2):
+        if line > 5001:
+            raise ValueError("成交 CSV 行数过多")
+        trade_id = (item.get("trade_id") or "").strip()
+        symbol = (item.get("symbol") or "").strip().upper().replace(".SS", ".SH")
+        side = (item.get("side") or "").strip().lower()
+        source = (item.get("source") or "").strip()
+        if not trade_id or trade_id in seen or not symbol or side not in {"buy", "sell"} or not source:
+            raise ValueError(f"第 {line} 行成交标识、证券、方向或来源无效")
+        try:
+            dt = datetime.fromisoformat((item.get("datetime") or "").strip())
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=SHANGHAI)
+            if dt.utcoffset() != timedelta(hours=8):
+                raise ValueError("时区必须为北京时间 +08:00")
+            qty = float(item["qty"])
+            price = float(item["price"])
+            fee_text = (item.get("fee") or "").strip()
+            fee = float(fee_text) if fee_text else None
+            if not all(math.isfinite(value) for value in (qty, price) if value is not None) or qty <= 0 or price <= 0:
+                raise ValueError("数量和价格必须为正数")
+            if fee is not None and (not math.isfinite(fee) or fee < 0):
+                raise ValueError("手续费必须为非负数")
+        except (TypeError, ValueError, KeyError) as exc:
+            raise ValueError(f"第 {line} 行无效：{exc}") from exc
+        seen.add(trade_id)
+        rows.append({"trade_id": trade_id, "symbol": symbol, "datetime": dt.isoformat(timespec="seconds"),
+                     "side": side, "qty": qty, "price": price, "fee": fee, "source": source})
+    if not rows:
+        raise ValueError("成交 CSV 没有有效记录")
+    return rows
+
+
+def save_trade_csv(data_dir: Path, raw: bytes) -> dict:
+    rows = parse_trade_csv(raw)
+    path = _trade_rows_db(data_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(path, timeout=10) as db:
+        db.execute("CREATE TABLE IF NOT EXISTS trades (trade_id TEXT PRIMARY KEY, symbol TEXT NOT NULL, datetime TEXT NOT NULL, side TEXT NOT NULL, qty REAL NOT NULL, price REAL NOT NULL, fee REAL, source TEXT NOT NULL)")
+        db.executemany("INSERT INTO trades VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(trade_id) DO UPDATE SET symbol=excluded.symbol,datetime=excluded.datetime,side=excluded.side,qty=excluded.qty,price=excluded.price,fee=excluded.fee,source=excluded.source",
+                       [tuple(row[field] for field in TRADE_FIELDS) for row in rows])
+    return {"count": len(rows), "symbols": sorted({row["symbol"] for row in rows}), "source": "transaction_ledger"}
+
+
+def load_trade_rows(data_dir: Path, symbol: str, trade_date: str) -> list[dict]:
+    path = _trade_rows_db(data_dir)
+    if not path.exists():
+        return _default_trade_rows(symbol, trade_date)
+    with sqlite3.connect(path, timeout=10) as db:
+        db.row_factory = sqlite3.Row
+        rows = [dict(row) for row in db.execute("SELECT * FROM trades WHERE symbol=? AND datetime>=? AND datetime<? ORDER BY datetime,trade_id",
+                                                (symbol, trade_date, (datetime.fromisoformat(trade_date) + timedelta(days=1)).date().isoformat()))]
+    return rows or _default_trade_rows(symbol, trade_date)
 
 
 def _minute_allowed(dt: datetime) -> bool:
@@ -110,30 +196,37 @@ def save_csv(data_dir: Path, raw: bytes) -> dict:
     return report
 
 
-def load(data_dir: Path, symbol: str) -> list[dict]:
+def load(data_dir: Path, symbol: str, trade_date: str = TARGET_DAY) -> list[dict]:
     if symbol not in SYMBOLS or not _db(data_dir).exists():
         return []
     with sqlite3.connect(_db(data_dir), timeout=10) as db:
         db.row_factory = sqlite3.Row
         return [dict(row) for row in db.execute("SELECT * FROM minute WHERE symbol=? AND datetime>=? "
-                                               "AND datetime<? ORDER BY datetime", (symbol, TARGET_DAY, "2026-11-07"))]
+                                               "AND datetime<? ORDER BY datetime", (symbol, trade_date,
+                                               (datetime.fromisoformat(trade_date) + timedelta(days=1)).date().isoformat()))]
 
 
-def replay(symbol: str, rows: list[dict], source: str = "PTrade") -> dict:
+def replay(symbol: str, rows: list[dict], source: str = "PTrade", *,
+           trade_date: str = TARGET_DAY, trades: list[dict] | None = None) -> dict:
+    trade_rows = trades if trades is not None else _default_trade_rows(symbol, trade_date)
     trades = []
     cash = 0.0
     fee_total = 0.0
     sold = 0
     bought = 0
-    for hm, side, qty, price in TRADES[symbol]:
-        fee = max(5.0, price * qty * .0001)
+    for row in trade_rows:
+        side = row["side"]
+        qty = float(row["qty"])
+        price = float(row["price"])
+        fee = float(row["fee"]) if row.get("fee") is not None else max(5.0, price * qty * .0001)
         signed = price * qty if side == "sell" else -price * qty
         cash += signed - fee
         fee_total += fee
         sold += qty if side == "sell" else 0
         bought += qty if side == "buy" else 0
-        trades.append({"datetime": f"{TARGET_DAY}T{hm}:00+08:00", "side": side,
-                       "qty": qty, "price": price, "fee": round(fee, 2), "cash_flow": round(signed-fee, 2)})
+        trades.append({"trade_id": row.get("trade_id"), "datetime": row["datetime"], "side": side,
+                       "qty": qty, "price": price, "fee": round(fee, 2), "source": row.get("source", source),
+                       "cash_flow": round(signed-fee, 2)})
     matched = min(sold, bought)
     matched_left = matched
     covered_cost = 0.0
@@ -208,7 +301,7 @@ def replay(symbol: str, rows: list[dict], source: str = "PTrade") -> dict:
                     "rule": "前20根已完成分钟K的MA5高于MA20时，下根开盘买入；跌破时下根开盘卖出，收盘强制平仓。仅作无未来函数的示例，不含滑点。"}
         support = min(bar["low"] for bar in rows[-20:])
         resistance = max(bar["high"] for bar in rows[-20:])
-    return {"symbol": symbol, "date": TARGET_DAY, "source": source if rows else "awaiting_PTrade_CSV",
+    return {"symbol": symbol, "date": trade_date, "source": source if rows else "awaiting_PTrade_CSV",
             "rows": rows, "row_count": len(rows), "coverage": _coverage(rows), "complete": _coverage(rows)["complete"],
             "trades": trades, "cash_flow": round(cash, 2), "fees": round(fee_total, 2),
             "matched_t_qty": matched, "matched_t_pnl": round(t_spread, 2), "extra_qty": extra,

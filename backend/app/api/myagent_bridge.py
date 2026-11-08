@@ -59,23 +59,46 @@ async def ptrade_import(request: Request):
     return {"status": "ok", **result}
 
 
+@router.post("/trades/import")
+async def trades_import(request: Request):
+    """Import broker/manual fills into the idempotent local transaction ledger."""
+    ip = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    recent = [t for t in _ptrade_upload_times.get(f"trades:{ip}", []) if now - t < 60]
+    if len(recent) >= 5:
+        raise HTTPException(status_code=429, detail="一分钟最多上传 5 次")
+    recent.append(now)
+    _ptrade_upload_times[f"trades:{ip}"] = recent
+    if int(request.headers.get("content-length", "0") or "0") > 300_000:
+        raise HTTPException(status_code=413, detail="成交 CSV 超过 300 KB")
+    try:
+        result = await asyncio.to_thread(ptrade_replay.save_trade_csv, settings.data_dir, await request.body())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "ok", **result}
+
+
 @router.get("/ptrade/etf-minute/replay")
-async def ptrade_etf_replay(symbol: str = Query(...), source: str = Query("ptrade", pattern="^(ptrade|public)$")):
-    if symbol not in ptrade_replay.SYMBOLS:
-        raise HTTPException(status_code=400, detail="首批仅支持 159558.SZ 与 588080.SS")
+async def ptrade_etf_replay(symbol: str = Query(...), trade_date: date | None = Query(None), source: str = Query("ptrade", pattern="^(ptrade|public)$")):
+    symbol = symbol.strip().upper()
+    if not __import__("re").fullmatch(r"\d{6}\.(SH|SZ|SS|BJ)", symbol):
+        raise HTTPException(status_code=400, detail="证券代码格式必须为 6 位代码加交易所后缀")
+    selected_date = trade_date or date.fromisoformat(ptrade_replay.TARGET_DAY)
     if source == "public":
         from app.api.indices import get_public_index_minute
         public_symbol = symbol.replace(".SS", ".SH")
-        result = await get_public_index_minute(symbol=public_symbol, trade_date=date(2026, 11, 6))
+        result = await get_public_index_minute(symbol=public_symbol, trade_date=selected_date)
         if result.get("display_date") != ptrade_replay.TARGET_DAY:
-            return ptrade_replay.replay(symbol, [])
+            return ptrade_replay.replay(symbol, [], trade_date=selected_date.isoformat())
         rows = [{"symbol": symbol, "datetime": row["datetime"].replace(" ", "T") + ":00+08:00",
                  "open": row["open"], "high": row["high"], "low": row["low"], "close": row["close"],
                  "volume": row["volume"] * 100, "amount": row["amount"], "source": "eastmoney_public_delayed"}
                 for row in result["rows"] if row["datetime"][11:16] != "09:30"]
-        return ptrade_replay.replay(symbol, rows, source="东方财富公开延迟行情（非PTrade）")
-    rows = await asyncio.to_thread(ptrade_replay.load, settings.data_dir, symbol)
-    return ptrade_replay.replay(symbol, rows)
+        return ptrade_replay.replay(symbol, rows, source="东方财富公开延迟行情（非PTrade）", trade_date=selected_date.isoformat(),
+                                    trades=await asyncio.to_thread(ptrade_replay.load_trade_rows, settings.data_dir, symbol, selected_date.isoformat()))
+    minute_rows = await asyncio.to_thread(ptrade_replay.load, settings.data_dir, symbol, selected_date.isoformat())
+    trade_rows = await asyncio.to_thread(ptrade_replay.load_trade_rows, settings.data_dir, symbol, selected_date.isoformat())
+    return ptrade_replay.replay(symbol, minute_rows, trade_date=selected_date.isoformat(), trades=trade_rows)
 
 
 def _parse_flow(lines: list[str]) -> list[dict]:
