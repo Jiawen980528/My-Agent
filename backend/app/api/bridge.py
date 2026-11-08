@@ -5,6 +5,7 @@ browser and the response is deliberately scoped to the requested symbols.
 """
 from __future__ import annotations
 
+import asyncio
 import hmac
 import os
 import re
@@ -123,26 +124,54 @@ def portfolio_minute(request: Request, symbol: str, trade_date: date | None = No
 
 
 @router.get("/portfolio-minute-batch")
-def portfolio_minute_batch(request: Request, symbols: str = Query(..., max_length=1000),
-                           trade_date: date | None = None):
-    """Fetch up to the subscribed 100 securities in one licensed minute request."""
+async def portfolio_minute_batch(request: Request, symbols: str = Query(..., max_length=1000),
+                                 trade_date: date | None = None):
+    """Fetch minute bars in batch, or bounded single-symbol fallback when licensed."""
     _check_token(request)
     requested = list(dict.fromkeys(part.strip().upper().replace(".SS", ".SH") for part in symbols.split(",")))
     capset = request.app.state.capabilities
-    limit = min(100, int(capset.limits(Cap.KLINE_MINUTE_BATCH).batch or 100)) if capset.has(Cap.KLINE_MINUTE_BATCH) else 0
+    batch_available = capset.has(Cap.KLINE_MINUTE_BATCH)
+    single_available = capset.has(Cap.KLINE_MINUTE_BY_SYMBOL)
+    if batch_available:
+        limit = min(100, int(capset.limits(Cap.KLINE_MINUTE_BATCH).batch or 100))
+    elif single_available:
+        single_limit = int(capset.limits(Cap.KLINE_MINUTE_BY_SYMBOL).rpm or 30)
+        limit = min(30, max(1, single_limit))
+    else:
+        limit = 0
     if not requested or len(requested) > limit or any(not _SYMBOL.fullmatch(s) for s in requested):
         raise HTTPException(status_code=400, detail="invalid symbols or minute batch entitlement")
     day = trade_date or datetime.now(_CN).date()
     if day > datetime.now(_CN).date():
         raise HTTPException(status_code=400, detail="future date")
-    start = datetime(day.year, day.month, day.day, 9, 25, tzinfo=_CN)
-    end = datetime(day.year, day.month, day.day, 15, 5, tzinfo=_CN)
-    frame = sync_minute_batch(requested, start_time=start, end_time=end, batch_size=limit)
     grouped = {symbol: [] for symbol in requested}
-    for row in frame.to_dicts():
-        symbol = row.get("symbol")
-        if symbol in grouped:
-            grouped[symbol].append({**row, "datetime": str(row["datetime"])})
+    errors: dict[str, str] = {}
+    if batch_available:
+        start = datetime(day.year, day.month, day.day, 9, 25, tzinfo=_CN)
+        end = datetime(day.year, day.month, day.day, 15, 5, tzinfo=_CN)
+        frame = await asyncio.to_thread(sync_minute_batch, requested, start_time=start, end_time=end, batch_size=limit)
+        for row in frame.to_dicts():
+            symbol = row.get("symbol")
+            if symbol in grouped:
+                grouped[symbol].append({**row, "datetime": str(row["datetime"]), "source": "TickFlow"})
+        source = "TickFlow Pro"
+        request_count = 1
+    else:
+        async def fetch_one(symbol: str):
+            try:
+                asset_type = request.app.state.repo.resolve_asset_type(symbol)
+                result = await asyncio.to_thread(minute_bars, symbol, day, capset=capset, asset_type=asset_type)
+                return symbol, result["rows"], None
+            except (OSError, PermissionError, ValueError, TypeError) as exc:
+                return symbol, [], type(exc).__name__
+
+        results = await asyncio.gather(*(fetch_one(symbol) for symbol in requested))
+        for symbol, rows, error in results:
+            grouped[symbol] = rows
+            if error:
+                errors[symbol] = error
+        source = "TickFlow（单标分钟权限回退）"
+        request_count = len(requested)
     received_at = datetime.now(_CN)
     status = {}
     quality = {}
@@ -150,5 +179,6 @@ def portfolio_minute_batch(request: Request, symbols: str = Query(..., max_lengt
         latest = rows[-1].get("datetime") if rows else None
         status[symbol] = freshness(latest, received_at=received_at)
         quality[symbol] = minute_quality(rows)
-    return {"trade_date": day.isoformat(), "source": "TickFlow Pro", "data": grouped,
-            "freshness": status, "quality": quality, "request_count": 1, "symbol_count": len(requested)}
+    return {"trade_date": day.isoformat(), "source": source, "data": grouped,
+            "freshness": status, "quality": quality, "errors": errors,
+            "request_count": request_count, "symbol_count": len(requested)}
