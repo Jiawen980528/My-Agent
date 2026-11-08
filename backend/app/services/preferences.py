@@ -1478,10 +1478,19 @@ _UI_PREFS_KEYS = (
     "portfolio_terminal_layout",
     "portfolio_terminal_linked_boards",
     "portfolio_terminal_extra_symbols",
+    "portfolio_terminal_extra_symbol_names",
     "portfolio_terminal_extra_boards",
     "portfolio_terminal_pane_widths",
 )
 _UI_PREFS_MAX_JSON = 16 * 1024
+_UI_PREFS_JSON_KEYS = {
+    "portfolio_terminal_visible",
+    "portfolio_terminal_linked_boards",
+    "portfolio_terminal_extra_symbols",
+    "portfolio_terminal_extra_symbol_names",
+    "portfolio_terminal_extra_boards",
+    "portfolio_terminal_pane_widths",
+}
 
 
 def get_ui_prefs() -> dict:
@@ -1517,6 +1526,8 @@ def set_ui_prefs(updates: dict) -> dict:
                     raise ValueError("ui_prefs.strategy_pool 须为策略 ID 列表的 JSON 文本")
             if value is None:
                 current.pop(key, None)
+            elif key in _UI_PREFS_JSON_KEYS and isinstance(value, (dict, list)):
+                current[key] = value
             elif isinstance(value, (bool, int, float, str)):
                 current[key] = value
             else:

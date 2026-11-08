@@ -57,6 +57,7 @@ const SPECS: { ls: string; remote: string; codec: Codec }[] = [
   { ls: 'portfolio-terminal-layout', remote: 'portfolio_terminal_layout', codec: 'string' },
   { ls: 'portfolio-terminal-linked-boards', remote: 'portfolio_terminal_linked_boards', codec: 'json' },
   { ls: 'portfolio-terminal-extra-symbols', remote: 'portfolio_terminal_extra_symbols', codec: 'json' },
+  { ls: 'portfolio-terminal-extra-symbol-names', remote: 'portfolio_terminal_extra_symbol_names', codec: 'json' },
   { ls: 'portfolio-terminal-extra-boards', remote: 'portfolio_terminal_extra_boards', codec: 'json' },
   { ls: 'portfolio-terminal-pane-widths', remote: 'portfolio_terminal_pane_widths', codec: 'json' },
 ]

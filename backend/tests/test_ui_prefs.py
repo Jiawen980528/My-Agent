@@ -63,6 +63,25 @@ def test_non_scalar_rejected(prefs_file):
         preferences.set_ui_prefs({"alert_toast_max": [1, 2]})
 
 
+def test_portfolio_extra_symbol_names_are_persisted(prefs_file):
+    saved = preferences.set_ui_prefs({
+        "portfolio_terminal_extra_symbol_names": {"600939.SH": "重庆建工"},
+    })
+    assert saved["portfolio_terminal_extra_symbol_names"] == {"600939.SH": "重庆建工"}
+    assert preferences.get_ui_prefs()["portfolio_terminal_extra_symbol_names"] == {"600939.SH": "重庆建工"}
+
+
+def test_portfolio_layout_json_is_allowed_but_other_nested_values_are_rejected(prefs_file):
+    saved = preferences.set_ui_prefs({
+        "portfolio_terminal_visible": {"chart": True, "flow": False},
+        "portfolio_terminal_extra_symbols": ["600939.SH"],
+    })
+    assert saved["portfolio_terminal_visible"]["flow"] is False
+    assert saved["portfolio_terminal_extra_symbols"] == ["600939.SH"]
+    with pytest.raises(ValueError, match="只接受标量"):
+        preferences.set_ui_prefs({"alert_sound": {"bad": True}})
+
+
 def test_null_removes_item(prefs_file):
     """null = 删除该项, 回前端默认 (而不是存一个 null)。"""
     preferences.set_ui_prefs({"alert_sound": "chime", "alert_toast_max": 3})
