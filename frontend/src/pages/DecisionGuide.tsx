@@ -40,8 +40,9 @@ export function DecisionGuide() {
   const snapshot = useQuery({ queryKey: ['decision-guide-snapshot'], queryFn: () => json<{ items: Holding[]; source?: string }>(`${API}/portfolio/snapshot`), refetchInterval: tradingNow() ? 30_000 : false })
   const items = snapshot.data?.items || []
   const minute = useQuery({ queryKey: ['decision-guide-minute', day], queryFn: () => json<{ data: Record<string, Bar[]>; freshness?: Record<string, Freshness>; source?: string; complete?: boolean; missing_symbols?: string[] }>(`${API}/portfolio/minute-batch?trade_date=${day}`), enabled: items.length > 0, refetchInterval: tradingNow() ? 60_000 : false })
+  const usableMinuteData = minute.data?.complete === false ? {} : (minute.data?.data || {})
   const rows = useMemo(() => items.map(item => {
-    const bars = minute.data?.data?.[item.symbol] || []
+    const bars = usableMinuteData[item.symbol] || []
     const closes = bars.map(x => Number(x.close)).filter(Number.isFinite)
     const last = closes.at(-1) ?? Number(item.price)
     const first = closes[0]
@@ -53,7 +54,7 @@ export function DecisionGuide() {
     const trend = last == null || ma5 == null ? '数据不足' : last >= ma5 && (ma20 == null || last >= ma20) ? '偏强' : last < ma5 && (ma20 == null || last < ma20) ? '偏弱' : '震荡'
     const action = trend === '偏强' ? '持有，等待回踩确认' : trend === '偏弱' ? '暂不操作，等待止跌' : trend === '数据不足' ? '等待数据补齐' : '区间观察'
     return { item, bars, last, move, ma5, ma20, support, resistance, trend, action, freshness: minute.data?.freshness?.[item.symbol] }
-  }), [items, minute.data?.data])
+  }), [items, usableMinuteData, minute.data?.freshness])
   const strong = rows.filter(x => x.trend === '偏强').length
   const weak = rows.filter(x => x.trend === '偏弱').length
   const selected = rows.find(row => row.item.symbol === selectedSymbol) || rows[0]
