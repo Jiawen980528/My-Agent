@@ -278,7 +278,7 @@ def test_on_chunk_done_wrapped_to_3_args(monkeypatch):
 
 # ---------- 测试 9: get_minute_batch 按 asset_type 拆分调用 sync_minute_batch ----------
 
-def test_get_minute_batch_splits_stock_and_etf(monkeypatch):
+def test_get_minute_batch_splits_stock_and_etf(monkeypatch, tmp_path):
     """get_minute_batch 把 incomplete 拆成 stock/ETF 两组, 分别以
     asset_type='stock'/'etf' 调用 sync_minute_batch, 结果 concat 返回。
 
@@ -301,6 +301,7 @@ def test_get_minute_batch_splits_stock_and_etf(monkeypatch):
     mock_repo = MagicMock()
     mock_repo.get_etf_symbol_set.return_value = {"510300.SH"}
     mock_repo.get_minute_batch.return_value = pl.DataFrame()
+    mock_repo.store.data_dir = tmp_path
 
     # mock capset: 有权限, limits 返回 None (lim.batch 访问被 `if lim else` 守护)
     mock_capset = MagicMock()
@@ -962,7 +963,7 @@ def _healthy_svc(monkeypatch, healthy: bool):
     return svc
 
 
-def test_get_minute_batch_prefer_local_healthy_skips_stock_refetch(monkeypatch):
+def test_get_minute_batch_prefer_local_healthy_skips_stock_refetch(monkeypatch, tmp_path):
     """全量分钟服务健康 + prefer_local: 股票 incomplete 不再批量补拉,
     本地现有数据(哪怕 <90%)直接返回; ETF 不在服务 universe, 维持补拉。"""
     from app.api import kline as kline_api
@@ -971,6 +972,7 @@ def test_get_minute_batch_prefer_local_healthy_skips_stock_refetch(monkeypatch):
     monkeypatch.setattr(kline_api.kline_sync, "sync_minute_batch", sync_spy)
 
     mock_repo = MagicMock()
+    mock_repo.store.data_dir = tmp_path
     mock_repo.get_etf_symbol_set.return_value = {"510300.SH"}
     # 股票本地 100 根 (expected=240 → <90% 判 incomplete), ETF 本地空
     mock_repo.get_minute_batch.side_effect = (
@@ -999,7 +1001,7 @@ def test_get_minute_batch_prefer_local_healthy_skips_stock_refetch(monkeypatch):
     assert result["full_minute_local"] is True
 
 
-def test_get_minute_batch_prefer_local_unhealthy_falls_back(monkeypatch):
+def test_get_minute_batch_prefer_local_unhealthy_falls_back(monkeypatch, tmp_path):
     """服务不健康 (挂了/停了) + prefer_local: 回落现状补拉兜底, 行为与不带标志一致。"""
     from app.api import kline as kline_api
 
@@ -1007,6 +1009,7 @@ def test_get_minute_batch_prefer_local_unhealthy_falls_back(monkeypatch):
     monkeypatch.setattr(kline_api.kline_sync, "sync_minute_batch", sync_spy)
 
     mock_repo = MagicMock()
+    mock_repo.store.data_dir = tmp_path
     mock_repo.get_etf_symbol_set.return_value = set()
     mock_repo.get_minute_batch.return_value = _mock_minute_rows("600519.SH", 100)
 
@@ -1027,7 +1030,7 @@ def test_get_minute_batch_prefer_local_unhealthy_falls_back(monkeypatch):
     assert result["full_minute_local"] is False
 
 
-def test_get_minute_batch_no_flag_unaffected_even_if_healthy(monkeypatch):
+def test_get_minute_batch_no_flag_unaffected_even_if_healthy(monkeypatch, tmp_path):
     """不带 prefer_local (策略页等) 即使服务健康也维持现状补拉 — 本轮只辐射自选场景。"""
     from app.api import kline as kline_api
 
@@ -1035,6 +1038,7 @@ def test_get_minute_batch_no_flag_unaffected_even_if_healthy(monkeypatch):
     monkeypatch.setattr(kline_api.kline_sync, "sync_minute_batch", sync_spy)
 
     mock_repo = MagicMock()
+    mock_repo.store.data_dir = tmp_path
     mock_repo.get_etf_symbol_set.return_value = set()
     mock_repo.get_minute_batch.return_value = _mock_minute_rows("600519.SH", 100)
 
@@ -1067,7 +1071,7 @@ def _mock_tail_rows(symbol: str, n: int, first: datetime) -> pl.DataFrame:
     })
 
 
-def test_get_minute_batch_leading_hole_triggers_full_day_refetch(monkeypatch):
+def test_get_minute_batch_leading_hole_triggers_full_day_refetch(monkeypatch, tmp_path):
     """前部洞: 首根显著晚于开盘的连续尾部K → 全天重拉, 而非"最后一根+1min"增量。
 
     场景: 盘中重启/停机跨开盘后, 本地只剩 11:20 起的连续尾巴 (11 根)。
@@ -1079,6 +1083,7 @@ def test_get_minute_batch_leading_hole_triggers_full_day_refetch(monkeypatch):
     monkeypatch.setattr(kline_api.kline_sync, "sync_minute_batch", sync_spy)
 
     mock_repo = MagicMock()
+    mock_repo.store.data_dir = tmp_path
     mock_repo.get_etf_symbol_set.return_value = set()
     mock_repo.get_minute_batch.return_value = _mock_tail_rows(
         "600519.SH", 11, datetime(2026, 1, 15, 11, 20)
@@ -1105,7 +1110,7 @@ def test_get_minute_batch_leading_hole_triggers_full_day_refetch(monkeypatch):
     assert len(rows) >= 121
 
 
-def test_get_minute_batch_healthy_does_not_suppress_leading_hole_refetch(monkeypatch):
+def test_get_minute_batch_healthy_does_not_suppress_leading_hole_refetch(monkeypatch, tmp_path):
     """服务健康 + prefer_local: 前部洞的股票仍全天补拉 (服务增量锚定本地最新,
     补不了洞); 纯尾部落后的股票维持不补拉 (服务下一轮会补尾巴)。"""
     from app.api import kline as kline_api
@@ -1117,6 +1122,7 @@ def test_get_minute_batch_healthy_does_not_suppress_leading_hole_refetch(monkeyp
     stale_local = _mock_minute_rows("000001.SZ", 100)  # 09:31 开头的连续序列, 仅根数不足
 
     mock_repo = MagicMock()
+    mock_repo.store.data_dir = tmp_path
     mock_repo.get_etf_symbol_set.return_value = set()
     mock_repo.get_minute_batch.return_value = pl.concat([hole_local, stale_local])
 
@@ -1143,7 +1149,7 @@ def test_get_minute_batch_healthy_does_not_suppress_leading_hole_refetch(monkeyp
     assert result["full_minute_local"] is True
 
 
-def test_get_minute_batch_normal_open_not_treated_as_leading_hole(monkeypatch):
+def test_get_minute_batch_normal_open_not_treated_as_leading_hole(monkeypatch, tmp_path):
     """无集合竞价K的源首根 09:31/09:35 → 不算前部洞, 维持增量语义 (不全天重拉)。"""
     from app.api import kline as kline_api
 
@@ -1151,6 +1157,7 @@ def test_get_minute_batch_normal_open_not_treated_as_leading_hole(monkeypatch):
     monkeypatch.setattr(kline_api.kline_sync, "sync_minute_batch", sync_spy)
 
     mock_repo = MagicMock()
+    mock_repo.store.data_dir = tmp_path
     mock_repo.get_etf_symbol_set.return_value = set()
     # 首根 09:31, 仅 5 根 (历史日 expected=240, 根数不足但非洞)
     mock_repo.get_minute_batch.return_value = _mock_minute_rows("600519.SH", 5)
@@ -1216,7 +1223,7 @@ def test_minute_batch_compress_preference_default_and_toggle(monkeypatch):
     assert prefs.get_minute_batch_compress() is False
 
 
-def _compress_mock_env(monkeypatch, *, compress_on, accept="gzip, deflate"):
+def _compress_mock_env(monkeypatch, tmp_path, *, compress_on, accept="gzip, deflate"):
     """构造 get_minute_batch 压缩路径的最小 mock 环境, 返回 (mock_request, sync_spy)。"""
     from app.api import kline as kline_api
     from app.services import preferences as prefs
@@ -1227,6 +1234,7 @@ def _compress_mock_env(monkeypatch, *, compress_on, accept="gzip, deflate"):
     monkeypatch.setattr(kline_api.kline_sync, "sync_minute_batch", sync_spy)
 
     mock_repo = MagicMock()
+    mock_repo.store.data_dir = tmp_path
     mock_repo.get_etf_symbol_set.return_value = set()
     mock_repo.get_minute_batch.return_value = _mock_minute_rows("600519.SH", 100)
 
@@ -1241,13 +1249,13 @@ def _compress_mock_env(monkeypatch, *, compress_on, accept="gzip, deflate"):
     return mock_request, sync_spy
 
 
-def test_get_minute_batch_gzip_response_when_enabled(monkeypatch):
+def test_get_minute_batch_gzip_response_when_enabled(monkeypatch, tmp_path):
     """开关开 + 客户端接受 gzip + 响应超阈值 → 返回 gzip Response, 解压后 JSON 完整。"""
     import gzip as gzip_mod
     from app.api import kline as kline_api
     from fastapi import Response
 
-    mock_request, _ = _compress_mock_env(monkeypatch, compress_on=True)
+    mock_request, _ = _compress_mock_env(monkeypatch, tmp_path, compress_on=True)
     result = kline_api.get_minute_batch(
         mock_request, {"symbols": ["600519.SH"], "date": "2026-01-15"}
     )
@@ -1259,12 +1267,12 @@ def test_get_minute_batch_gzip_response_when_enabled(monkeypatch):
     assert len(payload["data"]["600519.SH"]) > 0
 
 
-def test_get_minute_batch_plain_when_disabled(monkeypatch):
+def test_get_minute_batch_plain_when_disabled(monkeypatch, tmp_path):
     """开关关 → 不压缩, 返回 JSON bytes 的未压缩 Response (无 Content-Encoding)。"""
     from app.api import kline as kline_api
     from fastapi import Response
 
-    mock_request, _ = _compress_mock_env(monkeypatch, compress_on=False)
+    mock_request, _ = _compress_mock_env(monkeypatch, tmp_path, compress_on=False)
     result = kline_api.get_minute_batch(
         mock_request, {"symbols": ["600519.SH"], "date": "2026-01-15"}
     )
@@ -1273,11 +1281,11 @@ def test_get_minute_batch_plain_when_disabled(monkeypatch):
     assert "600519.SH" in json.loads(result.body)["data"]
 
 
-def test_get_minute_batch_plain_without_accept_encoding(monkeypatch):
+def test_get_minute_batch_plain_without_accept_encoding(monkeypatch, tmp_path):
     """开关开但客户端未声明 gzip (如裸 curl) → 尊重协商, 原样返回。"""
     from app.api import kline as kline_api
 
-    mock_request, _ = _compress_mock_env(monkeypatch, compress_on=True, accept=None)
+    mock_request, _ = _compress_mock_env(monkeypatch, tmp_path, compress_on=True, accept=None)
     result = kline_api.get_minute_batch(
         mock_request, {"symbols": ["600519.SH"], "date": "2026-01-15"}
     )
