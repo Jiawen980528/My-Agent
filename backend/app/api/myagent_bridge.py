@@ -4,9 +4,10 @@ from __future__ import annotations
 import os
 import asyncio
 import logging
+import re
 import sqlite3
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -33,13 +34,33 @@ _history_cache: dict[str, tuple[float, dict]] = {}
 _history_lock = asyncio.Lock()
 _board_catalog_cache: tuple[float, list[dict]] | None = None
 _board_catalog_lock = asyncio.Lock()
+_fuyao_board_catalog_cache: tuple[float, list[dict]] | None = None
+_fuyao_board_catalog_lock = asyncio.Lock()
 # 排除季报/公告/预亏等事件标签，避免被误当成持仓关联行业板块。
 _EVENT_BOARD_WORDS = ("季报", "年报", "中报", "首亏", "预亏", "预增", "扭亏", "公告", "减持", "增持", "重组", "摘帽")
+_BOARD_SEARCH_TERMS = ("半导体", "材料", "设备", "通信", "算力", "人工智能", "芯片", "光刻胶", "先进封装", "银行", "红利", "建筑装饰")
 
 
 def _is_linkable_board_name(name: str) -> bool:
     text = str(name or "").strip()
     return bool(text) and not any(word in text for word in _EVENT_BOARD_WORDS)
+
+
+def _board_keyword_match(item: dict, query: str) -> bool:
+    """Match names even when the provider orders compound Chinese terms differently."""
+    q = "".join(str(query or "").casefold().split())
+    if not q:
+        return True
+    haystack = "".join(f"{item.get('name', '')} {item.get('code', '')}".casefold().split())
+    if q in haystack:
+        return True
+    terms = [term for term in _BOARD_SEARCH_TERMS if term in q]
+    if len(terms) < 2:
+        return False
+    # “半导体设备材料” may be split by the provider into “半导体设备”
+    # and “半导体材料”; return both related candidates instead of zero results.
+    matched = sum(term in haystack for term in terms)
+    return matched >= max(2, len(terms) - 1)
 logger = logging.getLogger(__name__)
 _ptrade_upload_times: dict[str, list[float]] = {}
 
@@ -352,9 +373,110 @@ async def _fetch_board_catalog(client: httpx.AsyncClient) -> list[dict]:
     return sorted((item for item in rows.values() if _is_linkable_board_name(item["name"])), key=lambda item: item["name"])
 
 
+def _configured_fuyao_provider():
+    """Return the configured Fuyao provider, without exposing credentials."""
+    try:
+        from app.data_providers import custom as custom_sources
+        if not custom_sources.is_custom_provider("fuyao"):
+            return None
+        provider = custom_sources.get_provider("fuyao")
+        return provider if hasattr(provider, "get_ths_index_catalog") else None
+    except (ImportError, RuntimeError, TypeError, ValueError):
+        return None
+
+
+async def _fetch_fuyao_board_catalog() -> list[dict]:
+    provider = _configured_fuyao_provider()
+    if provider is None:
+        return []
+    rows: dict[str, dict] = {}
+    for tag, kind in (("industry", "industry"), ("cn_concept", "concept")):
+        items, _timestamp = await asyncio.to_thread(provider.get_ths_index_catalog, tag)
+        for item in items:
+            code = str(item.get("thscode") or "").strip().upper()
+            name = str(item.get("name") or "").strip()
+            if code and name and _is_linkable_board_name(name):
+                rows[code] = {"code": code, "name": name, "type": kind, "pct": None}
+    return sorted(rows.values(), key=lambda item: item["name"])
+
+
+async def _fetch_fuyao_board_history(code: str, days: int) -> tuple[str, list[dict], int]:
+    provider = _configured_fuyao_provider()
+    if provider is None:
+        raise ValueError("扶摇未配置或板块接口不可用")
+    end = datetime.now(ZoneInfo("Asia/Shanghai"))
+    start = end.fromtimestamp(end.timestamp() - 5 * 366 * 86400, tz=ZoneInfo("Asia/Shanghai"))
+    raw, timestamp = await asyncio.to_thread(
+        provider.get_ths_index_history, code, int(start.timestamp() * 1000), int(end.timestamp() * 1000)
+    )
+    rows = []
+    for row in raw:
+        try:
+            date_ms = int(row.get("date_ms") or 0)
+            if not date_ms:
+                continue
+            moment = datetime.fromtimestamp(date_ms / 1000, tz=ZoneInfo("Asia/Shanghai"))
+            rows.append({
+                "time": moment.strftime("%Y-%m-%d"),
+                "open": float(row["open_price"]), "close": float(row["close_price"]),
+                "high": float(row["high_price"]), "low": float(row["low_price"]),
+                "volume": float(row.get("volume") or 0),
+                "amount": float(row.get("turnover") or 0),
+            })
+        except (KeyError, TypeError, ValueError):
+            continue
+    return code, rows[-days:], timestamp
+
+
+async def _fetch_local_index_history(request: Request, code: str, days: int) -> list[dict]:
+    """Read an exchange index/ETF from the local TickFlow-routed daily store."""
+    repo = request.app.state.repo
+    asset_type = repo.resolve_asset_type(code)
+    if asset_type not in {"index", "etf"}:
+        asset_type = "index"
+    end = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    start = end - timedelta(days=5 * 366)
+    frame = await asyncio.to_thread(repo.get_daily_asset, asset_type, code, start, end)
+    if frame.is_empty():
+        raise ValueError("本地没有该指数的TickFlow日K缓存")
+    rows = []
+    for row in frame.sort("date").tail(days).to_dicts():
+        try:
+            rows.append({
+                "time": str(row["date"]), "open": float(row["open"]), "close": float(row["close"]),
+                "high": float(row["high"]), "low": float(row["low"]),
+                "volume": float(row.get("volume") or 0), "amount": float(row.get("amount") or 0),
+            })
+        except (KeyError, TypeError, ValueError):
+            continue
+    if not rows:
+        raise ValueError("本地没有有效的TickFlow指数日K")
+    return rows
+
+
 @router.get("/fund-flow/sectors")
 async def fund_flow_sectors(q: str = Query("", max_length=40), limit: int = Query(1200, ge=1, le=1200)):
-    """Searchable Eastmoney board catalog for user-defined holding links."""
+    """Search THS industry/concept boards first, then fall back to Eastmoney BK boards."""
+    global _fuyao_board_catalog_cache
+    fuyao_cached = _fuyao_board_catalog_cache
+    if not fuyao_cached or time.monotonic() - fuyao_cached[0] >= 1800:
+        async with _fuyao_board_catalog_lock:
+            fuyao_cached = _fuyao_board_catalog_cache
+            if not fuyao_cached or time.monotonic() - fuyao_cached[0] >= 1800:
+                try:
+                    fuyao_items = await _fetch_fuyao_board_catalog()
+                    if fuyao_items:
+                        _fuyao_board_catalog_cache = (time.monotonic(), fuyao_items)
+                        fuyao_cached = _fuyao_board_catalog_cache
+                except (OSError, ValueError, KeyError, TypeError, RuntimeError) as exc:
+                    logger.info("扶摇板块目录不可用，回退东方财富: %s", type(exc).__name__)
+    if fuyao_cached:
+        items = fuyao_cached[1]
+        keyword = q.strip().casefold()
+        if keyword:
+            items = [item for item in items if _board_keyword_match(item, keyword)]
+        return {"items": items[:limit], "total": len(items), "source": "扶摇同花顺行业/概念目录"}
+
     global _board_catalog_cache
     cached = _board_catalog_cache
     if not cached or time.monotonic() - cached[0] >= 600:
@@ -372,8 +494,8 @@ async def fund_flow_sectors(q: str = Query("", max_length=40), limit: int = Quer
     items = cached[1]
     keyword = q.strip().casefold()
     if keyword:
-        items = [item for item in items if keyword in f"{item['name']} {item['code']}".casefold()]
-    return {"items": items[:limit], "total": len(items), "source": "东方财富公开板块目录"}
+        items = [item for item in items if _board_keyword_match(item, keyword)]
+    return {"items": items[:limit], "total": len(items), "source": "东方财富公开板块目录（扶摇不可用时兜底）"}
 
 
 @router.get("/fund-flow/live")
@@ -537,11 +659,56 @@ async def fund_flow_history(
 
 @router.get("/fund-flow/sector-kline")
 async def sector_kline(
-    sector: str = Query(..., pattern=r"^BK\d{4}$"),
+    request: Request,
+    sector: str = Query(..., pattern=r"^(?:BK\d{4}|\d{6}\.(?:TI|SH|SZ))$"),
     period: str = Query("daily", pattern=r"^(daily|1m|5m|15m|30m|60m)$"),
     days: int = Query(60, ge=10, le=120),
 ):
-    """Public sector quote bars; minute candles use the last 120 bars, daily may include today's partial candle."""
+    """Use TickFlow-routed local bars for exchange indices, Fuyao for THS boards."""
+    if re.fullmatch(r"\d{6}\.(?:SH|SZ)", sector.upper()):
+        key = f"tickflow-kline:{sector}:{days}"
+        cached = _history_cache.get(key)
+        if cached and time.monotonic() - cached[0] < 300:
+            return cached[1]
+        if period != "daily":
+            raise HTTPException(status_code=503, detail="当前指数分钟板块曲线请使用指数行情组件；板块接口仅提供日K")
+        try:
+            rows = await _fetch_local_index_history(request, sector.upper(), days)
+            result = {"sector": sector.upper(), "name": sector.upper(), "period": "daily", "rows": rows,
+                      "latest_time": rows[-1]["time"],
+                      "fetched_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
+                      "stale": False, "provider": "tickflow",
+                      "source": "TickFlow日K缓存"}
+            _history_cache[key] = (time.monotonic(), result)
+            return result
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError) as exc:
+            if cached:
+                return {**cached[1], "stale": True}
+            raise HTTPException(status_code=502, detail=f"TickFlow指数日K暂不可用：{type(exc).__name__}") from exc
+
+    if re.fullmatch(r"\d{6}\.TI", sector.upper()):
+        if period != "daily":
+            raise HTTPException(status_code=503, detail="扶摇当前仅开放板块日K；板块分钟行情尚未开放外部接口")
+        key = f"fuyao-kline:{sector}:{days}"
+        cached = _history_cache.get(key)
+        if cached and time.monotonic() - cached[0] < 300:
+            return cached[1]
+        try:
+            code, rows, timestamp = await _fetch_fuyao_board_history(sector.upper(), days)
+            if not rows:
+                raise ValueError("扶摇未返回该板块历史行情")
+            result = {"sector": code, "name": code, "period": "daily", "rows": rows,
+                      "latest_time": rows[-1]["time"],
+                      "fetched_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
+                      "stale": False, "provider": "fuyao",
+                      "source": "扶摇同花顺行业/概念指数日K", "server_timestamp": timestamp}
+            _history_cache[key] = (time.monotonic(), result)
+            return result
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError) as exc:
+            if cached:
+                return {**cached[1], "stale": True}
+            raise HTTPException(status_code=502, detail=f"扶摇板块日K暂不可用：{type(exc).__name__}") from exc
+
     key = f"kline:{sector}:{period}:{days if period == 'daily' else 120}"
     ttl = 45 if period != "daily" else 300
     cached = _history_cache.get(key)
@@ -558,7 +725,8 @@ async def sector_kline(
                 raise ValueError("板块行情没有有效K线")
             result = {"sector": sector, "name": name, "period": period, "rows": rows,
                       "latest_time": rows[-1]["time"], "fetched_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
-                      "stale": False, "source": "东方财富公开板块行情"}
+                      "stale": False, "provider": "eastmoney",
+                      "source": "东方财富公开板块行情（可能延迟）"}
             _history_cache[key] = (time.monotonic(), result)
             return result
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:

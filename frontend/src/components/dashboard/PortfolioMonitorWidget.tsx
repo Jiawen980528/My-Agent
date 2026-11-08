@@ -218,10 +218,10 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
   const applyBoardSearch = () => {
     const raw = boardSearch.trim()
     if (!raw) { onLinkedBoardChange(''); setBoardChoiceError(''); return }
-    const code = raw.match(/BK\d{4}/i)?.[0]?.toUpperCase()
+    const code = raw.match(/(?:BK\d{4}|\d{6}\.(?:TI|SH|SZ))/i)?.[0]?.toUpperCase()
     const match = boardOptions.find(option => option.code === code || option.name === raw || raw.includes(option.code))
       || boardOptions.find(option => option.name.includes(raw))
-    if (!match) { setBoardChoiceError('未找到该板块，请输入名称或 BK 代码'); return }
+    if (!match) { setBoardChoiceError('未找到该板块，请输入名称、BK 代码或同花顺指数代码'); return }
     onLinkedBoardChange(match.code); setBoardSearch(`${match.name} (${match.code})`); setBoardChoiceError('')
   }
   const isLatest = day === (quoteDate(item) || marketDay())
@@ -311,7 +311,7 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
         <span className="ml-2 text-xs text-accent">{price(item.price)}</span>
         <span className={`ml-2 text-xs ${Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}`}>{pct(item.change_pct)}</span></div>
       <div className="flex flex-wrap items-center justify-end gap-1"><label className="text-xs text-muted">关联板块
-        <span className="relative ml-1 inline-block"><input aria-label={`${item.name}关联板块搜索`} list={boardListId} value={boardSearch} onChange={event => { setBoardSearch(event.target.value); setBoardChoiceError('') }} onKeyDown={event => { if (event.key === 'Enter') applyBoardSearch() }} placeholder="输入名称或 BK 代码" className="w-52 rounded border border-border bg-base px-1 py-0.5 text-[11px]" />
+          <span className="relative ml-1 inline-block"><input aria-label={`${item.name}关联板块搜索`} list={boardListId} value={boardSearch} onChange={event => { setBoardSearch(event.target.value); setBoardChoiceError('') }} onKeyDown={event => { if (event.key === 'Enter') applyBoardSearch() }} placeholder="输入名称或板块/指数代码" className="w-52 rounded border border-border bg-base px-1 py-0.5 text-[11px]" />
           {!!boardSearch.trim() && !!boardSuggestions.length && <span className="absolute left-0 top-full z-50 mt-1 block max-h-48 w-72 overflow-auto rounded border border-border bg-surface p-1 shadow-2xl">{boardSuggestions.map(option => <button type="button" key={option.code} onClick={() => { setBoardSearch(`${option.name} (${option.code})`); onLinkedBoardChange(option.code); setBoardChoiceError('') }} className="block w-full px-2 py-1 text-left text-[11px] hover:bg-elevated"><b>{option.name}</b><span className="ml-2 font-mono text-muted">{option.code}</span>{option.pct != null && <span className={`float-right ${option.pct >= 0 ? 'text-bull' : 'text-bear'}`}>{option.pct > 0 ? '+' : ''}{option.pct}%</span>}</button>)}</span>}
         </span><datalist id={boardListId}>{boardOptions.map(option => <option key={option.code} value={`${option.name} (${option.code})`} />)}</datalist></label>
         <button type="button" onClick={applyBoardSearch} className="rounded border border-border px-1.5 py-0.5 text-[11px] text-accent">应用</button>

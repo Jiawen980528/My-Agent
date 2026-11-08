@@ -459,6 +459,19 @@ class FuyaoProvider:
         logger.info("扶摇指数行情拉取完成: %d 条(请求 %d 只)", len(records), len(wanted))
         return records
 
+    # ---- 同花顺板块/指数目录 ----
+    def get_ths_index_catalog(self, tag: str) -> tuple[list[dict], int]:
+        """Return a THS concept/industry catalog without changing quote routing."""
+        return self._get_client().ths_index_catalog(tag)
+
+    def get_ths_index_constituents(self, thscode: str) -> tuple[list[dict], int]:
+        return self._get_client().ths_index_constituents(thscode)
+
+    def get_ths_index_history(
+        self, thscode: str, start_ms: int, end_ms: int
+    ) -> tuple[list[dict], int]:
+        return self._get_client().ths_index_historical(thscode, start_ms, end_ms)
+
     # ---- daily ----
     def get_daily(
         self,

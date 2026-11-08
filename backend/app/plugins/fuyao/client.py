@@ -137,6 +137,46 @@ class FuyaoClient:
             rows = []
         return rows, server_ts
 
+    def ths_index_catalog(self, tag: str = "cn_concept") -> tuple[list[dict], int]:
+        """Return the complete Tonghuashun industry/concept index catalog."""
+        allowed = {"cn_concept", "industry", "region", "tszs"}
+        if tag not in allowed:
+            raise FuyaoError(f"不支持的扶摇指数目录类型: {tag}")
+        data = self._get("/api/a-share-index/catalog/ths-index-list", {"tag": tag})
+        try:
+            timestamp = int(data.get("timestamp") or 0)
+        except (TypeError, ValueError):
+            timestamp = 0
+        rows = data.get("item")
+        return (rows if isinstance(rows, list) else []), timestamp
+
+    def ths_index_constituents(self, thscode: str) -> tuple[list[dict], int]:
+        """Return the current constituents of one exchange/THS index."""
+        data = self._get("/api/a-share-index/constituents/ths-stock-list", {"thscode": thscode})
+        try:
+            timestamp = int(data.get("timestamp") or 0)
+        except (TypeError, ValueError):
+            timestamp = 0
+        rows = data.get("item")
+        return (rows if isinstance(rows, list) else []), timestamp
+
+    def ths_index_historical(
+        self, thscode: str, start_ms: int, end_ms: int, interval: str = "1d"
+    ) -> tuple[list[dict], int]:
+        """Return historical bars for one exchange/THS index."""
+        if interval != "1d":
+            raise FuyaoError("扶摇指数历史行情当前仅支持 1d")
+        data = self._get(
+            "/api/a-share-index/prices/historical",
+            {"thscode": thscode, "interval": interval, "start": int(start_ms), "end": int(end_ms)},
+        )
+        try:
+            timestamp = int(data.get("timestamp") or 0)
+        except (TypeError, ValueError):
+            timestamp = 0
+        rows = data.get("item")
+        return (rows if isinstance(rows, list) else []), timestamp
+
     # ---- 历史日K ----
     def historical_kline(
         self, thscode: str, start_ms: int, end_ms: int, adjust: str = "none"
