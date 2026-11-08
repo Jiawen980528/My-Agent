@@ -2,10 +2,11 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 type Bar = { datetime: string; close: number; high: number; low: number; volume?: number }
-type Holding = { symbol: string; name: string; price?: number | null; change_pct?: number | null; market_timestamp?: string | number | null }
+type Holding = { symbol: string; name: string; price?: number | null; change_pct?: number | null; market_timestamp?: string | number | null; board?: { code?: string | null; name?: string | null } | null }
 type Freshness = { market_time?: string | null; received_at?: string | null; age_seconds?: number | null; stale?: boolean }
 type VolumeForecast = { status: 'ok' | 'unavailable'; forecast_amount?: number; forecast_low?: number; forecast_high?: number; current_cumulative_amount?: number; sample_days?: number; as_of?: string; method?: string; reason?: string; source?: string; scope?: string; covered_symbol_count?: number; symbol_count?: number; historical_days_available?: number; data_is_real?: boolean }
 type MarketOverviewBrief = { breadth?: { up?: number; down?: number; flat?: number; avg_pct?: number | null }; amount?: { total?: number | null }; as_of?: string | null; quote_status?: { quote_age_ms?: number | null; is_trading_hours?: boolean } }
+type BoardContext = { rows?: { close?: number; time?: string }[]; latest_time?: string; source?: string; name?: string }
 type DecisionResult = { action: string; rating: string; reasons: string[]; basis: string[]; suggested_qty: number; max_risk_yuan: number; account_verified: boolean; valid_until: string; evidence?: { context_missing?: string[] } }
 const API = '/quant/api/myagent/quant'
 const pct = (n: number | null) => n == null || !Number.isFinite(n) ? '—' : `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
@@ -63,8 +64,22 @@ export function DecisionGuide() {
     refetchInterval: tradingNow() ? 30_000 : false,
     staleTime: 30_000,
   })
+  const linkedBoardCode = selected?.item.board?.code?.toUpperCase().match(/^BK\d{4}$/)?.[0] || ''
+  const linkedBoard = useQuery({
+    queryKey: ['decision-guide-board', linkedBoardCode],
+    queryFn: () => json<BoardContext>(`/quant/api/myagent/fund-flow/sector-kline?sector=${linkedBoardCode}&period=1m`),
+    enabled: !!linkedBoardCode,
+    refetchInterval: tradingNow() ? 60_000 : false,
+    staleTime: 60_000,
+  })
+  const boardPct = useMemo(() => {
+    const rows = linkedBoard.data?.rows || []
+    const first = Number(rows[0]?.close)
+    const last = Number(rows.at(-1)?.close)
+    return Number.isFinite(first) && first > 0 && Number.isFinite(last) ? last / first - 1 : null
+  }, [linkedBoard.data?.rows])
   const decision = useQuery({
-    queryKey: ['decision-guide-assist', selected?.item.symbol, selected?.last, selected?.bars.at(-1)?.datetime],
+    queryKey: ['decision-guide-assist', selected?.item.symbol, selected?.last, selected?.bars.at(-1)?.datetime, linkedBoardCode, boardPct, marketOverview.data?.as_of, marketVolumeForecast.data?.as_of],
     queryFn: async () => {
       const response = await fetch('/quant/api/myagent/decision/assist', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
@@ -78,7 +93,7 @@ export function DecisionGuide() {
               ? (marketVolumeForecast.data.current_cumulative_amount || 0) / marketVolumeForecast.data.forecast_amount
               : null,
           },
-          board: {},
+          board: linkedBoardCode && boardPct != null ? { pct: boardPct } : {},
           market_breadth: marketOverview.data?.breadth ? {
             up_count: marketOverview.data.breadth.up,
             down_count: marketOverview.data.breadth.down,
