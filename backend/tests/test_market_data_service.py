@@ -3,7 +3,7 @@ from datetime import datetime
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
-from app.services.market_data_service import freshness, normalize_symbol, quote_snapshot
+from app.services.market_data_service import freshness, minute_quality, normalize_symbol, quote_snapshot
 
 
 class MarketDataServiceTests(unittest.TestCase):
@@ -29,7 +29,18 @@ class MarketDataServiceTests(unittest.TestCase):
         self.assertEqual(result["source"], "TickFlow")
         self.assertEqual(result["items"][0]["name"], "测试")
         self.assertIn("market_time", result["items"][0])
+        self.assertEqual(result["items"][0]["source"], "TickFlow")
         get_client.return_value.quotes.get.assert_called_once_with(symbols=["600000.SH"])
+
+    def test_minute_quality_rejects_duplicate_or_unsorted_rows(self):
+        result = minute_quality([
+            {"datetime": "2026-11-06 09:32"},
+            {"datetime": "2026-11-06 09:32"},
+            {"datetime": "2026-11-06 09:31"},
+        ])
+        self.assertFalse(result["valid"])
+        self.assertEqual(result["duplicate_timestamps"], 1)
+        self.assertFalse(result["sorted"])
 
 
 if __name__ == "__main__":

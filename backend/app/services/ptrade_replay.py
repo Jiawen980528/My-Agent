@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+from contextlib import closing
 import io
 import math
 import re
@@ -107,10 +108,11 @@ def save_trade_csv(data_dir: Path, raw: bytes) -> dict:
     rows = parse_trade_csv(raw)
     path = _trade_rows_db(data_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(path, timeout=10) as db:
-        db.execute("CREATE TABLE IF NOT EXISTS trades (trade_id TEXT PRIMARY KEY, symbol TEXT NOT NULL, datetime TEXT NOT NULL, side TEXT NOT NULL, qty REAL NOT NULL, price REAL NOT NULL, fee REAL, source TEXT NOT NULL)")
-        db.executemany("INSERT INTO trades VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(trade_id) DO UPDATE SET symbol=excluded.symbol,datetime=excluded.datetime,side=excluded.side,qty=excluded.qty,price=excluded.price,fee=excluded.fee,source=excluded.source",
-                       [tuple(row[field] for field in TRADE_FIELDS) for row in rows])
+    with closing(sqlite3.connect(path, timeout=10)) as db:
+        with db:
+            db.execute("CREATE TABLE IF NOT EXISTS trades (trade_id TEXT PRIMARY KEY, symbol TEXT NOT NULL, datetime TEXT NOT NULL, side TEXT NOT NULL, qty REAL NOT NULL, price REAL NOT NULL, fee REAL, source TEXT NOT NULL)")
+            db.executemany("INSERT INTO trades VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(trade_id) DO UPDATE SET symbol=excluded.symbol,datetime=excluded.datetime,side=excluded.side,qty=excluded.qty,price=excluded.price,fee=excluded.fee,source=excluded.source",
+                           [tuple(row[field] for field in TRADE_FIELDS) for row in rows])
     return {"count": len(rows), "symbols": sorted({row["symbol"] for row in rows}), "source": "transaction_ledger"}
 
 
@@ -119,7 +121,7 @@ def load_trade_rows(data_dir: Path, symbol: str, trade_date: str) -> list[dict]:
     path = _trade_rows_db(data_dir)
     if not path.exists():
         return _default_trade_rows(_legacy_symbol(symbol), trade_date)
-    with sqlite3.connect(path, timeout=10) as db:
+    with closing(sqlite3.connect(path, timeout=10)) as db:
         db.row_factory = sqlite3.Row
         rows = [dict(row) for row in db.execute("SELECT * FROM trades WHERE symbol=? AND datetime>=? AND datetime<? ORDER BY datetime,trade_id",
                                                 (symbol, trade_date, (datetime.fromisoformat(trade_date) + timedelta(days=1)).date().isoformat()))]
@@ -199,15 +201,16 @@ def save_csv(data_dir: Path, raw: bytes) -> dict:
     rows, report = parse_csv(raw)
     path = _db(data_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(path, timeout=10) as db:
-        db.execute("CREATE TABLE IF NOT EXISTS minute (symbol TEXT NOT NULL, datetime TEXT NOT NULL, "
-                   "open REAL NOT NULL, high REAL NOT NULL, low REAL NOT NULL, close REAL NOT NULL, "
-                   "volume REAL NOT NULL, amount REAL NOT NULL, source TEXT NOT NULL, "
-                   "PRIMARY KEY(symbol,datetime))")
-        db.executemany("INSERT INTO minute VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(symbol,datetime) "
-                       "DO UPDATE SET open=excluded.open,high=excluded.high,low=excluded.low,close=excluded.close,"
-                       "volume=excluded.volume,amount=excluded.amount,source=excluded.source",
-                       [tuple(row[key] for key in FIELDS) for row in rows])
+    with closing(sqlite3.connect(path, timeout=10)) as db:
+        with db:
+            db.execute("CREATE TABLE IF NOT EXISTS minute (symbol TEXT NOT NULL, datetime TEXT NOT NULL, "
+                       "open REAL NOT NULL, high REAL NOT NULL, low REAL NOT NULL, close REAL NOT NULL, "
+                       "volume REAL NOT NULL, amount REAL NOT NULL, source TEXT NOT NULL, "
+                       "PRIMARY KEY(symbol,datetime))")
+            db.executemany("INSERT INTO minute VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(symbol,datetime) "
+                           "DO UPDATE SET open=excluded.open,high=excluded.high,low=excluded.low,close=excluded.close,"
+                           "volume=excluded.volume,amount=excluded.amount,source=excluded.source",
+                           [tuple(row[key] for key in FIELDS) for row in rows])
     return report
 
 
@@ -215,7 +218,7 @@ def load(data_dir: Path, symbol: str, trade_date: str = TARGET_DAY) -> list[dict
     storage_symbol = _legacy_symbol(symbol)
     if storage_symbol not in SYMBOLS or not _db(data_dir).exists():
         return []
-    with sqlite3.connect(_db(data_dir), timeout=10) as db:
+    with closing(sqlite3.connect(_db(data_dir), timeout=10)) as db:
         db.row_factory = sqlite3.Row
         return [dict(row) for row in db.execute("SELECT * FROM minute WHERE symbol=? AND datetime>=? "
                                                "AND datetime<? ORDER BY datetime", (storage_symbol, trade_date,

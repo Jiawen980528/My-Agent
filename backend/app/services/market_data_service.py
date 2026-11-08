@@ -72,6 +72,7 @@ def quote_snapshot(symbols: list[str]) -> dict[str, Any]:
     for row in rows:
         ext = row.get("ext") or {}
         item = {
+            "source": "TickFlow",
             "symbol": normalize_symbol(row.get("symbol")),
             "name": ext.get("name"),
             "price": row.get("last_price"),
@@ -89,6 +90,19 @@ def quote_snapshot(symbols: list[str]) -> dict[str, Any]:
     return {"source": "TickFlow", "items": items, **status}
 
 
+def minute_quality(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize ordering/duplicate quality without fabricating or repairing bars."""
+    timestamps = [str(item.get("datetime") or "") for item in items]
+    unique_timestamps = set(timestamps)
+    return {
+        "row_count": len(items),
+        "duplicate_timestamps": len(timestamps) - len(unique_timestamps),
+        "sorted": timestamps == sorted(timestamps),
+        "timezone": "Asia/Shanghai",
+        "valid": len(timestamps) == len(unique_timestamps) and timestamps == sorted(timestamps),
+    }
+
+
 def minute_bars(symbol: str, trade_date: date, *, capset: CapabilitySet,
                 asset_type: str = "stock") -> dict[str, Any]:
     normalized = normalize_symbol(symbol)
@@ -97,13 +111,15 @@ def minute_bars(symbol: str, trade_date: date, *, capset: CapabilitySet,
         raise PermissionError("minute entitlement unavailable")
     from app.services.kline_sync import fetch_minute_single
     bars = fetch_minute_single(normalized, trade_date, asset_type=asset_type, capset=capset)
-    items = [{**row, "datetime": str(row["datetime"])} for row in bars.to_dicts()]
+    items = [{**row, "datetime": str(row["datetime"]), "source": "TickFlow"} for row in bars.to_dicts()]
+    quality = minute_quality(items)
     latest = items[-1]["datetime"] if items else None
     return {
         "symbol": normalized,
         "trade_date": trade_date.isoformat(),
         "source": "TickFlow",
         "rows": items,
+        "quality": quality,
         "last_market_time": latest,
         **freshness(latest),
     }
