@@ -82,3 +82,5 @@
 
 后续测试：本轮后端量化纯单元测试 23 项通过；Python 语法检查通过；前端本地 TypeScript 检查退出码 0。完整后端测试在当前 Python 3.9 环境无法导入项目依赖（如 polars/pytest），未据此声称全量通过。pnpm 常规命令曾被本机安全策略阻止安装步骤（esbuild 构建脚本未批准），未修改该策略。
 
+最新验证：使用临时目录补充 `polars` 后，完整 `pytest tests -q` 仍因测试环境缺少 `duckdb`、`tickflow`、`python-multipart` 等依赖，在收集阶段出现 223 个错误，未发现本轮量化改动造成的断言失败；前端 `Indices.test.tsx` 通过（1/1），TypeScript 检查仍通过。
+
