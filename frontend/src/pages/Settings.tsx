@@ -17,10 +17,10 @@ const SettingsPageAdminPanel = lazy(() => import('./settings/PageAdmin').then(m 
 const SettingsTimeoutPanel = lazy(() => import('./settings/Timeout').then(m => ({ default: m.SettingsTimeoutPanel })))
 const SettingsSystemPanel = lazy(() => import('./settings/System').then(m => ({ default: m.SettingsSystemPanel })))
 const SettingsAboutPanel = lazy(() => import('./settings/About').then(m => ({ default: m.SettingsAboutPanel })))
-const SettingsDataSourcesPanel = lazy(() => import('./settings/DataSources').then(m => ({ default: m.SettingsDataSourcesPanel })))
 import { PageHeader } from '@/components/PageHeader'
 import { cn } from '@/lib/cn'
 import { setUiPref } from '@/lib/uiPrefs'
+import { SettingsDataSourcesPanel } from './settings/DataSources'
 
 // ===== Tab 定义 =====
 

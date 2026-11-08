@@ -133,3 +133,5 @@ AI 桥接来源修复：`shared_context` 不再固定返回 `tickflow`，而是�
 
 推演页跨设备关联修复：每日行情推演现在优先读取后端 `ui_prefs` 中的 `portfolio_terminal_linked_boards`，后端偏好缺失时才回退浏览器本地缓存；同时修复看盘右键“添加证券”按钮将点击事件误传给代码参数的 TypeScript 错误。前端 `tsc --noEmit` 退出码 `0`，持仓组件 `3/3` 通过，Vite 构建退出码 `0`。
 
+数据源入口加载修复：设置页“数据源”面板改为随设置主模块同步加载，避免点击左侧菜单时额外请求 `DataSources-*.js` 造成旧 HTML/新资源不一致的动态模块失败；其他设置面板仍保持懒加载。构建产物中不再生成独立 `DataSources-*.js` chunk，`tsc --noEmit` 和 Vite 构建均退出码 `0`。该修复尚需生产静态资源切换后在真实域名验证，当前未部署。
+
