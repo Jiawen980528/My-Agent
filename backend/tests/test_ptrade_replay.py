@@ -46,6 +46,22 @@ class PTradeReplayTests(unittest.TestCase):
             self.assertEqual(len(result["trades"]), 1)
             self.assertEqual(result["fees"], 5)
 
+    def test_shanghai_ss_alias_round_trips_through_ledger_and_minute_store(self):
+        raw = ("trade_id,symbol,datetime,side,qty,price,fee,source\n"
+               "fill-ss,588080.SS,2026-11-06T10:00:00+08:00,buy,100,1.2,5,manual\n").encode()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            replay.save_trade_csv(root, raw)
+            rows = replay.load_trade_rows(root, "588080.SH", "2026-11-06")
+            self.assertEqual(rows[0]["symbol"], "588080.SH")
+            self.assertEqual(rows[0]["trade_id"], "fill-ss")
+
+            minute = sample().decode().replace("159558.SZ", "588080.SS")
+            replay.save_csv(root, minute.encode())
+            loaded = replay.load(root, "588080.SH")
+            self.assertEqual(len(loaded), 1)
+            self.assertEqual(loaded[0]["symbol"], "588080.SS")
+
 
 if __name__ == "__main__":
     unittest.main()

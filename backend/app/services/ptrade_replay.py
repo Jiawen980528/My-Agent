@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import io
 import math
+import re
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -20,6 +21,18 @@ TRADES = {
 }
 FIELDS = ("symbol", "datetime", "open", "high", "low", "close", "volume", "amount", "source")
 TRADE_FIELDS = ("trade_id", "symbol", "datetime", "side", "qty", "price", "fee", "source")
+_SYMBOL = re.compile(r"^\d{6}\.(SH|SZ|BJ|SS)$")
+
+
+def _canonical_symbol(symbol: str) -> str:
+    """Use one storage key while accepting TickFlow's SS spelling for Shanghai."""
+    return str(symbol or "").strip().upper().replace(".SS", ".SH")
+
+
+def _legacy_symbol(symbol: str) -> str:
+    """Map the historical seed's only SS spelling back for compatibility."""
+    value = _canonical_symbol(symbol)
+    return "588080.SS" if value == "588080.SH" else value
 
 
 def _db(data_dir: Path) -> Path:
@@ -60,10 +73,11 @@ def parse_trade_csv(raw: bytes) -> list[dict]:
         if line > 5001:
             raise ValueError("成交 CSV 行数过多")
         trade_id = (item.get("trade_id") or "").strip()
-        symbol = (item.get("symbol") or "").strip().upper().replace(".SS", ".SH")
+        symbol = (item.get("symbol") or "").strip().upper()
         side = (item.get("side") or "").strip().lower()
         source = (item.get("source") or "").strip()
-        if not trade_id or trade_id in seen or not symbol or side not in {"buy", "sell"} or not source:
+        if (not trade_id or trade_id in seen or not _SYMBOL.fullmatch(symbol)
+                or side not in {"buy", "sell"} or not source):
             raise ValueError(f"第 {line} 行成交标识、证券、方向或来源无效")
         try:
             dt = datetime.fromisoformat((item.get("datetime") or "").strip())
@@ -82,7 +96,7 @@ def parse_trade_csv(raw: bytes) -> list[dict]:
         except (TypeError, ValueError, KeyError) as exc:
             raise ValueError(f"第 {line} 行无效：{exc}") from exc
         seen.add(trade_id)
-        rows.append({"trade_id": trade_id, "symbol": symbol, "datetime": dt.isoformat(timespec="seconds"),
+        rows.append({"trade_id": trade_id, "symbol": _canonical_symbol(symbol), "datetime": dt.isoformat(timespec="seconds"),
                      "side": side, "qty": qty, "price": price, "fee": fee, "source": source})
     if not rows:
         raise ValueError("成交 CSV 没有有效记录")
@@ -101,14 +115,15 @@ def save_trade_csv(data_dir: Path, raw: bytes) -> dict:
 
 
 def load_trade_rows(data_dir: Path, symbol: str, trade_date: str) -> list[dict]:
+    symbol = _canonical_symbol(symbol)
     path = _trade_rows_db(data_dir)
     if not path.exists():
-        return _default_trade_rows(symbol, trade_date)
+        return _default_trade_rows(_legacy_symbol(symbol), trade_date)
     with sqlite3.connect(path, timeout=10) as db:
         db.row_factory = sqlite3.Row
         rows = [dict(row) for row in db.execute("SELECT * FROM trades WHERE symbol=? AND datetime>=? AND datetime<? ORDER BY datetime,trade_id",
                                                 (symbol, trade_date, (datetime.fromisoformat(trade_date) + timedelta(days=1)).date().isoformat()))]
-    return rows or _default_trade_rows(symbol, trade_date)
+    return rows or _default_trade_rows(_legacy_symbol(symbol), trade_date)
 
 
 def _minute_allowed(dt: datetime) -> bool:
@@ -197,12 +212,13 @@ def save_csv(data_dir: Path, raw: bytes) -> dict:
 
 
 def load(data_dir: Path, symbol: str, trade_date: str = TARGET_DAY) -> list[dict]:
-    if symbol not in SYMBOLS or not _db(data_dir).exists():
+    storage_symbol = _legacy_symbol(symbol)
+    if storage_symbol not in SYMBOLS or not _db(data_dir).exists():
         return []
     with sqlite3.connect(_db(data_dir), timeout=10) as db:
         db.row_factory = sqlite3.Row
         return [dict(row) for row in db.execute("SELECT * FROM minute WHERE symbol=? AND datetime>=? "
-                                               "AND datetime<? ORDER BY datetime", (symbol, trade_date,
+                                               "AND datetime<? ORDER BY datetime", (storage_symbol, trade_date,
                                                (datetime.fromisoformat(trade_date) + timedelta(days=1)).date().isoformat()))]
 
 
