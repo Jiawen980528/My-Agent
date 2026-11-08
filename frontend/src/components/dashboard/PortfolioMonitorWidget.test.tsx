@@ -10,6 +10,7 @@ vi.mock('@/lib/api', () => ({ api: { klineMinuteRange: vi.fn() } }))
 
 vi.mock('@tanstack/react-query', () => ({
   useQuery: ({ queryKey }: { queryKey: string[] }) => {
+    if (queryKey[0] === 'portfolio-instrument-search') return { data: { results: [{ symbol: '600939.SH', name: '重庆建工', code: '600939', asset_type: 'stock' }] } }
     if (queryKey[0] === 'portfolio-widget-snapshot') return { data: {
       source: 'TickFlow Pro', notice: '', items: [{ symbol: '159558.SZ', name: '半导体设备ETF易方达',
         holding_source: null, quantity: null, price: 0.8, change_pct: 1.2,
@@ -80,4 +81,26 @@ it('lets the user right click to hide and restore board content', async () => {
   expect(host.querySelectorAll('[role="img"]')).toHaveLength(1)
   await act(async () => root.unmount())
   localStorage.removeItem('portfolio-terminal-visible')
+})
+
+it('adds a security by name from the right-click search results', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as typeof ResizeObserver
+  localStorage.removeItem('portfolio-terminal-extra-symbols')
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  await act(async () => root.render(<MemoryRouter><PortfolioMonitorWidget /></MemoryRouter>))
+  await act(async () => host.querySelector('section')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
+  const input = document.body.querySelector('input[aria-label="添加证券代码"]') as HTMLInputElement
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    setter.call(input, '重庆建工')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const result = [...document.body.querySelectorAll('button')].find(button => button.textContent?.includes('重庆建工'))!
+  await act(async () => result.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  expect(host.textContent).toContain('全部监控 2')
+  await act(async () => root.unmount())
+  localStorage.removeItem('portfolio-terminal-extra-symbols')
+  localStorage.removeItem('portfolio-terminal-extra-symbol-names')
 })

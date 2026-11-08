@@ -433,11 +433,18 @@ export function PortfolioMonitorWidget() {
   })
   const [symbolInput, setSymbolInput] = useState('')
   const [symbolError, setSymbolError] = useState('')
+  const [extraSymbolNames, setExtraSymbolNames] = useState<Record<string, string>>(() => loadObject('portfolio-terminal-extra-symbol-names', {}))
   const [boardInput, setBoardInput] = useState('')
   const [boardError, setBoardError] = useState('')
   const [extraBoards, setExtraBoards] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('portfolio-terminal-extra-boards') || '[]') }
     catch { return [] }
+  })
+  const symbolMatches = useQuery({
+    queryKey: ['portfolio-instrument-search', symbolInput.trim()],
+    queryFn: () => api.instrumentSearch(symbolInput.trim(), 12, 'stock,etf,index'),
+    enabled: symbolInput.trim().length >= 1,
+    staleTime: 60_000,
   })
   const sectorCatalog = useQuery({ queryKey: ['fund-flow-sector-catalog'], queryFn: () =>
     json<{ items: { code: string; name: string; pct?: number | null }[]; source: string }>(`${PUBLIC_API}/fund-flow/sectors?limit=1200`), staleTime: 10 * 60_000 })
@@ -448,7 +455,7 @@ export function PortfolioMonitorWidget() {
     return (sectorCatalog.data?.items || []).filter(item => `${item.code} ${item.name}`.toLowerCase().includes(query)).slice(0, 8)
   }, [boardInput, sectorCatalog.data?.items])
   const allItems = useMemo<Holding[]>(() => [...items, ...extraSymbols.filter(symbol => !items.some(item => item.symbol === symbol))
-    .map(symbol => ({ symbol, name: symbol + ' · 名称待核对' }))], [items, extraSymbols])
+    .map(symbol => ({ symbol, name: extraSymbolNames[symbol] || symbol + ' · 名称待核对' }))], [items, extraSymbols, extraSymbolNames])
   const active = allItems.find(item => item.symbol === selected) || allItems[0]
   const reportedDay = items.map(quoteDate).filter(day => /^\d{4}-\d{2}-\d{2}$/.test(day)).sort().at(-1) || ''
   // Public close snapshots are fetched on weekends too; their fetch timestamp
@@ -527,16 +534,23 @@ export function PortfolioMonitorWidget() {
       if (Number.isFinite(left) && Number.isFinite(right)) setPaneWidths({ left, right })
     }
   }, [preferences?.ui_prefs])
-  const addSymbol = () => {
-    const symbol = symbolInput.trim().toUpperCase().replace(/\.SS$/, '.SH')
+  const addSymbol = (inputValue = symbolInput) => {
+    const raw = inputValue.trim()
+    const match = symbolMatches.data?.results?.find(result => result.symbol === raw.toUpperCase().replace(/\.SS$/, '.SH') || result.code === raw || result.name === raw)
+    const symbol = (match?.symbol || raw).toUpperCase().replace(/\.SS$/, '.SH')
     if (!/^\d{6}\.(SH|SZ|BJ)$/.test(symbol)) {
-      setSymbolError('请输入完整代码，如 159558.SZ 或 600939.SH')
+      setSymbolError('请输入代码或先从名称搜索结果中选择，例如“半导体ETF”')
       return
     }
     if (!allItems.some(item => item.symbol === symbol)) {
       const next = [...extraSymbols, symbol]
       setExtraSymbols(next)
       setUiPref('portfolio-terminal-extra-symbols', JSON.stringify(next))
+    }
+    if (match?.name) {
+      const names = { ...extraSymbolNames, [symbol]: match.name }
+      setExtraSymbolNames(names)
+      setUiPref('portfolio-terminal-extra-symbol-names', JSON.stringify(names))
     }
     setSelected(symbol); setSelectedBoard(''); setSymbolInput(''); setSymbolError(''); setMenu(null)
   }
@@ -639,10 +653,14 @@ export function PortfolioMonitorWidget() {
       <div className="px-2 py-1 font-semibold">显示内容</div>
       {(Object.keys(PANEL_LABEL) as Panel[]).map(key => <button role="menuitemcheckbox" aria-checked={visible[key]} type="button" key={key} onClick={() => toggle(key)}
         className="block w-full rounded px-2 py-1 text-left hover:bg-elevated">{visible[key] ? '☑' : '□'} {PANEL_LABEL[key]}</button>)}
-      <div className="mt-1 border-t border-border px-2 py-1 font-semibold">添加个股 / ETF</div>
+      <div className="mt-1 border-t border-border px-2 py-1 font-semibold">添加个股 / ETF / 指数</div>
       <div className="flex gap-1 px-1"><input aria-label="添加证券代码" value={symbolInput} onChange={e => setSymbolInput(e.target.value)}
-        onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addSymbol() }} placeholder="159558.SZ" className="min-w-0 w-full rounded border border-border bg-base px-1" />
+        onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addSymbol() }} placeholder="输入名称或代码" className="min-w-0 w-full rounded border border-border bg-base px-1" />
         <button type="button" onClick={addSymbol} className="text-accent">添加</button></div>
+      {!!symbolInput.trim() && !!symbolMatches.data?.results?.length && <div className="mt-1 max-h-32 overflow-auto rounded border border-border bg-base">
+        {symbolMatches.data.results.map(result => <button type="button" key={`${result.symbol}-${result.asset_type || ''}`} onClick={() => addSymbol(result.symbol)}
+          className="block w-full px-2 py-1 text-left hover:bg-elevated"><b>{result.name || result.symbol}</b><span className="ml-1 font-mono text-[10px] text-muted">{result.symbol}</span><span className="float-right text-[10px] text-muted">{result.asset_type || 'stock'}</span></button>)}
+      </div>}
       {symbolError && <p className="px-2 text-danger">{symbolError}</p>}
       <div className="mt-1 border-t border-border px-2 py-1 font-semibold">添加板块</div>
       <div className="flex gap-1 px-1"><input aria-label="搜索板块名称或代码" value={boardInput} onChange={e => { setBoardInput(e.target.value); setBoardError('') }}
