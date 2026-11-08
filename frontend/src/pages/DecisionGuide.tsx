@@ -7,6 +7,7 @@ type Freshness = { market_time?: string | null; received_at?: string | null; age
 type VolumeForecast = { status: 'ok' | 'unavailable'; forecast_amount?: number; forecast_low?: number; forecast_high?: number; current_cumulative_amount?: number; sample_days?: number; as_of?: string; method?: string; reason?: string; source?: string; scope?: string; covered_symbol_count?: number; symbol_count?: number; historical_days_available?: number; data_is_real?: boolean }
 type MarketOverviewBrief = { breadth?: { up?: number; down?: number; flat?: number; avg_pct?: number | null }; amount?: { total?: number | null }; as_of?: string | null; quote_status?: { quote_age_ms?: number | null; is_trading_hours?: boolean } }
 type BoardContext = { rows?: { close?: number; time?: string }[]; latest_time?: string; source?: string; name?: string }
+type BoardCatalog = { items?: { code: string; name: string }[]; source?: string }
 type DecisionResult = { action: string; rating: string; reasons: string[]; basis: string[]; suggested_qty: number; max_risk_yuan: number; account_verified: boolean; valid_until: string; evidence?: { context_missing?: string[] } }
 const API = '/quant/api/myagent/quant'
 const pct = (n: number | null) => n == null || !Number.isFinite(n) ? '—' : `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
@@ -78,8 +79,27 @@ export function DecisionGuide() {
     const last = Number(rows.at(-1)?.close)
     return Number.isFinite(first) && first > 0 && Number.isFinite(last) ? last / first - 1 : null
   }, [linkedBoard.data?.rows])
+  const defensiveCatalog = useQuery({
+    queryKey: ['decision-guide-defensive-catalog'],
+    queryFn: () => json<BoardCatalog>('/quant/api/myagent/fund-flow/sectors?q=%E9%93%B6%E8%A1%8C&limit=20'),
+    staleTime: 10 * 60_000,
+  })
+  const defensiveBoard = defensiveCatalog.data?.items?.find(item => item.name === '银行' || item.name.includes('银行'))
+  const defensiveQuote = useQuery({
+    queryKey: ['decision-guide-defensive-board', defensiveBoard?.code],
+    queryFn: () => json<BoardContext>(`/quant/api/myagent/fund-flow/sector-kline?sector=${defensiveBoard!.code}&period=1m`),
+    enabled: !!defensiveBoard?.code,
+    refetchInterval: tradingNow() ? 60_000 : false,
+    staleTime: 60_000,
+  })
+  const defensivePct = useMemo(() => {
+    const rows = defensiveQuote.data?.rows || []
+    const first = Number(rows[0]?.close)
+    const last = Number(rows.at(-1)?.close)
+    return Number.isFinite(first) && first > 0 && Number.isFinite(last) ? last / first - 1 : null
+  }, [defensiveQuote.data?.rows])
   const decision = useQuery({
-    queryKey: ['decision-guide-assist', selected?.item.symbol, selected?.last, selected?.bars.at(-1)?.datetime, linkedBoardCode, boardPct, marketOverview.data?.as_of, marketVolumeForecast.data?.as_of],
+    queryKey: ['decision-guide-assist', selected?.item.symbol, selected?.last, selected?.bars.at(-1)?.datetime, linkedBoardCode, boardPct, defensiveBoard?.code, defensivePct, marketOverview.data?.as_of, marketVolumeForecast.data?.as_of],
     queryFn: async () => {
       const response = await fetch('/quant/api/myagent/decision/assist', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
@@ -99,6 +119,7 @@ export function DecisionGuide() {
             down_count: marketOverview.data.breadth.down,
             flat_count: marketOverview.data.breadth.flat,
           } : {},
+          defensive: defensiveBoard && defensivePct != null ? { name: defensiveBoard.name, code: defensiveBoard.code, pct: defensivePct } : {},
           account: { source: 'unavailable', verified: false },
           turnover_forecast: marketVolumeForecast.data || {},
         }),
