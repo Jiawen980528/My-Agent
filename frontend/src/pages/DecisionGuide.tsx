@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 
-type Bar = { datetime: string; close: number; high: number; low: number; volume?: number }
+type Bar = { datetime: string; close: number; high?: number; low?: number; volume?: number; source?: string }
 type Holding = { symbol: string; name: string; price?: number | null; change_pct?: number | null; market_timestamp?: string | number | null; board?: { code?: string | null; name?: string | null } | null }
 type AccountContext = { source?: string | null; verified?: boolean; available_cash?: number | null; day_risk_used?: number | null }
 type Freshness = { market_time?: string | null; received_at?: string | null; age_seconds?: number | null; stale?: boolean }
@@ -30,11 +30,31 @@ function savedLinkedBoard(symbol: string): string {
 }
 
 function LiveCurve({ bars, color = '#4da3ff' }: { bars: Bar[]; color?: string }) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
   const values = bars.map(row => Number(row.close)).filter(Number.isFinite)
   if (values.length < 2) return <div className="flex h-24 items-center justify-center text-[11px] text-muted">暂无真实分钟曲线</div>
   const min = Math.min(...values), max = Math.max(...values), span = max - min || 1
   const points = values.map((value, index) => `${(index / (values.length - 1)) * 100},${92 - ((value - min) / span) * 78}`).join(' ')
-  return <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-24 w-full rounded border border-border bg-base/60" role="img" aria-label="实时分钟行情曲线"><polyline points={points} fill="none" stroke={color} strokeWidth="1.8" vectorEffect="non-scaling-stroke" /></svg>
+  const hovered = hoverIndex == null ? null : bars[hoverIndex]
+  const hoverX = hoverIndex == null ? 0 : (hoverIndex / (values.length - 1)) * 100
+  const hoverY = hoverIndex == null ? 0 : 92 - ((values[hoverIndex] - min) / span) * 78
+  return <div className="relative h-24">
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full rounded border border-border bg-base/60" role="img" aria-label="实时分钟行情曲线"
+      onMouseMove={event => {
+        const rect = event.currentTarget.getBoundingClientRect()
+        const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
+        setHoverIndex(Math.min(values.length - 1, Math.max(0, Math.round(ratio * (values.length - 1)))))
+      }}
+      onMouseLeave={() => setHoverIndex(null)}>
+      <polyline points={points} fill="none" stroke={color} strokeWidth="1.8" vectorEffect="non-scaling-stroke" />
+      {hovered && <><line x1={hoverX} x2={hoverX} y1="4" y2="96" stroke="#aab4c4" strokeDasharray="2 2" vectorEffect="non-scaling-stroke" /><circle cx={hoverX} cy={hoverY} r="2.3" fill={color} vectorEffect="non-scaling-stroke" /></>}
+    </svg>
+    {hovered && <div className="pointer-events-none absolute left-2 top-1 rounded border border-border bg-surface/95 px-2 py-1 text-[10px] leading-4 shadow-lg">
+      <div>{hovered.datetime || '—'}</div><div>价格 <b>{Number(hovered.close).toFixed(3)}</b></div>
+      <div>成交量 {hovered.volume == null || !Number.isFinite(Number(hovered.volume)) ? '—' : Number(hovered.volume).toLocaleString()}</div>
+      <div className="text-muted">来源 {hovered.source || '来源未标注'}</div>
+    </div>}
+  </div>
 }
 
 function summarizePeriod(rows: { close?: number; datetime?: string; date?: string }[]): PeriodSummary | null {
