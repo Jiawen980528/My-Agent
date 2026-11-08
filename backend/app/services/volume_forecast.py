@@ -25,7 +25,8 @@ def _amount_rows(rows: list[dict[str, Any]]) -> list[tuple[str, float]]:
 
 
 def forecast_amount(current_rows: list[dict[str, Any]], historical_days: list[list[dict[str, Any]]],
-                    *, now: datetime | None = None) -> dict[str, Any]:
+                    *, now: datetime | None = None,
+                    source: str = "未声明分钟数据源") -> dict[str, Any]:
     current = _amount_rows(current_rows)
     history = [_amount_rows(rows) for rows in historical_days]
     if len(history) < 3 or len(current) < 2:
@@ -62,6 +63,6 @@ def forecast_amount(current_rows: list[dict[str, Any]], historical_days: list[li
         "forecast_high": round(p90, 2),
         "sample_days": len(comparable),
         "method": "当前累计成交额 / 历史同期累计成交额占全天比例的中位数",
-        "source": "TickFlow分钟成交额",
+        "source": source,
         "stale": False,
     }

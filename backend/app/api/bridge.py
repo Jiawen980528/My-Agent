@@ -54,7 +54,7 @@ async def volume_forecast(request: Request):
         history = payload.get("historical_days", [])
         if not isinstance(current, list) or not isinstance(history, list):
             raise ValueError("current_rows 和 historical_days 必须为数组")
-        return forecast_amount(current, history)
+        return forecast_amount(current, history, source=f"{selected_minute_source()}分钟成交额")
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

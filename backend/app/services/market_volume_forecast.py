@@ -30,7 +30,9 @@ def aggregate_amount_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def forecast_market_amount(current_rows: list[dict[str, Any]],
-                           historical_days: list[list[dict[str, Any]]]) -> dict[str, Any]:
+                           historical_days: list[list[dict[str, Any]]],
+                           *, source: str = "未声明分钟数据源") -> dict[str, Any]:
     """Forecast full-market turnover from aggregated real minute amounts."""
     return forecast_amount(aggregate_amount_rows(current_rows),
-                           [aggregate_amount_rows(rows) for rows in historical_days])
+                           [aggregate_amount_rows(rows) for rows in historical_days],
+                           source=source)
