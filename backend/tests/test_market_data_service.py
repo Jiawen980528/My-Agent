@@ -1,0 +1,36 @@
+import unittest
+from datetime import datetime
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
+
+from app.services.market_data_service import freshness, normalize_symbol, quote_snapshot
+
+
+class MarketDataServiceTests(unittest.TestCase):
+    def test_normalize_symbol_does_not_guess_exchange(self):
+        self.assertEqual(normalize_symbol(" 588080.ss "), "588080.SH")
+        self.assertEqual(normalize_symbol("159558.SZ"), "159558.SZ")
+        self.assertEqual(normalize_symbol("600000"), "600000")
+
+    def test_freshness_marks_missing_and_old_data(self):
+        received = datetime(2026, 11, 8, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+        self.assertTrue(freshness(None, received_at=received)["stale"])
+        old = freshness("2026-11-08T09:55:00+08:00", received_at=received)
+        self.assertEqual(old["age_seconds"], 300)
+        self.assertTrue(old["stale"])
+
+    @patch("app.services.market_data_service._get_client")
+    def test_quote_snapshot_has_source_and_freshness(self, get_client):
+        get_client.return_value.quotes.get.return_value = [{
+            "symbol": "600000.SH", "last_price": 10.2, "prev_close": 10.0,
+            "timestamp": 1794099600000, "ext": {"name": "测试"},
+        }]
+        result = quote_snapshot(["600000.SH"])
+        self.assertEqual(result["source"], "TickFlow")
+        self.assertEqual(result["items"][0]["name"], "测试")
+        self.assertIn("market_time", result["items"][0])
+        get_client.return_value.quotes.get.assert_called_once_with(symbols=["600000.SH"])
+
+
+if __name__ == "__main__":
+    unittest.main()

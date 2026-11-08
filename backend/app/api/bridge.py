@@ -14,10 +14,11 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.overview import market_overview
 from app.api.kline import get_daily
-from app.services.kline_sync import fetch_minute_single, sync_minute_batch
+from app.services.kline_sync import sync_minute_batch
 from app.services import ptrade_replay
 from app.tickflow.client import get_client
 from app.tickflow.capabilities import Cap
+from app.services.market_data_service import minute_bars, quote_snapshot
 
 router = APIRouter(prefix="/api/bridge", tags=["bridge"])
 _SYMBOL = re.compile(r"^\d{6}\.(SH|SZ|BJ)$")
@@ -76,16 +77,10 @@ def portfolio_quotes(request: Request, symbols: str = Query(..., max_length=1000
     if not requested or len(requested) > 100 or any(not _SYMBOL.fullmatch(s) for s in requested):
         raise HTTPException(status_code=400, detail="invalid symbols")
     try:
-        rows = get_client().quotes.get(symbols=requested)
+        snapshot = quote_snapshot(requested)
     except Exception as exc:
         raise HTTPException(status_code=502, detail="TickFlow quotes unavailable") from exc
-    return {"source": "TickFlow Pro", "items": [{
-        "symbol": row.get("symbol"), "name": (row.get("ext") or {}).get("name"),
-        "price": row.get("last_price"), "prev_close": row.get("prev_close"),
-        "high": row.get("high"), "low": row.get("low"),
-        "amount": row.get("amount"), "volume": row.get("volume"),
-        "timestamp": row.get("timestamp"),
-    } for row in (rows or [])]}
+    return snapshot
 
 
 @router.get("/portfolio-minute")
@@ -103,8 +98,8 @@ def portfolio_minute(request: Request, symbol: str, trade_date: date | None = No
         raise HTTPException(status_code=503, detail="minute entitlement unavailable")
     repo = request.app.state.repo
     kind = repo.resolve_asset_type(symbol)
-    bars = fetch_minute_single(symbol, day, asset_type=kind, capset=capset)
-    items = [{**row, "datetime": str(row["datetime"])} for row in bars.to_dicts()]
+    snapshot = minute_bars(symbol, day, capset=capset, asset_type=kind)
+    items = snapshot["rows"]
     replay = None
     replay_symbol = symbol.replace(".SH", ".SS") if symbol == "588080.SH" else symbol
     if replay_symbol in ptrade_replay.SYMBOLS and day.isoformat() == ptrade_replay.TARGET_DAY:
@@ -115,8 +110,10 @@ def portfolio_minute(request: Request, symbol: str, trade_date: date | None = No
         replay = ptrade_replay.replay(replay_symbol, replay_rows, source="TickFlow Pro（成交点为用户提供）")
         replay.pop("rows", None)
     return {"symbol": symbol, "trade_date": day.isoformat(), "asset_type": kind,
-            "source": "TickFlow Pro", "rows": items,
-            "last_market_time": items[-1]["datetime"] if items else None,
+            "source": snapshot["source"], "rows": items,
+            "last_market_time": snapshot["last_market_time"],
+            "market_time": snapshot["market_time"], "received_at": snapshot["received_at"],
+            "age_seconds": snapshot["age_seconds"], "stale": snapshot["stale"],
             "replay": replay}
 
 
