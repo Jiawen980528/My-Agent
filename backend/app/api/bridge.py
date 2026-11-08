@@ -18,7 +18,7 @@ from app.services.kline_sync import sync_minute_batch
 from app.services import ptrade_replay
 from app.tickflow.client import get_client
 from app.tickflow.capabilities import Cap
-from app.services.market_data_service import minute_bars, quote_snapshot
+from app.services.market_data_service import freshness, minute_bars, quote_snapshot
 
 router = APIRouter(prefix="/api/bridge", tags=["bridge"])
 _SYMBOL = re.compile(r"^\d{6}\.(SH|SZ|BJ)$")
@@ -138,5 +138,10 @@ def portfolio_minute_batch(request: Request, symbols: str = Query(..., max_lengt
         symbol = row.get("symbol")
         if symbol in grouped:
             grouped[symbol].append({**row, "datetime": str(row["datetime"])})
+    received_at = datetime.now(_CN)
+    status = {}
+    for symbol, rows in grouped.items():
+        latest = rows[-1].get("datetime") if rows else None
+        status[symbol] = freshness(latest, received_at=received_at)
     return {"trade_date": day.isoformat(), "source": "TickFlow Pro", "data": grouped,
-            "request_count": 1, "symbol_count": len(requested)}
+            "freshness": status, "request_count": 1, "symbol_count": len(requested)}
