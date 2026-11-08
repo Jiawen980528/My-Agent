@@ -15,8 +15,6 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from app.api.overview import market_overview
 from app.api.kline import get_daily
 from app.services.kline_sync import sync_minute_batch
-from app.services import ptrade_replay
-from app.tickflow.client import get_client
 from app.tickflow.capabilities import Cap
 from app.services.market_data_service import freshness, minute_bars, quote_snapshot
 from app.services.volume_forecast import forecast_amount
@@ -116,21 +114,12 @@ def portfolio_minute(request: Request, symbol: str, trade_date: date | None = No
     kind = repo.resolve_asset_type(symbol)
     snapshot = minute_bars(symbol, day, capset=capset, asset_type=kind)
     items = snapshot["rows"]
-    replay = None
-    replay_symbol = symbol.replace(".SH", ".SS") if symbol == "588080.SH" else symbol
-    if replay_symbol in ptrade_replay.SYMBOLS and day.isoformat() == ptrade_replay.TARGET_DAY:
-        replay_rows = [{**row, "symbol": replay_symbol,
-                        "datetime": row["datetime"].replace(" ", "T") + "+08:00",
-                        "volume": row["volume"] * 100, "source": "tickflow_pro"}
-                       for row in items if row["datetime"][11:16] != "09:30"]
-        replay = ptrade_replay.replay(replay_symbol, replay_rows, source="TickFlow Pro（成交点为用户提供）")
-        replay.pop("rows", None)
     return {"symbol": symbol, "trade_date": day.isoformat(), "asset_type": kind,
             "source": snapshot["source"], "rows": items,
+            "quality": snapshot["quality"],
             "last_market_time": snapshot["last_market_time"],
             "market_time": snapshot["market_time"], "received_at": snapshot["received_at"],
-            "age_seconds": snapshot["age_seconds"], "stale": snapshot["stale"],
-            "replay": replay}
+            "age_seconds": snapshot["age_seconds"], "stale": snapshot["stale"]}
 
 
 @router.get("/portfolio-minute-batch")
