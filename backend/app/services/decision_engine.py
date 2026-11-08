@@ -47,9 +47,18 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
     breadth = snapshot.get("market_breadth") if isinstance(snapshot.get("market_breadth"), dict) else {}
     turnover = snapshot.get("turnover_forecast") if isinstance(snapshot.get("turnover_forecast"), dict) else {}
     defensive = snapshot.get("defensive") if isinstance(snapshot.get("defensive"), dict) else {}
+    multi_period = snapshot.get("multi_period") if isinstance(snapshot.get("multi_period"), dict) else {}
     trades_today = snapshot.get("trades_today") if isinstance(snapshot.get("trades_today"), list) else []
+    period_keys = ("daily", "minute_60", "minute_15", "minute_5")
+    period_ready = all(
+        isinstance(multi_period.get(key), dict)
+        and int(_num(multi_period[key].get("observations")) or 0) >= 2
+        for key in period_keys
+    )
     context_missing = [key for key, value in (("market_breadth", breadth), ("turnover_forecast", turnover),
                                                ("defensive", defensive)) if not value]
+    if not period_ready:
+        context_missing.append("multi_period")
     if snapshot.get("strict_context") is True and context_missing:
         reasons.append("缺少决策上下文：" + ", ".join(context_missing))
 
@@ -84,6 +93,20 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
             max_qty = min(max_qty, int(max(0.0, budget - used_risk) / risk_per_share)) if risk_per_share > 0 else 0
             max_loss = round(max_qty * risk_per_share, 2)
             basis.extend(["个股价格/支撑/压力", "大盘涨跌", "关联板块涨跌", "账户风险预算"])
+            if period_ready:
+                basis.append("日线/60分钟/15分钟/5分钟多周期")
+                daily = multi_period.get("daily") if isinstance(multi_period.get("daily"), dict) else {}
+                hour = multi_period.get("minute_60") if isinstance(multi_period.get("minute_60"), dict) else {}
+                short = multi_period.get("minute_15") if isinstance(multi_period.get("minute_15"), dict) else {}
+                daily_trend = str(daily.get("trend") or "")
+                hour_trend = str(hour.get("trend") or "")
+                short_trend = str(short.get("trend") or "")
+                if daily_trend == "down" and hour_trend == "down":
+                    reasons.append("日线与60分钟趋势同步偏弱")
+                elif daily_trend == "up" and hour_trend == "up" and short_trend == "up":
+                    basis.append("多周期趋势同步偏强")
+                else:
+                    basis.append("多周期趋势存在分歧")
             if breadth:
                 up = _num(breadth.get("up_count"))
                 down = _num(breadth.get("down_count"))
@@ -127,6 +150,7 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
             "market_breadth": breadth or None,
             "turnover_forecast": turnover or None,
             "defensive": defensive or None,
+            "multi_period": multi_period or None,
             "trades_today_count": len(trades_today),
             "context_missing": context_missing,
         },

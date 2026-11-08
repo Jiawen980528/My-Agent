@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { api } from '@/lib/api'
 
 type Bar = { datetime: string; close: number; high: number; low: number; volume?: number }
 type Holding = { symbol: string; name: string; price?: number | null; change_pct?: number | null; market_timestamp?: string | number | null; board?: { code?: string | null; name?: string | null } | null }
@@ -10,6 +11,7 @@ type MarketOverviewBrief = { breadth?: { up?: number; down?: number; flat?: numb
 type BoardContext = { rows?: { close?: number; time?: string }[]; latest_time?: string; source?: string; name?: string }
 type BoardCatalog = { items?: { code: string; name: string }[]; source?: string }
 type DecisionResult = { action: string; rating: string; reasons: string[]; basis: string[]; suggested_qty: number; max_risk_yuan: number; trigger_price?: number | null; invalidation_price?: number | null; account_verified: boolean; account_source?: string; valid_until: string; evidence?: { context_missing?: string[] } }
+type PeriodSummary = { trend: 'up' | 'down' | 'flat'; first: number; last: number; observations: number; as_of?: string }
 const API = '/quant/api/myagent/quant'
 const pct = (n: number | null) => n == null || !Number.isFinite(n) ? '—' : `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
 const px = (n: number | null) => n == null || !Number.isFinite(n) ? '—' : n.toFixed(3)
@@ -33,6 +35,27 @@ function LiveCurve({ bars, color = '#4da3ff' }: { bars: Bar[]; color?: string })
   const min = Math.min(...values), max = Math.max(...values), span = max - min || 1
   const points = values.map((value, index) => `${(index / (values.length - 1)) * 100},${92 - ((value - min) / span) * 78}`).join(' ')
   return <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-24 w-full rounded border border-border bg-base/60" role="img" aria-label="实时分钟行情曲线"><polyline points={points} fill="none" stroke={color} strokeWidth="1.8" vectorEffect="non-scaling-stroke" /></svg>
+}
+
+function summarizePeriod(rows: { close?: number; datetime?: string; date?: string }[]): PeriodSummary | null {
+  const valid = rows.map(row => ({ close: Number(row.close), time: row.datetime || row.date || '' })).filter(row => Number.isFinite(row.close))
+  if (valid.length < 2) return null
+  const first = valid[0].close, last = valid[valid.length - 1].close
+  return { trend: last > first ? 'up' : last < first ? 'down' : 'flat', first, last, observations: valid.length, as_of: valid.at(-1)?.time }
+}
+
+function resampleMinute(rows: { close?: number; datetime?: string }[], minutes: number) {
+  const buckets = new Map<number, { close?: number; datetime?: string }[]>()
+  for (const row of rows) {
+    const time = String(row.datetime || '')
+    const match = time.match(/T?(\d{2}):(\d{2})/)
+    if (!match) continue
+    const bucket = Math.floor((Number(match[1]) * 60 + Number(match[2])) / minutes)
+    const values = buckets.get(bucket) || []
+    values.push(row)
+    buckets.set(bucket, values)
+  }
+  return [...buckets.values()].map(values => values.at(-1)!).filter(Boolean)
 }
 
 export function DecisionGuide() {
@@ -76,6 +99,25 @@ export function DecisionGuide() {
     queryFn: () => json<MarketOverviewBrief>('/quant/api/overview/market'),
     refetchInterval: tradingNow() ? 30_000 : false,
     staleTime: 30_000,
+  })
+  const multiPeriod = useQuery({
+    queryKey: ['decision-guide-multi-period', selected?.item.symbol, day],
+    queryFn: async () => {
+      const [daily, minuteRange] = await Promise.all([api.klineDaily(selected!.item.symbol, 60), api.klineMinuteRange(selected!.item.symbol, 20)])
+      const session = minuteRange.sessions.find(item => item.date === day) || minuteRange.sessions.at(-1)
+      const minuteRows = session?.rows || []
+      return {
+        daily: summarizePeriod(daily.rows.map(row => ({ close: row.close, date: row.date }))),
+        minute_60: summarizePeriod(resampleMinute(minuteRows, 60)),
+        minute_15: summarizePeriod(resampleMinute(minuteRows, 15)),
+        minute_5: summarizePeriod(resampleMinute(minuteRows, 5)),
+        source: daily.source || minuteRange.source,
+        as_of: minuteRows.at(-1)?.datetime || daily.rows.at(-1)?.date,
+      }
+    },
+    enabled: !!selected?.item.symbol,
+    refetchInterval: tradingNow() ? 60_000 : false,
+    staleTime: 60_000,
   })
   const linkedBoardCode = selected?.item.board?.code?.toUpperCase().match(/^BK\d{4}$/)?.[0] || (selected?.item.symbol ? savedLinkedBoard(selected.item.symbol) : '')
   const linkedBoard = useQuery({
@@ -123,7 +165,7 @@ export function DecisionGuide() {
     day_risk_used: snapshot.data?.day_risk_used,
   }
   const decision = useQuery({
-    queryKey: ['decision-guide-assist', selected?.item.symbol, selected?.last, selected?.bars.at(-1)?.datetime, linkedBoardCode, boardPct, defensiveBoard?.code, defensivePct, accountContext.verified, tradeHistory.data?.trades?.length, marketOverview.data?.as_of, marketVolumeForecast.data?.as_of],
+    queryKey: ['decision-guide-assist', selected?.item.symbol, selected?.last, selected?.bars.at(-1)?.datetime, linkedBoardCode, boardPct, defensiveBoard?.code, defensivePct, accountContext.verified, tradeHistory.data?.trades?.length, marketOverview.data?.as_of, marketVolumeForecast.data?.as_of, multiPeriod.data?.as_of],
     queryFn: async () => {
       const response = await fetch('/quant/api/myagent/decision/assist', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
@@ -144,6 +186,12 @@ export function DecisionGuide() {
             flat_count: marketOverview.data.breadth.flat,
           } : {},
           defensive: defensiveBoard && defensivePct != null ? { name: defensiveBoard.name, code: defensiveBoard.code, pct: defensivePct } : {},
+          multi_period: multiPeriod.data ? {
+            daily: multiPeriod.data.daily,
+            minute_60: multiPeriod.data.minute_60,
+            minute_15: multiPeriod.data.minute_15,
+            minute_5: multiPeriod.data.minute_5,
+          } : {},
           account: accountContext,
           trades_today: tradeHistory.data?.trades || [],
           turnover_forecast: marketVolumeForecast.data || {},
