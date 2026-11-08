@@ -17,6 +17,7 @@ from app.services import ptrade_replay
 from app.services.decision_engine import build_decision
 from app.services.kline_sync import fetch_minute_single
 from app.services.volume_forecast import forecast_amount
+from app.services.market_volume_forecast import forecast_market_amount
 from app.tickflow.capabilities import Cap
 
 router = APIRouter(prefix="/api/myagent", tags=["myagent-bridge"])
@@ -82,6 +83,59 @@ async def volume_forecast_for_symbol(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except (OSError, ValueError, TypeError) as exc:
         raise HTTPException(status_code=502, detail=f"分钟成交额读取失败：{type(exc).__name__}") from exc
+
+
+@router.get("/market-volume-forecast")
+async def market_volume_forecast(request: Request, trade_date: date | None = Query(None)):
+    """Forecast full-A turnover from the persisted real minute universe.
+
+    This endpoint intentionally does not substitute index turnover, price change,
+    or synthetic bars. Missing current-day or comparable historical partitions
+    produce an explicit unavailable response.
+    """
+    selected = trade_date or datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    while selected.weekday() >= 5:
+        selected = selected.fromordinal(selected.toordinal() - 1)
+    if selected > today:
+        raise HTTPException(status_code=400, detail="不能查询未来日期")
+    repo = request.app.state.repo
+
+    def load() -> tuple[list[dict], list[list[dict]], int, list[str]]:
+        instruments = repo.get_instruments_asset("stock")
+        symbols = [str(value) for value in instruments["symbol"].drop_nulls().to_list()] if not instruments.is_empty() else []
+        if not symbols:
+            return [], [], 0, []
+        current_frame = repo.get_minute_batch(symbols, selected, asset_type="stock")
+        current_rows = current_frame.to_dicts() if not current_frame.is_empty() else []
+        historical: list[list[dict]] = []
+        cursor = selected
+        for _ in range(5):
+            cursor = cursor.fromordinal(cursor.toordinal() - 1)
+            while cursor.weekday() >= 5:
+                cursor = cursor.fromordinal(cursor.toordinal() - 1)
+            frame = repo.get_minute_batch(symbols, cursor, asset_type="stock")
+            rows = frame.to_dicts() if not frame.is_empty() else []
+            if rows:
+                historical.append(rows)
+        covered = len({str(row.get("symbol")) for row in current_rows if row.get("symbol")})
+        return current_rows, historical, covered, symbols
+
+    try:
+        current_rows, historical, covered_symbols, symbols = await asyncio.to_thread(load)
+        result = forecast_market_amount(current_rows, historical)
+        return {
+            **result,
+            "trade_date": selected.isoformat(),
+            "scope": "全A股票（已落盘分钟分区）",
+            "source": "TickFlow全市场分钟分区",
+            "symbol_count": len(symbols),
+            "covered_symbol_count": covered_symbols,
+            "historical_days_available": len(historical),
+            "data_is_real": True,
+        }
+    except (OSError, ValueError, TypeError) as exc:
+        raise HTTPException(status_code=502, detail=f"全市场分钟成交额读取失败：{type(exc).__name__}") from exc
 
 
 @router.post("/decision/assist")
