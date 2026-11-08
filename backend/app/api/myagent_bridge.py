@@ -15,7 +15,7 @@ from app.config import settings
 from app.services import fund_flow_archive
 from app.services import ptrade_replay
 from app.services.decision_engine import build_decision
-from app.services.kline_sync import fetch_minute_single
+from app.services.kline_sync import fetch_minute_single, selected_minute_source
 from app.services.volume_forecast import forecast_amount
 from app.services.market_volume_forecast import forecast_market_amount
 from app.tickflow.capabilities import Cap
@@ -78,7 +78,7 @@ async def volume_forecast_for_symbol(
 
         rows = await asyncio.gather(*(asyncio.to_thread(load, selected) for selected in days))
         result = forecast_amount(rows[0], rows[1:])
-        return {"symbol": normalized, "trade_date": day.isoformat(), "source": "TickFlow分钟成交额", **result}
+        return {"symbol": normalized, "trade_date": day.isoformat(), "source": f"{selected_minute_source()}分钟成交额", **result}
     except PermissionError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except (OSError, ValueError, TypeError) as exc:
@@ -128,7 +128,7 @@ async def market_volume_forecast(request: Request, trade_date: date | None = Que
             **result,
             "trade_date": selected.isoformat(),
             "scope": "全A股票（已落盘分钟分区）",
-            "source": "TickFlow全市场分钟分区",
+            "source": f"{selected_minute_source()}全市场分钟分区",
             "symbol_count": len(symbols),
             "covered_symbol_count": covered_symbols,
             "historical_days_available": len(historical),

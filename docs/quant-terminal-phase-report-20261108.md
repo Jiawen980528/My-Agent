@@ -113,3 +113,5 @@
 
 AI 桥接来源修复：`shared_context` 不再固定返回 `tickflow`，而是根据实际日K接口结果返回单一来源、`mixed` 或 `unavailable`，并提供逐标的 `kline_sources`。`test_bridge_context.py` 与报价链回归共 `2/2` 通过。
 
+成交额预测来源修复：`volume-forecast` 与 `market-volume-forecast` 改为使用实际选中的分钟数据源，不再固定标记 TickFlow；新增自定义源回归。预测、市场量能和决策相关测试共 `12/12` 通过，`myagent_bridge.py` 语法检查通过。
+
