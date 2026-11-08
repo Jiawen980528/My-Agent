@@ -16,6 +16,7 @@ type Holding = { symbol: string; name: string; holding_source?: string | null; q
   board?: { name: string; code: string } | null }
 type Board = { board?: { name: string; code: string }; rows: Bar[]; flow?: { datetime: string; main_yi: number }[];
   flow_status?: string; source?: string; last_market_time?: string }
+type MinuteQuality = { row_count: number; duplicate_timestamps: number; sorted: boolean; valid: boolean }
 type News = { items: { title: string; url: string; source: string; published_at?: string; sector_names: string[];
   bias: string }[] }
 type Trade = { fingerprint: string; trade_date: string; trade_time: string; symbol: string; side: 'buy' | 'sell';
@@ -457,7 +458,7 @@ export function PortfolioMonitorWidget() {
   const day = pickedDay || latestDay
   const [hindsightQuantity, setHindsightQuantity] = useState(20000)
   const minute = useQuery({ queryKey: ['portfolio-widget-minute', latestDay],
-    queryFn: () => json<{ data: Record<string, Bar[]>; source: string; freshness?: Record<string, { market_time?: string | null; received_at?: string | null; age_seconds?: number | null; stale?: boolean }> }>(`${API}/portfolio/minute-batch?trade_date=${latestDay}`),
+    queryFn: () => json<{ data: Record<string, Bar[]>; source: string; freshness?: Record<string, { market_time?: string | null; received_at?: string | null; age_seconds?: number | null; stale?: boolean }>; quality?: Record<string, MinuteQuality> }>(`${API}/portfolio/minute-batch?trade_date=${latestDay}`),
     enabled: !!items.length, refetchInterval: tradingNow() ? 60_000 : false })
   const news = useQuery({ queryKey: ['myagent-quant-news'], queryFn: () => json<News>(`${API}/news`), refetchInterval: 180_000 })
   const tradeHistory = useQuery({ queryKey: ['portfolio-terminal-history', day],
@@ -484,7 +485,10 @@ export function PortfolioMonitorWidget() {
   const shown = listMode === 'recorded' ? allItems.filter(item => item.holding_source) : allItems
   const freshnessRows = Object.values(minute.data?.freshness || {})
   const latestFreshness = freshnessRows.find(row => row.market_time) || freshnessRows[0]
-  const dataState = minute.isError ? '连接失败' : minute.isLoading ? '读取中' : latestFreshness?.stale ? '已收盘/缓存' : latestFreshness?.market_time ? '行情可用' : '无时间戳'
+  const qualityRows = Object.values(minute.data?.quality || {})
+  const badQuality = qualityRows.some(row => row.valid === false)
+  const usableMinuteData = badQuality ? {} : (minute.data?.data || {})
+  const dataState = minute.isError ? '连接失败' : minute.isLoading ? '读取中' : badQuality ? '数据质量异常' : latestFreshness?.stale ? '已收盘/缓存' : latestFreshness?.market_time ? '行情可用' : '无时间戳'
   const chooseView = (mode: 'detail' | 'overview') => { setViewMode(mode); setUiPref('portfolio-terminal-view', JSON.stringify(mode)) }
   const chooseLayout = (mode: LayoutMode) => { setLayoutMode(mode); setUiPref('portfolio-terminal-layout', JSON.stringify(mode)) }
   const setLinkedBoard = (symbol: string, code: string) => {
@@ -551,7 +555,7 @@ export function PortfolioMonitorWidget() {
   return <section className="relative h-full overflow-auto rounded-card border border-border bg-surface p-2 text-foreground"
     onContextMenu={event => { event.preventDefault(); setMenu({ x: Math.max(8, Math.min(event.clientX, innerWidth - 220)), y: Math.max(8, Math.min(event.clientY, innerHeight - 440)) }) }}>
     <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 border-b border-border pb-1">
-      <div><h2 className="text-sm font-semibold">持仓看盘工作区</h2><p className="text-[11px] text-muted">左侧切换标的 · 右键选择显示内容 · {minute.data?.source || '分钟行情读取中'} · <span className={dataState === '行情可用' ? 'text-bull' : 'text-warning'}>{dataState}</span>{latestFreshness?.market_time ? ` · ${latestFreshness.market_time}` : ''}</p></div>
+      <div><h2 className="text-sm font-semibold">持仓看盘工作区</h2><p className="text-[11px] text-muted">左侧切换标的 · 右键选择显示内容 · {minute.data?.source || '分钟行情读取中'} · <span className={dataState === '行情可用' ? 'text-bull' : 'text-warning'}>{dataState}</span>{latestFreshness?.market_time ? ` · ${latestFreshness.market_time}` : ''}{badQuality ? ' · 已停止使用异常分钟数据' : ''}</p></div>
       <div className="flex flex-wrap items-center justify-end gap-1 text-xs"><button type="button" onClick={() => chooseView('detail')} className={`rounded border border-border px-2 py-0.5 ${viewMode === 'detail' ? 'bg-accent/20 text-accent' : 'text-muted'}`}>个股详情</button>
         <button type="button" onClick={() => chooseView('overview')} className={`rounded border border-border px-2 py-0.5 ${viewMode === 'overview' ? 'bg-accent/20 text-accent' : 'text-muted'}`}>持仓实时总览</button>
         <input aria-label="交易日期" type="date" value={day} max={latestDay} onChange={e => setPickedDay(e.target.value)} className="rounded border border-border bg-base px-1 py-0.5" />
@@ -563,12 +567,12 @@ export function PortfolioMonitorWidget() {
       　现金 ¥{tradeHistory.data.account_snapshot.cash_available}　当日盈亏 ¥{tradeHistory.data.account_snapshot.day_pnl}
     </div>}
     {(snapshot.isError || minute.isError) && <p className="text-xs text-danger">行情读取失败：{String((snapshot.error || minute.error) instanceof Error ? (snapshot.error || minute.error)?.message : '请重试')}</p>}
-    {viewMode === 'overview' && <HoldingsOverview items={shown} minuteData={minute.data?.data || {}} source={minute.data?.source} onSelect={symbol => { setSelected(symbol); chooseView('detail') }} />}
+    {viewMode === 'overview' && <HoldingsOverview items={shown} minuteData={usableMinuteData} source={minute.data?.source} onSelect={symbol => { setSelected(symbol); chooseView('detail') }} />}
     {viewMode === 'detail' && <>
     <div className="mb-1 flex flex-wrap items-center justify-between gap-2 rounded border border-border bg-base/40 px-2 py-1 text-[11px]">
       <span className="text-muted">详情布局</span><div className="flex gap-1"><button type="button" onClick={() => chooseLayout('side')} className={`rounded px-2 py-0.5 ${layoutMode === 'side' ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>左侧列表</button><button type="button" onClick={() => chooseLayout('strip')} className={`rounded px-2 py-0.5 ${layoutMode === 'strip' ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>横向长条</button><button type="button" onClick={() => chooseLayout('grid')} className={`rounded px-2 py-0.5 ${layoutMode === 'grid' ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>网格总览</button></div>
     </div>
-    {layoutMode === 'grid' && <HoldingsOverview items={shown} minuteData={minute.data?.data || {}} source={minute.data?.source} onSelect={symbol => { setSelected(symbol); chooseLayout('side') }} />}
+    {layoutMode === 'grid' && <HoldingsOverview items={shown} minuteData={usableMinuteData} source={minute.data?.source} onSelect={symbol => { setSelected(symbol); chooseLayout('side') }} />}
     {layoutMode !== 'grid' && <div ref={splitRef} className={layoutMode === 'side' ? 'portfolio-detail-split grid gap-y-2 md:gap-x-0' : 'space-y-2'}
       style={layoutMode === 'side' ? { '--portfolio-left': `${paneWidths.left}px`, '--portfolio-right': `${paneWidths.right}px` } as React.CSSProperties : undefined}>
       {layoutMode === 'strip' && <div className="flex gap-1 overflow-x-auto rounded border border-border bg-base/50 p-1">{shown.map(item => <button key={item.symbol} type="button" onClick={() => { setSelected(item.symbol); setSelectedBoard('') }} className={`min-w-44 rounded border border-border px-2 py-1 text-left hover:bg-elevated ${active?.symbol === item.symbol ? 'bg-accent/15' : ''}`}><div className="flex justify-between gap-1 text-xs"><b className="truncate">{item.name}</b><span className={Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}>{pct(item.change_pct)}</span></div><div className="text-[10px] text-muted">{item.symbol} · {price(item.price)}</div></button>)}</div>}
@@ -587,12 +591,12 @@ export function PortfolioMonitorWidget() {
       {layoutMode === 'side' && <div role="separator" aria-label="拖动调整持仓列表宽度" aria-orientation="vertical" title="拖动调整持仓列表宽度"
         onPointerDown={event => resizePane('left', event)} className="portfolio-split-handle cursor-ew-resize touch-none bg-border/60 hover:bg-accent active:bg-accent" />}
       {selectedBoard ? <BoardDetail code={selectedBoard} day={day} news={news.data?.items || []} visible={visible} />
-        : active ? <Detail item={active} day={day} latestBars={minute.data?.data?.[active.symbol] || []} news={news.data?.items || []} visible={visible}
+        : active ? <Detail item={active} day={day} latestBars={usableMinuteData[active.symbol] || []} news={news.data?.items || []} visible={visible}
           trades={(tradeHistory.data?.trades || []).filter(trade => trade.symbol === active.symbol)} linkedBoardCode={linkedBoards[active.symbol] || ''} boardOptions={boardOptions} onLinkedBoardChange={code => setLinkedBoard(active.symbol, code)} />
         : <p className="p-4 text-xs text-muted">暂无监控标的</p>}
       {layoutMode === 'side' && <div role="separator" aria-label="拖动调整策略栏宽度" aria-orientation="vertical" title="拖动调整策略栏宽度"
         onPointerDown={event => resizePane('right', event)} className="portfolio-split-handle cursor-ew-resize touch-none bg-border/60 hover:bg-accent active:bg-accent" />}
-      {layoutMode === 'side' && <DecisionGuidePanel items={shown} minuteData={minute.data?.data || {}} source={minute.data?.source} />}
+      {layoutMode === 'side' && <DecisionGuidePanel items={shown} minuteData={usableMinuteData} source={minute.data?.source} />}
     </div>}</>}
     <section className="mt-2 rounded border border-border bg-base/50 p-2 text-xs">
       <div className="flex justify-between gap-2"><b>{day} 操作时间线 · {tradeHistory.data?.trades.length ?? 0} 笔</b><span className="text-muted">用户提供/手工记录，非券商实时成交</span></div>
