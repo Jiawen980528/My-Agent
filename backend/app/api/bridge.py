@@ -26,6 +26,15 @@ _SYMBOL = re.compile(r"^\d{6}\.(SH|SZ|BJ)$")
 _CN = ZoneInfo("Asia/Shanghai")
 
 
+def _qualified_symbol(value: str) -> str:
+    """Normalize a six-digit MyAgent code for the TickFlow repository."""
+    symbol = str(value or "").strip().upper().replace(".SS", ".SH")
+    if "." not in symbol and len(symbol) == 6 and symbol.isdigit():
+        suffix = ".SH" if symbol.startswith(("5", "6", "688")) else ".BJ" if symbol.startswith(("4", "8")) else ".SZ"
+        return symbol + suffix
+    return symbol
+
+
 def _check_token(request: Request) -> None:
     expected = (os.getenv("TICKFLOW_BRIDGE_TOKEN") or "").strip()
     supplied = (request.headers.get("x-tickflow-bridge-token") or "").strip()
@@ -86,10 +95,7 @@ def shared_context(
         try:
             # MyAgent uses bare six-digit codes; TickFlow's repository uses
             # exchange-qualified symbols.
-            qualified = symbol
-            if "." not in qualified and len(qualified) == 6 and qualified.isdigit():
-                suffix = ".SH" if qualified.startswith(("5", "6", "688")) else ".BJ" if qualified.startswith(("4", "8")) else ".SZ"
-                qualified = qualified + suffix
+            qualified = _qualified_symbol(symbol)
             result = get_daily(request, symbol=qualified, days=days)
             klines.append(result)
             kline_sources[qualified] = str(result.get("source") or "unlabeled")
@@ -102,8 +108,8 @@ def shared_context(
     quotes: dict = {"status": "unavailable", "source": "unavailable", "items": []}
     try:
         qualified_symbols = list(kline_sources) or [
-            value for value in requested
-            if _SYMBOL.fullmatch(value)
+            _qualified_symbol(value) for value in requested
+            if _SYMBOL.fullmatch(_qualified_symbol(value))
         ]
         if qualified_symbols:
             asset_types = {

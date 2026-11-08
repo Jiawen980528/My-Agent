@@ -49,3 +49,27 @@ def test_shared_context_includes_real_quote_provenance(monkeypatch):
     assert result["quotes"]["source"] == "TickFlow"
     assert result["capabilities"]["quotes"] is True
     assert result["capabilities"]["account"] is False
+
+
+def test_shared_context_qualifies_bare_code_for_quote_fallback(monkeypatch):
+    monkeypatch.setenv("TICKFLOW_BRIDGE_TOKEN", "test-token")
+    request = SimpleNamespace(
+        headers={"x-tickflow-bridge-token": "test-token"},
+        app=SimpleNamespace(state=SimpleNamespace(repo=SimpleNamespace(
+            resolve_asset_type=lambda _symbol: "etf",
+        ))),
+    )
+    monkeypatch.setattr(bridge, "market_overview", lambda _request: {"as_of": None})
+    monkeypatch.setattr(bridge, "get_daily", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("no daily")))
+    captured: list[str] = []
+
+    def fake_quotes(symbols, *, asset_types):
+        captured.extend(symbols)
+        return {"source": "TickFlow", "items": [{"symbol": symbols[0], "price": 1.0}]}
+
+    monkeypatch.setattr(bridge, "quote_snapshot", fake_quotes)
+
+    result = bridge.shared_context(request, symbols="159558", days=20)
+
+    assert captured == ["159558.SZ"]
+    assert result["capabilities"]["quotes"] is True
