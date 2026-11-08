@@ -660,7 +660,7 @@ export function PortfolioMonitorWidget() {
       <div className="mt-1 border-t border-border px-2 py-1 font-semibold">添加个股 / ETF / 指数</div>
       <div className="flex gap-1 px-1"><input aria-label="添加证券代码" value={symbolInput} onChange={e => setSymbolInput(e.target.value)}
         onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addSymbol() }} placeholder="输入名称或代码" className="min-w-0 w-full rounded border border-border bg-base px-1" />
-        <button type="button" onClick={addSymbol} className="text-accent">添加</button></div>
+        <button type="button" onClick={() => addSymbol()} className="text-accent">添加</button></div>
       {!!symbolInput.trim() && !!symbolMatches.data?.results?.length && <div className="mt-1 max-h-32 overflow-auto rounded border border-border bg-base">
         {symbolMatches.data.results.map(result => <button type="button" key={`${result.symbol}-${result.asset_type || ''}`} onClick={() => addSymbol(result.symbol)}
           className="block w-full px-2 py-1 text-left hover:bg-elevated"><b>{result.name || result.symbol}</b><span className="ml-1 font-mono text-[10px] text-muted">{result.symbol}</span><span className="float-right text-[10px] text-muted">{result.asset_type || 'stock'}</span></button>)}
