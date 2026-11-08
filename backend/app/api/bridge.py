@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from app.api.overview import market_overview
 from app.api.kline import get_daily
 from app.services.kline_sync import sync_minute_batch
+from app.services.portfolio_account import unavailable
 from app.tickflow.capabilities import Cap
 from app.services.market_data_service import freshness, minute_bars, minute_quality, quote_snapshot
 from app.services.volume_forecast import forecast_amount
@@ -30,6 +31,17 @@ def _check_token(request: Request) -> None:
     supplied = (request.headers.get("x-tickflow-bridge-token") or "").strip()
     if not expected or not supplied or not hmac.compare_digest(expected, supplied):
         raise HTTPException(status_code=401, detail="bridge unauthorized")
+
+
+@router.get("/account-status")
+def account_status(request: Request):
+    """Expose the read-only account-provider contract without inventing data."""
+    _check_token(request)
+    provider = str(os.getenv("PORTFOLIO_ACCOUNT_PROVIDER") or "").strip().lower()
+    if provider not in {"qmt", "ptrade", "broker_realtime"}:
+        return unavailable("未配置券商只读账户适配器")
+    # A provider name alone is not proof that a Windows broker adapter is alive.
+    return unavailable("券商账户适配器尚未建立已核验连接", source=provider)
 
 
 @router.post("/volume-forecast")
