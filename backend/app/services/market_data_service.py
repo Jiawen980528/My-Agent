@@ -62,7 +62,7 @@ def freshness(market_time: Any, *, received_at: datetime | None = None,
     }
 
 
-def quote_snapshot(symbols: list[str]) -> dict[str, Any]:
+def quote_snapshot(symbols: list[str], *, asset_types: dict[str, str] | None = None) -> dict[str, Any]:
     requested = list(dict.fromkeys(normalize_symbol(item) for item in symbols if str(item).strip()))
     received = datetime.now(CN_TZ)
     if not requested:
@@ -81,7 +81,16 @@ def quote_snapshot(symbols: list[str]) -> dict[str, Any]:
             raise PermissionError(f"实时数据源 {provider_name} 未配置 realtime 能力")
         provider = custom.get_provider(provider_name)
         fetch_symbols = getattr(provider, "get_realtime_symbols", None)
-        rows = fetch_symbols(requested, asset_type="stock") if callable(fetch_symbols) else provider.get_realtime()
+        if callable(fetch_symbols):
+            rows = []
+            groups: dict[str, list[str]] = {}
+            for symbol in requested:
+                asset = str((asset_types or {}).get(symbol) or "stock")
+                groups.setdefault(asset, []).append(symbol)
+            for asset, group in groups.items():
+                rows.extend(fetch_symbols(group, asset_type=asset) or [])
+        else:
+            rows = provider.get_realtime()
         rows = [row for row in (rows or []) if normalize_symbol(row.get("symbol")) in requested]
         source = provider_name
     items = []

@@ -83,6 +83,19 @@ class MarketDataServiceTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["price"], 10.3)
         _get_client.assert_not_called()
 
+    @patch("app.services.market_data_service._get_client")
+    @patch("app.data_providers.custom.get_provider")
+    @patch("app.data_providers.custom.provider_has_dataset", return_value=True)
+    @patch("app.services.preferences.get_realtime_data_provider", return_value="tdxquant")
+    def test_custom_quote_symbol_fetch_preserves_etf_asset_type(self, _selected, _has_dataset, get_provider, _get_client):
+        provider = MagicMock()
+        provider.get_realtime_symbols.return_value = [{"symbol": "159558.SZ", "last_price": 0.82,
+                                                        "timestamp": "2026-11-08T10:00:00+08:00"}]
+        get_provider.return_value = provider
+        quote_snapshot(["159558.SZ"], asset_types={"159558.SZ": "etf"})
+        provider.get_realtime_symbols.assert_called_once_with(["159558.SZ"], asset_type="etf")
+        _get_client.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

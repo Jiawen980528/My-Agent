@@ -104,7 +104,8 @@ def portfolio_quotes(request: Request, symbols: str = Query(..., max_length=1000
     if not requested or len(requested) > 100 or any(not _SYMBOL.fullmatch(s) for s in requested):
         raise HTTPException(status_code=400, detail="invalid symbols")
     try:
-        snapshot = quote_snapshot(requested)
+        asset_types = {symbol: request.app.state.repo.resolve_asset_type(symbol) for symbol in requested}
+        snapshot = quote_snapshot(requested, asset_types=asset_types)
     except Exception as exc:
         raise HTTPException(status_code=502, detail="TickFlow quotes unavailable") from exc
     return snapshot
