@@ -85,3 +85,5 @@
 
 最新验证：使用临时目录补充 `polars` 后，完整 `pytest tests -q` 仍因测试环境缺少 `duckdb`、`tickflow`、`python-multipart` 等依赖，在收集阶段出现 223 个错误，未发现本轮量化改动造成的断言失败；前端 `Indices.test.tsx` 通过（1/1），TypeScript 检查仍通过。
 
+前端生产构建：`vite build` 成功，2928 个模块转换完成；仅有 Browserslist 数据过期和大 chunk 警告，未出现构建错误。
+
