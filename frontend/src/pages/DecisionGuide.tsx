@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 
 type Bar = { datetime: string; close: number; high: number; low: number; volume?: number }
 type Holding = { symbol: string; name: string; price?: number | null; change_pct?: number | null; market_timestamp?: string | number | null; board?: { code?: string | null; name?: string | null } | null }
+type AccountContext = { source?: string | null; verified?: boolean; available_cash?: number | null; day_risk_used?: number | null }
 type Freshness = { market_time?: string | null; received_at?: string | null; age_seconds?: number | null; stale?: boolean }
 type VolumeForecast = { status: 'ok' | 'unavailable'; forecast_amount?: number; forecast_low?: number; forecast_high?: number; current_cumulative_amount?: number; sample_days?: number; as_of?: string; method?: string; reason?: string; source?: string; scope?: string; covered_symbol_count?: number; symbol_count?: number; historical_days_available?: number; data_is_real?: boolean }
 type MarketOverviewBrief = { breadth?: { up?: number; down?: number; flat?: number; avg_pct?: number | null }; amount?: { total?: number | null }; as_of?: string | null; quote_status?: { quote_age_ms?: number | null; is_trading_hours?: boolean } }
@@ -37,7 +38,7 @@ function LiveCurve({ bars, color = '#4da3ff' }: { bars: Bar[]; color?: string })
 export function DecisionGuide() {
   const day = tradeDay()
   const [selectedSymbol, setSelectedSymbol] = useState('')
-  const snapshot = useQuery({ queryKey: ['decision-guide-snapshot'], queryFn: () => json<{ items: Holding[]; source?: string }>(`${API}/portfolio/snapshot`), refetchInterval: tradingNow() ? 30_000 : false })
+  const snapshot = useQuery({ queryKey: ['decision-guide-snapshot'], queryFn: () => json<{ items: Holding[]; source?: string; account?: AccountContext; account_source?: string | null; account_verified?: boolean; available_cash?: number | null; day_risk_used?: number | null }>(`${API}/portfolio/snapshot`), refetchInterval: tradingNow() ? 30_000 : false })
   const items = snapshot.data?.items || []
   const minute = useQuery({ queryKey: ['decision-guide-minute', day], queryFn: () => json<{ data: Record<string, Bar[]>; freshness?: Record<string, Freshness>; source?: string; complete?: boolean; missing_symbols?: string[] }>(`${API}/portfolio/minute-batch?trade_date=${day}`), enabled: items.length > 0, refetchInterval: tradingNow() ? 60_000 : false })
   const usableMinuteData = minute.data?.complete === false ? {} : (minute.data?.data || {})
@@ -109,8 +110,20 @@ export function DecisionGuide() {
     const last = Number(rows.at(-1)?.close)
     return Number.isFinite(first) && first > 0 && Number.isFinite(last) ? last / first - 1 : null
   }, [defensiveQuote.data?.rows])
+  const tradeHistory = useQuery({
+    queryKey: ['decision-guide-trades', day],
+    queryFn: () => json<{ trades?: { symbol?: string; side?: string; quantity?: number; price?: number; trade_time?: string }[] }>(`${API}/terminal/history?trade_date=${day}`),
+    refetchInterval: tradingNow() ? 60_000 : false,
+    staleTime: 60_000,
+  })
+  const accountContext = snapshot.data?.account || {
+    source: snapshot.data?.account_source || 'unavailable',
+    verified: snapshot.data?.account_verified === true,
+    available_cash: snapshot.data?.available_cash,
+    day_risk_used: snapshot.data?.day_risk_used,
+  }
   const decision = useQuery({
-    queryKey: ['decision-guide-assist', selected?.item.symbol, selected?.last, selected?.bars.at(-1)?.datetime, linkedBoardCode, boardPct, defensiveBoard?.code, defensivePct, marketOverview.data?.as_of, marketVolumeForecast.data?.as_of],
+    queryKey: ['decision-guide-assist', selected?.item.symbol, selected?.last, selected?.bars.at(-1)?.datetime, linkedBoardCode, boardPct, defensiveBoard?.code, defensivePct, accountContext.verified, tradeHistory.data?.trades?.length, marketOverview.data?.as_of, marketVolumeForecast.data?.as_of],
     queryFn: async () => {
       const response = await fetch('/quant/api/myagent/decision/assist', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
@@ -131,7 +144,8 @@ export function DecisionGuide() {
             flat_count: marketOverview.data.breadth.flat,
           } : {},
           defensive: defensiveBoard && defensivePct != null ? { name: defensiveBoard.name, code: defensiveBoard.code, pct: defensivePct } : {},
-          account: { source: 'unavailable', verified: false },
+          account: accountContext,
+          trades_today: tradeHistory.data?.trades || [],
           turnover_forecast: marketVolumeForecast.data || {},
         }),
       })
