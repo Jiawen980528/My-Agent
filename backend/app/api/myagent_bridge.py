@@ -14,6 +14,7 @@ from fastapi.responses import Response
 from app.config import settings
 from app.services import fund_flow_archive
 from app.services import ptrade_replay
+from app.services.decision_engine import build_decision
 
 router = APIRouter(prefix="/api/myagent", tags=["myagent-bridge"])
 
@@ -37,6 +38,19 @@ def _is_linkable_board_name(name: str) -> bool:
     return bool(text) and not any(word in text for word in _EVENT_BOARD_WORDS)
 logger = logging.getLogger(__name__)
 _ptrade_upload_times: dict[str, list[float]] = {}
+
+
+@router.post("/decision/assist")
+async def decision_assist(request: Request):
+    """Risk-first, explainable decision assistance; never places orders."""
+    try:
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise ValueError("请求体必须为 JSON 对象")
+        risk_budget = float(payload.pop("risk_budget", 5000))
+        return build_decision(payload, risk_budget=risk_budget)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/ptrade/etf-minute/import")
