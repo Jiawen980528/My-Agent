@@ -282,7 +282,7 @@ async def _fetch_daily_flow(client: httpx.AsyncClient, secid: str, days: int) ->
 
 
 async def _fetch_board_price(client: httpx.AsyncClient, sector: str, period: str, days: int) -> tuple[str, list[dict]]:
-    klt = {"daily": "101", "1m": "1", "5m": "5", "15m": "15"}[period]
+    klt = {"daily": "101", "1m": "1", "5m": "5", "15m": "15", "30m": "30", "60m": "60"}[period]
     response = await client.get(_BOARD_KLINE_URL, params={
         "secid": f"90.{sector}", "klt": klt, "fqt": "0", "beg": "19900101" if period == "daily" else "0",
         "end": "20500101", "lmt": str(days if period == "daily" else 120),
@@ -538,7 +538,7 @@ async def fund_flow_history(
 @router.get("/fund-flow/sector-kline")
 async def sector_kline(
     sector: str = Query(..., pattern=r"^BK\d{4}$"),
-    period: str = Query("daily", pattern=r"^(daily|1m|5m|15m)$"),
+    period: str = Query("daily", pattern=r"^(daily|1m|5m|15m|30m|60m)$"),
     days: int = Query(60, ge=10, le=120),
 ):
     """Public sector quote bars; minute candles use the last 120 bars, daily may include today's partial candle."""

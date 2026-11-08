@@ -231,9 +231,9 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
   const board = useQuery({ queryKey: ['portfolio-board-widget', item.symbol, day],
     queryFn: () => json<Board>(`${API}/portfolio/board/${item.symbol}?trade_date=${day}`),
     staleTime: 30_000, refetchInterval: isLatest && tradingNow() ? 60_000 : false })
-  const linkedBoard = useQuery({ queryKey: ['portfolio-linked-board-widget', linkedBoardCode, day], queryFn: () =>
+  const linkedBoard = useQuery({ queryKey: ['portfolio-linked-board-widget', linkedBoardCode, day, chartPeriod], queryFn: () =>
     json<{ name: string; rows: { time: string; close: number; high: number; low: number; volume: number }[]; source: string; latest_time: string }>(
-      `${PUBLIC_API}/fund-flow/sector-kline?sector=${encodeURIComponent(linkedBoardCode || '')}&period=1m`),
+      `${PUBLIC_API}/fund-flow/sector-kline?sector=${encodeURIComponent(linkedBoardCode || '')}&period=${chartPeriod === '1d' || chartPeriod === '1w' ? 'daily' : chartPeriod}`),
     enabled: !!linkedBoardCode, staleTime: 30_000, refetchInterval: isLatest && tradingNow() ? 60_000 : false })
   const selectedFlow = useQuery({ queryKey: ['portfolio-selected-flow', flowScope, linkedBoardCode],
     queryFn: () => json<{ rows: { time: string; main: number }[]; source: string; latest_time: string }>(
@@ -289,7 +289,11 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
   }, [chartPeriod, dailyHistory.data?.rows, historyRows, stockRows])
   const autoBoardName = usableBoardName(board.data?.board?.name) ? board.data?.board?.name : usableBoardName(item.board?.name) ? item.board?.name : undefined
   const boardName = linkedBoard.data?.name || autoBoardName || '关联行业板块待绑定'
-  const boardRows = linkedBoardCode ? (linkedBoard.data?.rows || []).map(row => ({ ...row, datetime: row.time })) : autoBoardName ? (board.data?.rows || []) : []
+  const boardRows = linkedBoardCode
+    ? chartPeriod === '1w'
+      ? weeklyRows((linkedBoard.data?.rows || []).map(row => ({ date: row.time, open: row.close, high: row.high, low: row.low, close: row.close, volume: row.volume })))
+      : (linkedBoard.data?.rows || []).map(row => ({ ...row, datetime: row.time }))
+    : chartPeriod === '1m' && autoBoardName ? (board.data?.rows || []) : []
   const flow = linkedBoardCode ? undefined : board.data?.flow?.at(-1)
   const relatedNews = usableBoardName(boardName) ? news.filter(row => row.sector_names?.some(name => name === boardName || name.includes(boardName) || boardName.includes(name))).slice(0, 5) : []
   const last = stockRows.at(-1), first = stockRows[0], bLast = boardRows.at(-1), bFirst = boardRows[0]
@@ -329,7 +333,7 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
       {!!fetchedHistory.data?.failed && <p className="px-1 text-[11px] text-warning">{fetchedHistory.data.failed} 个候选日期读取失败，曲线仅展示成功取得的真实数据。</p>}
     </section>}
     {visible.board && <section className="rounded border border-border bg-base/50 p-1.5">
-      <div className="flex justify-between gap-1 px-1 text-xs"><b>{boardName} · 板块分时</b><span className="text-muted">{board.data?.source || '数据源待确认'}</span></div>
+      <div className="flex flex-wrap items-center justify-between gap-1 px-1 text-xs"><b>{boardName} · {chartPeriod === '1d' || chartPeriod === '1w' ? '板块K线' : '板块分时'}</b><span className="text-muted">{linkedBoard.data?.source || board.data?.source || '数据源待确认'}</span></div>
       <TimeChart rows={boardRows} title={boardName} color="#e3a54d" height={150} />
       <p className="px-1 text-[11px] text-muted">区间涨跌 {pct(boardMove)} · {linkedBoard.data?.latest_time || board.data?.last_market_time || '暂无时间'}；{linkedBoardCode ? `自选板块 ${linkedBoardCode}` : autoBoardName ? '自动关联行业板块' : '请先选择真实行业/指数板块'}</p>
     </section>}
