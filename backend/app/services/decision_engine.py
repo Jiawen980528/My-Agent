@@ -38,6 +38,11 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
     budget = max(0.0, _num(risk_budget) or 0.0)
     if budget <= 0:
         reasons.append("风险预算为零")
+    account = snapshot.get("account") if isinstance(snapshot.get("account"), dict) else {}
+    account_source = str(account.get("source") or "unknown")
+    account_verified = account.get("verified") is True and account_source in {"qmt", "ptrade", "broker_realtime"}
+    if not account_verified:
+        reasons.append(f"账户数据来源为 {account_source}，未核验为券商实时账户")
 
     action = "WAIT"
     rating = "不可评估" if reasons else "观察"
@@ -87,6 +92,8 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
         "suggested_qty": 0 if action != "CONDITIONAL_ADD" else max_qty,
         "max_risk_yuan": max_loss if action == "CONDITIONAL_ADD" else 0.0,
         "risk_budget_yuan": round(budget, 2),
+        "account_source": account_source,
+        "account_verified": account_verified,
         "generated_at": generated.isoformat(timespec="seconds"),
         "valid_until": expires.isoformat(timespec="seconds"),
         "status": "WAIT" if reasons and action == "WAIT" else "OK",

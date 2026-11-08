@@ -17,11 +17,22 @@ class DecisionEngineTests(unittest.TestCase):
             "freshness": {"stale": False, "market_time": "2026-11-08T10:00:00+08:00"},
             "quote": {"price": 9.95, "support": 9.9, "resistance": 10.5},
             "market": {"pct": 0.5, "turnover_ratio": 1.1},
-            "board": {"pct": 0.8}, "account": {"available_cash": 20000},
+            "board": {"pct": 0.8}, "account": {"available_cash": 20000, "source": "qmt", "verified": True},
         }, risk_budget=5000, now=datetime(2026, 11, 8, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")))
         self.assertEqual(result["action"], "CONDITIONAL_ADD")
         self.assertLessEqual(result["max_risk_yuan"], 5000)
         self.assertIsNotNone(result["invalidation_price"])
+
+    def test_unverified_manual_account_cannot_generate_add_signal(self):
+        result = build_decision({
+            "freshness": {"stale": False, "market_time": "2026-11-08T10:00:00+08:00"},
+            "quote": {"price": 9.95, "support": 9.9, "resistance": 10.5},
+            "market": {"pct": 0.5, "turnover_ratio": 1.1},
+            "board": {"pct": 0.8}, "account": {"available_cash": 20000, "source": "manual", "verified": False},
+        })
+        self.assertEqual(result["action"], "WAIT")
+        self.assertFalse(result["account_verified"])
+        self.assertIn("未核验", "；".join(result["reasons"]))
 
 
 if __name__ == "__main__":
