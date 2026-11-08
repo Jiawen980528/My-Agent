@@ -16,7 +16,7 @@ export const MAX_ITEMS = 40
 export const MAX_H = 30
 
 export type WidgetType =
-  | 'indices' | 'kpi' | 'distribution' | 'radar' | 'trend'
+  | 'indices' | 'kpi' | 'market-overview' | 'distribution' | 'radar' | 'trend'
   | 'concept-rank' | 'industry-rank'
   | 'gainers' | 'losers' | 'turnover' | 'activity'
   | 'ladder' | 'monitor' | 'fund-flow' | 'holdings' | 'portfolio-monitor' | 'sector-watch' | 'market-news' | 'page-panel' | 'ext-link'

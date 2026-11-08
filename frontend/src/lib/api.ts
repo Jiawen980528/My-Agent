@@ -564,6 +564,48 @@ export interface OverviewMarket {
   industry_rank: { leading: OverviewDimensionRankItem[]; lagging: OverviewDimensionRankItem[] }
 }
 
+/** 全市场成交额预测。预测只能建立在真实分钟成交额和可比历史交易日之上。 */
+export interface MarketVolumeForecast {
+  status: 'ok' | 'unavailable'
+  trade_date?: string
+  as_of?: string
+  current_cumulative_amount?: number
+  forecast_amount?: number
+  forecast_low?: number
+  forecast_high?: number
+  sample_days?: number
+  method?: string
+  source?: string
+  scope?: string
+  covered_symbol_count?: number
+  symbol_count?: number
+  historical_days_available?: number
+  data_is_real?: boolean
+  reason?: string
+}
+
+export interface PortfolioHoldingSnapshot {
+  symbol: string
+  name: string
+  holding_source?: string | null
+  quantity?: number | null
+  cost?: number | null
+  pnl?: number | null
+  position_pct?: number | null
+  price?: number | null
+  prev_close?: number | null
+  change_pct?: number | null
+  market_timestamp?: string | number | null
+  board?: { name: string; code: string } | null
+}
+
+export interface PortfolioSnapshot {
+  items: PortfolioHoldingSnapshot[]
+  source: string
+  account_source?: string | null
+  account_verified?: boolean
+}
+
 // ===== 概念涨幅轮动矩阵 =====
 // dates: 日期字符串列表(最新在最前); columns: {日期: [[概念名, 涨幅小数], ...]} 每列各自降序
 export interface RpsRotationData {
@@ -3641,6 +3683,10 @@ export const api = {
   marketSnapshot: () =>
     request<{ as_of: string | null; rows: MarketSnapshotRow[] }>('/api/screener/market-snapshot'),
   overviewMarket: (asOf?: string) => request<OverviewMarket>(`/api/overview/market${asOf ? `?as_of=${asOf}` : ''}`),
+  marketVolumeForecast: (tradeDate?: string) =>
+    request<MarketVolumeForecast>(`/api/myagent/market-volume-forecast${tradeDate ? `?trade_date=${encodeURIComponent(tradeDate)}` : ''}`),
+  portfolioSnapshot: () =>
+    request<PortfolioSnapshot>('/api/myagent/quant/portfolio/snapshot'),
 
   // 概念涨幅轮动矩阵: 每列(日期)各自把所有概念按当天涨幅从高到低排序
   rpsRotation: (days: number, kind?: 'concept' | 'industry', level?: number) =>

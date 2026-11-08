@@ -26,6 +26,15 @@ node_modules/
 .pnpm-debug.log*
 .npm/
 *.log
+*.zip
+*.rar
+*.7z
+*.tar.gz
+*.tgz
+*.pem
+*.key
+*.p12
+*.pfx
 
 # ===== Vite =====
 frontend/dist/
@@ -56,12 +65,18 @@ data/**
 .env.local
 .env.*.local
 backend/.env
+external/**/.env
+config/secrets.json
 
 # ===== User-derived prompts =====
 backend/user_prompts/
 
 # ===== Browser automation =====
 .playwright-mcp/
+
+# ===== Local visual/debug exports =====
+screenshots/
+gui-test-screenshots/
 
 # ===== AI IDE =====
 .trae/

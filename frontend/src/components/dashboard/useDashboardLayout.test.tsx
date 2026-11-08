@@ -66,8 +66,10 @@ describe('useDashboardLayout', () => {
       dashboard_layout: { v: 1, items: [{ i: 'indices', t: 'indices', x: 0, y: 0, w: 99, h: 2 }] },
     }
     mountHarness()
-    expect(latest!.items).toHaveLength(1)
+    // 旧布局会自动补上“大盘走势与量能”窗口，保留原有指数窗口。
+    expect(latest!.items).toHaveLength(2)
     expect(latest!.items[0].w).toBe(12) // 越界已规范化
+    expect(latest!.items[1].t).toBe('market-overview')
   })
 
   it('debounces save with blob payload after local edit', () => {

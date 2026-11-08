@@ -1,0 +1,22 @@
+services:
+  myagent:
+    build: .
+    container_name: myagent
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_PATH: /app/data/myagent.db
+      TICKFLOW_BRIDGE_URL: http://tick-stock-panel:3018
+      TICKFLOW_BRIDGE_TOKEN: ${TICKFLOW_BRIDGE_TOKEN:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./backups:/app/backups
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

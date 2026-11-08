@@ -1,0 +1,10 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+data/*
+!data/.gitkeep
+private-migration/*.bundle
+private-migration/*.zip
+*.pem

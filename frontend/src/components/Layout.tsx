@@ -79,7 +79,7 @@ import { getFrontendExtensionNavigation } from '@/extensions/registry'
 // 品牌色 — 只用于 logo / brand 区域,不影响功能语义色
 const BRAND = '#8B5CF6'
 
-// 核心四只指数 — 与后端 index_const.py 单一权威对齐 (前端展示层固定清单)
+// 核心指数 — 与后端 index_const.py 单一权威对齐 (前端展示层固定清单)
 export const CORE_INDEXES = DEFAULT_INDEXES
 
 type CoreIndex = (typeof CORE_INDEXES)[number]

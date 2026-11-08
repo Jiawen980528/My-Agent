@@ -1,0 +1,10 @@
+.env
+.venv
+.git
+__pycache__
+.pytest_cache
+data
+backups
+private-migration
+*.pem
+*.key

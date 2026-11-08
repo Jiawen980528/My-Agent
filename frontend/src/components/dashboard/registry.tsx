@@ -26,6 +26,7 @@ import { FundFlowPanel } from '@/components/FundFlowPanel'
 import { HoldingsWidget, SectorWatchWidget, MarketNewsWidget } from './MyAgentWidgets'
 import { PortfolioMonitorWidget } from './PortfolioMonitorWidget'
 import { PageWidget } from './PageWidget'
+import { MarketOverviewWidget } from './MarketOverviewWidget'
 
 /** 渲染上下文: 数据切片与交互回调(由 Dashboard 页提供, 组件不自取数据) */
 export interface WidgetCtx {
@@ -212,6 +213,10 @@ export const WIDGET_DEFS: WidgetDef[] = [
     render: ctx => <KpiWidget ctx={ctx} />,
   },
   {
+    id: 'market-overview', label: '大盘走势与量能', icon: LineChart, minW: 8, minH: 14, defW: 12, defH: 20,
+    render: ctx => <MarketOverviewWidget data={ctx.data} tradeDate={ctx.data.as_of ?? undefined} />,
+  },
+  {
     id: 'distribution', label: '涨跌分布 / 广度', icon: BarChart3, minW: 3, minH: 6, defW: 4, defH: 8,
     render: ctx => sectionCard(
       <>
@@ -349,20 +354,21 @@ export function minSizeOf(t: WidgetType): { w: number; h: number } {
 export const DEFAULT_LAYOUT: DashboardItem[] = [
   { i: 'indices', t: 'indices', x: 0, y: 0, w: 12, h: 2 },
   { i: 'kpi', t: 'kpi', x: 0, y: 2, w: 12, h: 2 },
-  { i: 'portfolio-monitor', t: 'portfolio-monitor', x: 0, y: 4, w: 12, h: 22 },
-  { i: 'distribution', t: 'distribution', x: 0, y: 26, w: 3, h: 8 },
-  { i: 'radar', t: 'radar', x: 3, y: 26, w: 3, h: 8 },
-  { i: 'trend', t: 'trend', x: 6, y: 26, w: 3, h: 8 },
-  { i: 'ladder', t: 'ladder', x: 9, y: 26, w: 3, h: 8 },
-  { i: 'concept-rank', t: 'concept-rank', x: 0, y: 34, w: 4, h: 9 },
-  { i: 'industry-rank', t: 'industry-rank', x: 4, y: 34, w: 4, h: 9 },
-  { i: 'monitor', t: 'monitor', x: 8, y: 34, w: 4, h: 22 },
-  { i: 'gainers', t: 'gainers', x: 0, y: 43, w: 2, h: 13 },
-  { i: 'losers', t: 'losers', x: 2, y: 43, w: 2, h: 13 },
-  { i: 'turnover', t: 'turnover', x: 4, y: 43, w: 2, h: 13 },
-  { i: 'activity', t: 'activity', x: 6, y: 43, w: 2, h: 13 },
-  { i: 'market-news', t: 'market-news', x: 0, y: 56, w: 6, h: 12 },
-  { i: 'fund-flow', t: 'fund-flow', x: 0, y: 68, w: 6, h: 13 },
-  { i: 'holdings', t: 'holdings', x: 6, y: 68, w: 6, h: 13 },
-  { i: 'sector-watch', t: 'sector-watch', x: 0, y: 81, w: 12, h: 13 },
+  { i: 'market-overview', t: 'market-overview', x: 0, y: 4, w: 12, h: 20 },
+  { i: 'portfolio-monitor', t: 'portfolio-monitor', x: 0, y: 24, w: 12, h: 22 },
+  { i: 'distribution', t: 'distribution', x: 0, y: 46, w: 3, h: 8 },
+  { i: 'radar', t: 'radar', x: 3, y: 46, w: 3, h: 8 },
+  { i: 'trend', t: 'trend', x: 6, y: 46, w: 3, h: 8 },
+  { i: 'ladder', t: 'ladder', x: 9, y: 46, w: 3, h: 8 },
+  { i: 'concept-rank', t: 'concept-rank', x: 0, y: 54, w: 4, h: 9 },
+  { i: 'industry-rank', t: 'industry-rank', x: 4, y: 54, w: 4, h: 9 },
+  { i: 'monitor', t: 'monitor', x: 8, y: 54, w: 4, h: 18 },
+  { i: 'gainers', t: 'gainers', x: 0, y: 63, w: 2, h: 13 },
+  { i: 'losers', t: 'losers', x: 2, y: 63, w: 2, h: 13 },
+  { i: 'turnover', t: 'turnover', x: 4, y: 63, w: 2, h: 13 },
+  { i: 'activity', t: 'activity', x: 6, y: 63, w: 2, h: 13 },
+  { i: 'market-news', t: 'market-news', x: 0, y: 76, w: 6, h: 12 },
+  { i: 'fund-flow', t: 'fund-flow', x: 0, y: 88, w: 6, h: 13 },
+  { i: 'holdings', t: 'holdings', x: 6, y: 88, w: 6, h: 13 },
+  { i: 'sector-watch', t: 'sector-watch', x: 0, y: 101, w: 12, h: 13 },
 ]

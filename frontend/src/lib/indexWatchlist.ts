@@ -8,6 +8,7 @@ export const DEFAULT_INDEXES: SavedIndex[] = [
   { symbol: '399001.SZ', name: '深证成指' },
   { symbol: '399006.SZ', name: '创业板指' },
   { symbol: '000680.SH', name: '科创综指' },
+  { symbol: '000688.SH', name: '科创50' },
 ]
 
 const KEY = 'tf-index-symbols'

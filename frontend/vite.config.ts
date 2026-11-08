@@ -27,6 +27,26 @@ export default defineConfig({
     host: '0.0.0.0',   // dev.sh / dev.ps1 会用 CLI --host 覆盖
     port: 3011,
     proxy: {
+      // The application is mounted under /quant in the browser.  Keep the
+      // dev server's prefixed API requests working by stripping that mount
+      // prefix before forwarding to FastAPI's /api routes.
+      '/quant/api': {
+        target: backendTarget,
+        rewrite: (path) => path.replace(/^\/quant/, ''),
+        configure: (proxy) => {
+          proxy.on('proxyReq', (_proxyReq, req) => {
+            if (req.url?.includes('/stream')) {
+              _proxyReq.setHeader('Accept', 'text/event-stream')
+              _proxyReq.setHeader('Cache-Control', 'no-cache')
+              _proxyReq.setHeader('Connection', 'keep-alive')
+            }
+          })
+        },
+      },
+      '/quant/health': {
+        target: backendTarget,
+        rewrite: (path) => path.replace(/^\/quant/, ''),
+      },
       // dev 时 /api 转发到与启动脚本相同的 FastAPI 地址
       '/api': {
         target: backendTarget,
