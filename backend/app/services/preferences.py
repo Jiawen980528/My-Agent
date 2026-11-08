@@ -1472,6 +1472,14 @@ _UI_PREFS_KEYS = (
     # JSON 文本沿用标量契约，保存统一策略池的 ID 顺序与显式空选择。
     "strategy_pool",
     "theme",
+    # 量化持仓终端布局与用户标的选择 (后端权威副本, localStorage 仅作缓存)
+    "portfolio_terminal_visible",
+    "portfolio_terminal_view",
+    "portfolio_terminal_layout",
+    "portfolio_terminal_linked_boards",
+    "portfolio_terminal_extra_symbols",
+    "portfolio_terminal_extra_boards",
+    "portfolio_terminal_pane_widths",
 )
 _UI_PREFS_MAX_JSON = 16 * 1024
 

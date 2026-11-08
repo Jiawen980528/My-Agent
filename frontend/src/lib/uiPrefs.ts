@@ -52,6 +52,13 @@ const SPECS: { ls: string; remote: string; codec: Codec }[] = [
   // 保留 JSON 文本，兼容后端界面偏好只接收标量的契约。
   { ls: 'strategy-pool', remote: 'strategy_pool', codec: 'string' },
   { ls: 'tf-theme', remote: 'theme', codec: 'string' },
+  { ls: 'portfolio-terminal-visible', remote: 'portfolio_terminal_visible', codec: 'json' },
+  { ls: 'portfolio-terminal-view', remote: 'portfolio_terminal_view', codec: 'string' },
+  { ls: 'portfolio-terminal-layout', remote: 'portfolio_terminal_layout', codec: 'string' },
+  { ls: 'portfolio-terminal-linked-boards', remote: 'portfolio_terminal_linked_boards', codec: 'json' },
+  { ls: 'portfolio-terminal-extra-symbols', remote: 'portfolio_terminal_extra_symbols', codec: 'json' },
+  { ls: 'portfolio-terminal-extra-boards', remote: 'portfolio_terminal_extra_boards', codec: 'json' },
+  { ls: 'portfolio-terminal-pane-widths', remote: 'portfolio_terminal_pane_widths', codec: 'json' },
 ]
 
 const BY_LS = new Map(SPECS.map(s => [s.ls, s]))

@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import * as echarts from 'echarts'
 import { api } from '@/lib/api'
 import { getPageScale } from '@/lib/pageZoom'
+import { setUiPref } from '@/lib/uiPrefs'
 
 const API = '/quant/api/myagent/quant'
 const PUBLIC_API = '/quant/api/myagent'
@@ -412,7 +413,7 @@ export function PortfolioMonitorWidget() {
     handle.addEventListener('pointerup', stop)
     handle.addEventListener('lostpointercapture', stop)
   }
-  useEffect(() => { localStorage.setItem('portfolio-terminal-pane-widths', JSON.stringify(paneWidths)) }, [paneWidths])
+  useEffect(() => { setUiPref('portfolio-terminal-pane-widths', JSON.stringify(paneWidths)) }, [paneWidths])
   const snapshot = useQuery({ queryKey: ['portfolio-widget-snapshot'],
     queryFn: () => json<{ items: Holding[]; source: string }>(`${API}/portfolio/snapshot`),
     refetchInterval: tradingNow() ? 30_000 : false })
@@ -475,21 +476,21 @@ export function PortfolioMonitorWidget() {
   const toggle = (key: Panel) => {
     const next = { ...visible, [key]: !visible[key] }
     setVisible(next)
-    localStorage.setItem('portfolio-terminal-visible', JSON.stringify(next))
+    setUiPref('portfolio-terminal-visible', JSON.stringify(next))
     setMenu(null)
   }
   const shown = listMode === 'recorded' ? allItems.filter(item => item.holding_source) : allItems
   const freshnessRows = Object.values(minute.data?.freshness || {})
   const latestFreshness = freshnessRows.find(row => row.market_time) || freshnessRows[0]
   const dataState = minute.isError ? '连接失败' : minute.isLoading ? '读取中' : latestFreshness?.stale ? '已收盘/缓存' : latestFreshness?.market_time ? '行情可用' : '无时间戳'
-  const chooseView = (mode: 'detail' | 'overview') => { setViewMode(mode); localStorage.setItem('portfolio-terminal-view', JSON.stringify(mode)) }
-  const chooseLayout = (mode: LayoutMode) => { setLayoutMode(mode); localStorage.setItem('portfolio-terminal-layout', JSON.stringify(mode)) }
+  const chooseView = (mode: 'detail' | 'overview') => { setViewMode(mode); setUiPref('portfolio-terminal-view', JSON.stringify(mode)) }
+  const chooseLayout = (mode: LayoutMode) => { setLayoutMode(mode); setUiPref('portfolio-terminal-layout', JSON.stringify(mode)) }
   const setLinkedBoard = (symbol: string, code: string) => {
     const next = { ...linkedBoards }
     if (code) next[symbol] = code
     else delete next[symbol]
     setLinkedBoards(next)
-    localStorage.setItem('portfolio-terminal-linked-boards', JSON.stringify(next))
+    setUiPref('portfolio-terminal-linked-boards', JSON.stringify(next))
   }
   const addSymbol = () => {
     const symbol = symbolInput.trim().toUpperCase().replace(/\.SS$/, '.SH')
@@ -500,7 +501,7 @@ export function PortfolioMonitorWidget() {
     if (!allItems.some(item => item.symbol === symbol)) {
       const next = [...extraSymbols, symbol]
       setExtraSymbols(next)
-      localStorage.setItem('portfolio-terminal-extra-symbols', JSON.stringify(next))
+      setUiPref('portfolio-terminal-extra-symbols', JSON.stringify(next))
     }
     setSelected(symbol); setSelectedBoard(''); setSymbolInput(''); setSymbolError(''); setMenu(null)
   }
@@ -513,7 +514,7 @@ export function PortfolioMonitorWidget() {
     if (!extraBoards.includes(code)) {
       const next = [...extraBoards, code]
       setExtraBoards(next)
-      localStorage.setItem('portfolio-terminal-extra-boards', JSON.stringify(next))
+      setUiPref('portfolio-terminal-extra-boards', JSON.stringify(next))
     }
     setSelectedBoard(code); setBoardInput(''); setBoardError(''); setMenu(null)
   }
