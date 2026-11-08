@@ -5,6 +5,7 @@ type Bar = { datetime: string; close: number; high: number; low: number; volume?
 type Holding = { symbol: string; name: string; price?: number | null; change_pct?: number | null; market_timestamp?: string | number | null }
 type Freshness = { market_time?: string | null; received_at?: string | null; age_seconds?: number | null; stale?: boolean }
 type VolumeForecast = { status: 'ok' | 'unavailable'; forecast_amount?: number; forecast_low?: number; forecast_high?: number; current_cumulative_amount?: number; sample_days?: number; as_of?: string; method?: string; reason?: string; source?: string; scope?: string; covered_symbol_count?: number; symbol_count?: number; historical_days_available?: number; data_is_real?: boolean }
+type MarketOverviewBrief = { breadth?: { up?: number; down?: number; flat?: number; avg_pct?: number | null }; amount?: { total?: number | null }; as_of?: string | null; quote_status?: { quote_age_ms?: number | null; is_trading_hours?: boolean } }
 type DecisionResult = { action: string; rating: string; reasons: string[]; basis: string[]; suggested_qty: number; max_risk_yuan: number; account_verified: boolean; valid_until: string; evidence?: { context_missing?: string[] } }
 const API = '/quant/api/myagent/quant'
 const pct = (n: number | null) => n == null || !Number.isFinite(n) ? '—' : `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
@@ -56,6 +57,12 @@ export function DecisionGuide() {
     refetchInterval: tradingNow() ? 60_000 : false,
     staleTime: 60_000,
   })
+  const marketOverview = useQuery({
+    queryKey: ['decision-guide-market-overview'],
+    queryFn: () => json<MarketOverviewBrief>('/quant/api/overview/market'),
+    refetchInterval: tradingNow() ? 30_000 : false,
+    staleTime: 30_000,
+  })
   const decision = useQuery({
     queryKey: ['decision-guide-assist', selected?.item.symbol, selected?.last, selected?.bars.at(-1)?.datetime],
     queryFn: async () => {
@@ -65,7 +72,18 @@ export function DecisionGuide() {
           strict_context: true,
           freshness: selected?.freshness || {},
           quote: { price: selected?.last, support: selected?.support, resistance: selected?.resistance },
-          market: {}, board: {},
+          market: {
+            pct: marketOverview.data?.breadth?.avg_pct,
+            turnover_ratio: marketVolumeForecast.data?.status === 'ok' && marketVolumeForecast.data.forecast_amount
+              ? (marketVolumeForecast.data.current_cumulative_amount || 0) / marketVolumeForecast.data.forecast_amount
+              : null,
+          },
+          board: {},
+          market_breadth: marketOverview.data?.breadth ? {
+            up_count: marketOverview.data.breadth.up,
+            down_count: marketOverview.data.breadth.down,
+            flat_count: marketOverview.data.breadth.flat,
+          } : {},
           account: { source: 'unavailable', verified: false },
           turnover_forecast: marketVolumeForecast.data || {},
         }),
