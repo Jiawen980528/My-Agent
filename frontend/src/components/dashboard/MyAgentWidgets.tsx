@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { MiniIntraday } from '@/components/stock-table/MiniIntraday'
+import type { MinuteKlineRow } from '@/lib/api'
 
 const API = '/quant/api/myagent/quant'
 
@@ -11,6 +13,7 @@ type SectorSnapshot = { sector: string; generated_at: string; source: string; it
 type NewsItem = { title: string; url: string; source: string; published_at?: string; relevance: string; watch_reason: string;
   bias: '可能利好' | '可能利空' | '待判断'; bias_reason: string; sector_names: string[] }
 type NewsFeed = { items: NewsItem[]; fetched_at: string; source: string; status: string; notice: string }
+type MinuteBatch = { data: Record<string, MinuteKlineRow[]>; source?: string; freshness?: Record<string, { market_time?: string | null; stale?: boolean }> }
 
 async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { credentials: 'include' })
@@ -22,6 +25,25 @@ async function getJson<T>(url: string): Promise<T> {
 function signed(value: number | undefined, digits = 2) {
   if (value == null || !Number.isFinite(Number(value))) return '—'
   return `${Number(value) > 0 ? '+' : ''}${Number(value).toFixed(digits)}`
+}
+
+function latestMarketDay() {
+  const day = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }))
+  while (day.getDay() === 0 || day.getDay() === 6) day.setDate(day.getDate() - 1)
+  return day.toLocaleDateString('en-CA')
+}
+
+function qualified(symbol: string) {
+  const value = symbol.trim().toUpperCase().replace(/\.SS$/, '.SH')
+  if (/^\d{6}\.(SH|SZ|BJ)$/.test(value)) return value
+  if (!/^\d{6}$/.test(value)) return value
+  return `${value}${value.startsWith('5') || value.startsWith('6') || value.startsWith('688') ? '.SH' : '.SZ'}`
+}
+
+function minuteRows(batch: MinuteBatch | undefined, symbol: string) {
+  const key = qualified(symbol)
+  const raw = batch?.data?.[key] || batch?.data?.[symbol] || []
+  return raw.filter(row => Number.isFinite(Number(row.close)) && row.datetime).slice(-240)
 }
 
 export function MarketNewsWidget() {
@@ -115,6 +137,13 @@ export function HoldingsWidget() {
   if (sort === 'pctDesc') rows.sort((a, b) => Number(b.pct ?? 0) - Number(a.pct ?? 0))
   if (sort === 'profitAsc') rows.sort((a, b) => Number(a.profit ?? 0) - Number(b.profit ?? 0))
   if (sort === 'profitDesc') rows.sort((a, b) => Number(b.profit ?? 0) - Number(a.profit ?? 0))
+  const minute = useQuery({
+    queryKey: ['myagent-quant-holding-minutes', rows.map(row => qualified(row.symbol)).sort().join(','), latestMarketDay()],
+    queryFn: () => getJson<MinuteBatch>(`${API}/portfolio/minute-batch?trade_date=${latestMarketDay()}`),
+    enabled: rows.length > 0,
+    refetchInterval: 30_000,
+    staleTime: 20_000,
+  })
   return <section className="h-full overflow-auto rounded-card border border-border bg-surface p-3 text-foreground">
     <div className="flex items-center justify-between gap-2">
       <div><h2 className="text-xs font-semibold">持仓涨跌</h2><p className="mt-0.5 text-[10px] text-muted">MyAgent 手工记录 · 公开行情约 30 秒刷新</p></div>
@@ -133,8 +162,9 @@ export function HoldingsWidget() {
     {holdings.isLoading && <p className="mt-3 text-xs text-muted">加载持仓…</p>}
     {holdings.error && <p className="mt-3 text-xs text-danger">{(holdings.error as Error).message}</p>}
     {!rows.length && !holdings.isLoading && !holdings.error && <p className="mt-4 text-xs text-muted">暂无持仓记录。点击“录入持仓”后会显示价格、涨跌和浮盈亏。</p>}
-    {rows.map(x => <button key={x.symbol} type="button" onClick={() => openForm(x)} className="mt-2 grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 border-t border-border pt-2 text-left text-xs hover:text-accent">
+    {rows.map(x => <button key={x.symbol} type="button" onClick={() => openForm(x)} className="mt-2 grid w-full grid-cols-[minmax(0,1fr)_112px_auto_auto] items-center gap-2 border-t border-border pt-2 text-left text-xs hover:text-accent">
       <span className="min-w-0"><b className="block truncate">{x.name} <span className="font-normal text-muted">{x.symbol}</span></b><span className="text-[10px] text-muted">{x.sector || '待绑定'} · {x.quantity} 股 · 成本 {Number(x.cost).toFixed(2)}</span></span>
+      <span className="w-28 overflow-hidden"><MiniIntraday rows={minuteRows(minute.data, x.symbol)} prevClose={x.price != null && x.pct != null ? Number(x.price) / (1 + Number(x.pct) / 100) : null} changePct={x.pct != null ? Number(x.pct) / 100 : null} width={112} height={44} volume /><small className="block truncate text-[9px] text-muted">{minute.data?.source || (minute.isLoading ? '分时读取中…' : '暂无真实分时')}</small></span>
       <span className="text-right"><b className="block">{x.price ? Number(x.price).toFixed(2) : '—'}</b><span className={Number(x.pct) >= 0 ? 'text-danger' : 'text-success'}>{signed(x.pct)}%</span></span>
       <span className={`w-20 text-right ${Number(x.profit) >= 0 ? 'text-danger' : 'text-success'}`}>{x.price ? signed(x.profit) : '—'}<small className="block text-[10px]">{x.price ? `${signed(x.profit_pct)}%` : '暂无报价'}</small></span>
     </button>)}
