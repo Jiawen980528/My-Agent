@@ -150,7 +150,7 @@ async def portfolio_minute_batch(request: Request, symbols: str = Query(..., max
         single_limit = int(capset.limits(Cap.KLINE_MINUTE_BY_SYMBOL).rpm or 30)
         limit = min(30, max(1, single_limit))
     else:
-        limit = 0
+        raise HTTPException(status_code=503, detail="分钟行情权限不可用")
     if not requested or len(requested) > limit or any(not _SYMBOL.fullmatch(s) for s in requested):
         raise HTTPException(status_code=400, detail="invalid symbols or minute batch entitlement")
     day = trade_date or datetime.now(_CN).date()
@@ -161,7 +161,12 @@ async def portfolio_minute_batch(request: Request, symbols: str = Query(..., max
     if batch_available:
         start = datetime(day.year, day.month, day.day, 9, 25, tzinfo=_CN)
         end = datetime(day.year, day.month, day.day, 15, 5, tzinfo=_CN)
-        frame = await asyncio.to_thread(sync_minute_batch, requested, start_time=start, end_time=end, batch_size=limit)
+        try:
+            frame = await asyncio.to_thread(sync_minute_batch, requested, start_time=start, end_time=end, batch_size=limit)
+        except PermissionError as exc:
+            raise HTTPException(status_code=503, detail="分钟行情权限不可用") from exc
+        except (OSError, TimeoutError, ValueError, TypeError) as exc:
+            raise HTTPException(status_code=502, detail=f"TickFlow 分钟行情暂不可用：{type(exc).__name__}") from exc
         for row in frame.to_dicts():
             symbol = row.get("symbol")
             if symbol in grouped:
