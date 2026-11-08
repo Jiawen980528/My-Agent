@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.overview import market_overview
 from app.api.kline import get_daily
-from app.services.kline_sync import sync_minute_batch
+from app.services.kline_sync import selected_minute_source, sync_minute_batch
 from app.services.portfolio_account import unavailable
 from app.tickflow.capabilities import Cap
 from app.services.market_data_service import batch_completeness, freshness, minute_bars, minute_quality, quote_snapshot
@@ -158,6 +158,7 @@ async def portfolio_minute_batch(request: Request, symbols: str = Query(..., max
         raise HTTPException(status_code=400, detail="future date")
     grouped = {symbol: [] for symbol in requested}
     errors: dict[str, str] = {}
+    selected_source = selected_minute_source()
     if batch_available:
         start = datetime(day.year, day.month, day.day, 9, 25, tzinfo=_CN)
         end = datetime(day.year, day.month, day.day, 15, 5, tzinfo=_CN)
@@ -170,8 +171,8 @@ async def portfolio_minute_batch(request: Request, symbols: str = Query(..., max
         for row in frame.to_dicts():
             symbol = row.get("symbol")
             if symbol in grouped:
-                grouped[symbol].append({**row, "datetime": str(row["datetime"]), "source": "TickFlow"})
-        source = "TickFlow Pro"
+                grouped[symbol].append({**row, "datetime": str(row["datetime"]), "source": selected_source})
+        source = "TickFlow Pro" if selected_source == "TickFlow" else selected_source
         request_count = 1
     else:
         async def fetch_one(symbol: str):
@@ -187,7 +188,8 @@ async def portfolio_minute_batch(request: Request, symbols: str = Query(..., max
             grouped[symbol] = rows
             if error:
                 errors[symbol] = error
-        source = "TickFlow（单标分钟权限回退）"
+        source = ("TickFlow（单标分钟权限回退）" if selected_source == "TickFlow"
+                  else f"{selected_source}（单标分钟权限回退）")
         request_count = len(requested)
     received_at = datetime.now(_CN)
     status = {}

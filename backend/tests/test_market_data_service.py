@@ -3,6 +3,7 @@ from datetime import datetime
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+from app.services.kline_sync import selected_minute_source
 from app.services.market_data_service import batch_completeness, freshness, minute_quality, normalize_symbol, quote_snapshot
 
 
@@ -59,6 +60,11 @@ class MarketDataServiceTests(unittest.TestCase):
         self.assertEqual(result["missing_symbols"], ["159558.SZ"])
         self.assertEqual(result["error_symbols"], ["159558.SZ"])
         self.assertFalse(result["complete"])
+
+    @patch("app.services.kline_sync.preferences.get_minute_data_provider", return_value="fuyao")
+    @patch("app.services.kline_sync.preferences.load", return_value={"minute_data_provider": "fuyao"})
+    def test_selected_minute_source_does_not_claim_tickflow_for_custom_source(self, _load, _provider):
+        self.assertEqual(selected_minute_source(), "fuyao")
 
 
 if __name__ == "__main__":

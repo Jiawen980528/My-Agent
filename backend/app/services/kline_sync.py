@@ -1041,6 +1041,16 @@ def _selected_minute_provider_name() -> str:
     return selected
 
 
+def selected_minute_source() -> str:
+    """Return the actual configured minute source for response metadata.
+
+    This is intentionally separate from capability checks: a custom source can
+    be selected and fail-closed, and that fact must not be relabeled as TickFlow.
+    """
+    provider = _selected_minute_provider_name()
+    return "TickFlow" if provider == "tickflow" else provider
+
+
 def _resolve_minute_provider(
     provider_name: str,
 ) -> tuple[object | None, bool, str | None]:

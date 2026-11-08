@@ -124,15 +124,16 @@ def minute_bars(symbol: str, trade_date: date, *, capset: CapabilitySet,
     from app.tickflow.capabilities import Cap
     if not capset.has(Cap.KLINE_MINUTE_BY_SYMBOL):
         raise PermissionError("minute entitlement unavailable")
-    from app.services.kline_sync import fetch_minute_single
+    from app.services.kline_sync import fetch_minute_single, selected_minute_source
+    source = selected_minute_source()
     bars = fetch_minute_single(normalized, trade_date, asset_type=asset_type, capset=capset)
-    items = [{**row, "datetime": str(row["datetime"]), "source": "TickFlow"} for row in bars.to_dicts()]
+    items = [{**row, "datetime": str(row["datetime"]), "source": source} for row in bars.to_dicts()]
     quality = minute_quality(items)
     latest = items[-1]["datetime"] if items else None
     return {
         "symbol": normalized,
         "trade_date": trade_date.isoformat(),
-        "source": "TickFlow",
+        "source": source,
         "rows": items,
         "quality": quality,
         "last_market_time": latest,
