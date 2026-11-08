@@ -97,6 +97,8 @@
 
 界面交互复验：`PortfolioMonitorWidget.test.tsx` 2/2 通过，覆盖持仓/板块分时渲染、未核验持仓提示、新闻与复盘区显示，以及右键隐藏/恢复板块内容。
 
+行情路由回归：`test_minute_routing.py`、`test_kline_minute_live.py`、`test_kline_batch_symbol_cap.py` 共 65 项通过，确认 TickFlow/自定义分钟源的权限门控、单标回退和批量上限未被来源标签修复破坏。
+
 账户/交易上下文接入后的复验：量化核心测试 23 项通过，TypeScript 检查退出码 0，Vite 构建退出码 0；仍只有大 chunk 警告。
 
 硬编码审计：`2026-11-06`、`159558`、`588080` 仅出现在历史复盘兼容逻辑和测试夹具中；实时分钟桥接路径没有复盘日期特判。决策展示改动后的 Vite 构建再次成功，退出码 0。
