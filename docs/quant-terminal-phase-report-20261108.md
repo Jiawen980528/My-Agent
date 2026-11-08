@@ -115,3 +115,5 @@ AI 桥接来源修复：`shared_context` 不再固定返回 `tickflow`，而是�
 
 成交额预测来源修复：`volume-forecast` 与 `market-volume-forecast` 改为使用实际选中的分钟数据源，不再固定标记 TickFlow；新增自定义源回归。预测、市场量能和决策相关测试共 `12/12` 通过，`myagent_bridge.py` 语法检查通过。
 
+看盘来源显示修复：`a83d48df` 让持仓详情和每日行情推演使用批量/单标接口实际返回的数据源，不再把最新数据无条件显示为 TickFlow Pro。看盘组件测试 `2/2` 通过，Vite 构建成功（仅保留既有大 chunk 警告）。
+
