@@ -32,7 +32,35 @@ class PTradeReplayTests(unittest.TestCase):
         result = replay.replay("159558.SZ", [])
         self.assertEqual(result["fees"], 20)
         self.assertEqual(result["extra_qty"], 12600)
+        self.assertEqual(result["matched_t_qty"], 23800)
+        self.assertEqual(result["unmatched_sell_qty"], 0)
         self.assertIsNone(result["versus_no_trade"])
+
+    def test_lot_matching_handles_buy_then_sell_and_unmatched_sell(self):
+        trades = [
+            {"trade_id": "b", "datetime": "2026-11-07T10:00:00+08:00", "side": "buy", "qty": 100,
+             "price": 10.0, "fee": 5.0, "source": "manual"},
+            {"trade_id": "s", "datetime": "2026-11-07T10:05:00+08:00", "side": "sell", "qty": 40,
+             "price": 10.5, "fee": 5.0, "source": "manual"},
+            {"trade_id": "s2", "datetime": "2026-11-07T10:06:00+08:00", "side": "sell", "qty": 80,
+             "price": 10.2, "fee": 5.0, "source": "manual"},
+        ]
+        result = replay.replay("600000.SH", [], trade_date="2026-11-07", trades=trades)
+        self.assertEqual(result["matched_t_qty"], 100)
+        self.assertEqual(result["unmatched_sell_qty"], 20)
+        self.assertEqual(result["unmatched_buy_qty"], 0)
+
+    def test_lot_matching_handles_sell_then_buy_as_round_trip(self):
+        trades = [
+            {"trade_id": "s", "datetime": "2026-11-07T10:00:00+08:00", "side": "sell", "qty": 100,
+             "price": 10.5, "fee": 5.0, "source": "manual"},
+            {"trade_id": "b", "datetime": "2026-11-07T10:05:00+08:00", "side": "buy", "qty": 60,
+             "price": 10.0, "fee": 5.0, "source": "manual"},
+        ]
+        result = replay.replay("600000.SH", [], trade_date="2026-11-07", trades=trades)
+        self.assertEqual(result["matched_t_qty"], 60)
+        self.assertEqual(result["unmatched_sell_qty"], 40)
+        self.assertEqual(result["unmatched_buy_qty"], 0)
 
     def test_generic_trade_csv_is_idempotent_and_replayable(self):
         raw = ("trade_id,symbol,datetime,side,qty,price,fee,source\n"

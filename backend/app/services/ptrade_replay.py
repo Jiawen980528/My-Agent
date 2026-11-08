@@ -133,6 +133,54 @@ def _minute_allowed(dt: datetime) -> bool:
     return 9 * 60 + 30 <= t <= 11 * 60 + 30 or 13 * 60 <= t <= 15 * 60
 
 
+def _match_trade_lots(trades: list[dict]) -> tuple[float, float, float, float]:
+    """Match opposite-side lots in time order, including sell-then-buy T trades.
+
+    A sell with no earlier buy is treated as a reduction of an existing position
+    until a later buy closes it; a buy with no earlier sell is held as an open
+    lot until a later sell closes it.  This avoids using aggregate quantities,
+    which cannot distinguish an add-on position from a round-trip.
+    """
+    pending_buys: list[dict] = []
+    pending_sells: list[dict] = []
+    matched_qty = matched_pnl = 0.0
+
+    def consume(queue: list[dict], incoming: dict, *, sell_first: bool) -> None:
+        nonlocal matched_qty, matched_pnl
+        remaining = float(incoming["qty"])
+        while remaining > 0 and queue:
+            lot = queue[0]
+            quantity = min(remaining, float(lot["qty"]))
+            sell = lot if sell_first else incoming
+            buy = incoming if sell_first else lot
+            sell_fee = float(sell["fee"]) * quantity / float(sell["qty"])
+            buy_fee = float(buy["fee"]) * quantity / float(buy["qty"])
+            matched_qty += quantity
+            matched_pnl += quantity * (float(sell["price"]) - float(buy["price"])) - sell_fee - buy_fee
+            lot["qty"] = float(lot["qty"]) - quantity
+            remaining -= quantity
+            if lot["qty"] <= 1e-9:
+                queue.pop(0)
+        if remaining > 1e-9:
+            incoming["qty"] = remaining
+        else:
+            incoming["qty"] = 0.0
+
+    for trade in trades:
+        current = {"qty": float(trade["qty"]), "price": float(trade["price"]), "fee": float(trade["fee"])}
+        if trade["side"] == "buy":
+            consume(pending_sells, current, sell_first=True)
+            if current["qty"] > 1e-9:
+                pending_buys.append(current)
+        else:
+            consume(pending_buys, current, sell_first=False)
+            if current["qty"] > 1e-9:
+                pending_sells.append(current)
+    return (matched_qty, matched_pnl,
+            sum(float(lot["qty"]) for lot in pending_buys),
+            sum(float(lot["qty"]) for lot in pending_sells))
+
+
 def _coverage(rows: list[dict]) -> dict:
     stamps = {row["datetime"][11:16] for row in rows}
     options = []
@@ -246,19 +294,8 @@ def replay(symbol: str, rows: list[dict], source: str = "PTrade", *,
         trades.append({"trade_id": row.get("trade_id"), "datetime": row["datetime"], "side": side,
                        "qty": qty, "price": price, "fee": round(fee, 2), "source": row.get("source", source),
                        "cash_flow": round(signed-fee, 2)})
-    matched = min(sold, bought)
-    matched_left = matched
-    covered_cost = 0.0
-    covered_fee = 0.0
-    for trade in trades:
-        if trade["side"] == "buy" and matched_left:
-            q = min(matched_left, trade["qty"])
-            covered_cost += q * trade["price"]
-            covered_fee += trade["fee"] * q / trade["qty"]
-            matched_left -= q
-    sale_proceeds = sum(t["qty"]*t["price"] - t["fee"] for t in trades if t["side"] == "sell")
-    t_spread = sale_proceeds - covered_cost - covered_fee
-    extra = bought - sold
+    matched, t_spread, unmatched_buy, unmatched_sell = _match_trade_lots(trades)
+    extra = unmatched_buy - unmatched_sell
     close = rows[-1]["close"] if rows else None
     incremental = cash + extra * close if close is not None else None
     best = None
@@ -323,7 +360,9 @@ def replay(symbol: str, rows: list[dict], source: str = "PTrade", *,
     return {"symbol": symbol, "date": trade_date, "source": source if rows else "awaiting_PTrade_CSV",
             "rows": rows, "row_count": len(rows), "coverage": _coverage(rows), "complete": _coverage(rows)["complete"],
             "trades": trades, "cash_flow": round(cash, 2), "fees": round(fee_total, 2),
-            "matched_t_qty": matched, "matched_t_pnl": round(t_spread, 2), "extra_qty": extra,
+            "matched_t_qty": round(matched, 6), "matched_t_pnl": round(t_spread, 2),
+            "unmatched_buy_qty": round(unmatched_buy, 6), "unmatched_sell_qty": round(unmatched_sell, 6),
+            "extra_qty": round(extra, 6),
             "close": close, "versus_no_trade": round(incremental, 2) if incremental is not None else None,
             "extra_position_mark_to_close": round(incremental-t_spread, 2) if incremental is not None else None,
             "hindsight_best": best, "causal_backtest": backtest,
