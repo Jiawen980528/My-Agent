@@ -27,6 +27,7 @@ type History = { trades: Trade[]; account_snapshot: { total_assets: string; posi
     items: { symbol: string; buy_quantity: number; sell_quantity: number; net_quantity: number; matched_quantity: number;
       unmatched_buy_quantity: number; unmatched_sell_quantity: number; realised_t_pnl: string; total_fees: string }[] };
   notice: string }
+type PortfolioSnapshot = { items: Holding[]; source: string; account_source?: string | null; account_verified?: boolean }
 type Replay = { actual_vs_no_trade: string; realised_t_pnl: string; extra_position_effect: string;
   max_drawdown_yuan: string; max_drawdown_pct_of_snapshot_assets: string | null; hindsight_optimal_pnl: string;
   hindsight_quantity: number | null;
@@ -418,7 +419,7 @@ export function PortfolioMonitorWidget() {
   }
   useEffect(() => { setUiPref('portfolio-terminal-pane-widths', JSON.stringify(paneWidths)) }, [paneWidths])
   const snapshot = useQuery({ queryKey: ['portfolio-widget-snapshot'],
-    queryFn: () => json<{ items: Holding[]; source: string }>(`${API}/portfolio/snapshot`),
+    queryFn: () => json<PortfolioSnapshot>(`${API}/portfolio/snapshot`),
     refetchInterval: tradingNow() ? 30_000 : false })
   const items = useMemo(() => snapshot.data?.items || [], [snapshot.data?.items])
   const [selected, setSelected] = useState('')
@@ -563,7 +564,7 @@ export function PortfolioMonitorWidget() {
         <Link to="/myagent-quant" className="text-accent">管理持仓</Link></div>
     </div>
     {snapshot.data && <div className="mb-1.5 rounded border border-border bg-base/40 px-2 py-1 text-[11px]">
-      <span className="text-muted">监控标的来源：</span><b>{snapshot.data.source || '未标注'}</b> · <span className="text-muted">已录入持仓 {items.filter(item => item.holding_source).length}/{items.length}</span> · <span className="text-warning">未连接券商实时账户，数量/成本不代表实时账户同步</span>
+      <span className="text-muted">监控标的来源：</span><b>{snapshot.data.source || '未标注'}</b> · <span className="text-muted">已录入持仓 {items.filter(item => item.holding_source).length}/{items.length}</span> · {snapshot.data.account_verified ? <span className="text-bull">券商实时账户已核验（{snapshot.data.account_source || 'broker'}）</span> : <span className="text-warning">券商账户未核验，数量/成本不代表实时账户同步</span>}
     </div>}
     {tradeHistory.data?.account_snapshot && <div className="mb-1.5 rounded border border-warning/50 bg-warning/5 px-2 py-1 text-[11px]">
       <b>{day} 历史账户截图 · 待与券商核对</b>　总资产 ¥{tradeHistory.data.account_snapshot.total_assets}　持仓 ¥{tradeHistory.data.account_snapshot.position_value}
