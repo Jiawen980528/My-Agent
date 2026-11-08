@@ -580,7 +580,7 @@ export function PortfolioMonitorWidget() {
         <div className="rounded bg-surface px-2 py-1">相对完全不交易 <b className={Number(tradeReplay.data.actual_vs_no_trade) >= 0 ? 'text-bull' : 'text-bear'}>¥{tradeReplay.data.actual_vs_no_trade}</b></div>
         <div className="rounded bg-surface px-2 py-1">额外加仓影响 <b className={Number(tradeReplay.data.extra_position_effect) >= 0 ? 'text-bull' : 'text-bear'}>¥{tradeReplay.data.extra_position_effect}</b></div>
         <div className="rounded bg-surface px-2 py-1">增量策略最大回撤 <b>¥{tradeReplay.data.max_drawdown_yuan}</b>{tradeReplay.data.max_drawdown_pct_of_snapshot_assets && <span className="text-muted"> · {tradeReplay.data.max_drawdown_pct_of_snapshot_assets}%</span>}</div>
-        <div className="rounded bg-surface px-2 py-1">低买高卖理论模拟 <b>¥{tradeReplay.data.hindsight_optimal_pnl}</b></div>
+        <div className="rounded bg-surface px-2 py-1">事后理论最优（低买高卖） <b>¥{tradeReplay.data.hindsight_optimal_pnl}</b></div>
         </div>
       </div>}
       {tradeReplay.data && <p className="mt-1 text-[10px] text-muted">分钟价校验 {tradeReplay.data.fill_validation.within_range}/{tradeReplay.data.fill_validation.checked} 笔落在当分钟高低区间；{tradeReplay.data.notice}</p>}
