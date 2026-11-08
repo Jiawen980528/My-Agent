@@ -15,6 +15,9 @@ from app.config import settings
 from app.services import fund_flow_archive
 from app.services import ptrade_replay
 from app.services.decision_engine import build_decision
+from app.services.kline_sync import fetch_minute_single
+from app.services.volume_forecast import forecast_amount
+from app.tickflow.capabilities import Cap
 
 router = APIRouter(prefix="/api/myagent", tags=["myagent-bridge"])
 
@@ -38,6 +41,47 @@ def _is_linkable_board_name(name: str) -> bool:
     return bool(text) and not any(word in text for word in _EVENT_BOARD_WORDS)
 logger = logging.getLogger(__name__)
 _ptrade_upload_times: dict[str, list[float]] = {}
+
+
+def _previous_weekdays(day: date, count: int) -> list[date]:
+    result: list[date] = []
+    cursor = day
+    while len(result) < count:
+        cursor = cursor.fromordinal(cursor.toordinal() - 1)
+        if cursor.weekday() < 5:
+            result.append(cursor)
+    return result
+
+
+@router.get("/volume-forecast")
+async def volume_forecast_for_symbol(
+    request: Request,
+    symbol: str = Query(..., pattern=r"^\d{6}\.(SH|SZ|SS|BJ)$"),
+    trade_date: date | None = Query(None),
+):
+    """Read real TickFlow minute amount samples and forecast full-day turnover."""
+    normalized = symbol.strip().upper().replace(".SS", ".SH")
+    day = trade_date or datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    if day > datetime.now(ZoneInfo("Asia/Shanghai")).date():
+        raise HTTPException(status_code=400, detail="不能查询未来日期")
+    capset = request.app.state.capabilities
+    if not capset.has(Cap.KLINE_MINUTE_BY_SYMBOL):
+        raise HTTPException(status_code=503, detail="分钟行情权限不可用")
+    try:
+        asset_type = request.app.state.repo.resolve_asset_type(normalized)
+        days = [day, *_previous_weekdays(day, 5)]
+
+        def load(selected: date) -> list[dict]:
+            frame = fetch_minute_single(normalized, selected, asset_type=asset_type, capset=capset)
+            return [{**row, "datetime": str(row["datetime"])} for row in frame.to_dicts()]
+
+        rows = await asyncio.gather(*(asyncio.to_thread(load, selected) for selected in days))
+        result = forecast_amount(rows[0], rows[1:])
+        return {"symbol": normalized, "trade_date": day.isoformat(), "source": "TickFlow分钟成交额", **result}
+    except PermissionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (OSError, ValueError, TypeError) as exc:
+        raise HTTPException(status_code=502, detail=f"分钟成交额读取失败：{type(exc).__name__}") from exc
 
 
 @router.post("/decision/assist")
