@@ -19,6 +19,7 @@ from app.services import ptrade_replay
 from app.tickflow.client import get_client
 from app.tickflow.capabilities import Cap
 from app.services.market_data_service import freshness, minute_bars, quote_snapshot
+from app.services.volume_forecast import forecast_amount
 
 router = APIRouter(prefix="/api/bridge", tags=["bridge"])
 _SYMBOL = re.compile(r"^\d{6}\.(SH|SZ|BJ)$")
@@ -30,6 +31,21 @@ def _check_token(request: Request) -> None:
     supplied = (request.headers.get("x-tickflow-bridge-token") or "").strip()
     if not expected or not supplied or not hmac.compare_digest(expected, supplied):
         raise HTTPException(status_code=401, detail="bridge unauthorized")
+
+
+@router.post("/volume-forecast")
+async def volume_forecast(request: Request):
+    """Forecast full-day turnover from real minute amount profiles only."""
+    _check_token(request)
+    try:
+        payload = await request.json()
+        current = payload.get("current_rows", [])
+        history = payload.get("historical_days", [])
+        if not isinstance(current, list) or not isinstance(history, list):
+            raise ValueError("current_rows 和 historical_days 必须为数组")
+        return forecast_amount(current, history)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/context")
