@@ -39,7 +39,7 @@ export function DecisionGuide() {
   const [selectedSymbol, setSelectedSymbol] = useState('')
   const snapshot = useQuery({ queryKey: ['decision-guide-snapshot'], queryFn: () => json<{ items: Holding[]; source?: string }>(`${API}/portfolio/snapshot`), refetchInterval: tradingNow() ? 30_000 : false })
   const items = snapshot.data?.items || []
-  const minute = useQuery({ queryKey: ['decision-guide-minute', day], queryFn: () => json<{ data: Record<string, Bar[]>; freshness?: Record<string, Freshness>; source?: string }>(`${API}/portfolio/minute-batch?trade_date=${day}`), enabled: items.length > 0, refetchInterval: tradingNow() ? 60_000 : false })
+  const minute = useQuery({ queryKey: ['decision-guide-minute', day], queryFn: () => json<{ data: Record<string, Bar[]>; freshness?: Record<string, Freshness>; source?: string; complete?: boolean; missing_symbols?: string[] }>(`${API}/portfolio/minute-batch?trade_date=${day}`), enabled: items.length > 0, refetchInterval: tradingNow() ? 60_000 : false })
   const rows = useMemo(() => items.map(item => {
     const bars = minute.data?.data?.[item.symbol] || []
     const closes = bars.map(x => Number(x.close)).filter(Number.isFinite)

@@ -107,6 +107,17 @@ def minute_quality(items: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def batch_completeness(grouped: dict[str, list[dict[str, Any]]], errors: dict[str, str] | None = None) -> dict[str, Any]:
+    """Report missing symbols without treating an empty minute series as valid data."""
+    missing = [symbol for symbol, rows in grouped.items() if not rows]
+    error_symbols = sorted(str(symbol) for symbol in (errors or {}))
+    return {
+        "missing_symbols": missing,
+        "error_symbols": error_symbols,
+        "complete": not missing and not error_symbols,
+    }
+
+
 def minute_bars(symbol: str, trade_date: date, *, capset: CapabilitySet,
                 asset_type: str = "stock") -> dict[str, Any]:
     normalized = normalize_symbol(symbol)

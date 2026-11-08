@@ -459,7 +459,7 @@ export function PortfolioMonitorWidget() {
   const day = pickedDay || latestDay
   const [hindsightQuantity, setHindsightQuantity] = useState(20000)
   const minute = useQuery({ queryKey: ['portfolio-widget-minute', latestDay],
-    queryFn: () => json<{ data: Record<string, Bar[]>; source: string; freshness?: Record<string, { market_time?: string | null; received_at?: string | null; age_seconds?: number | null; stale?: boolean }>; quality?: Record<string, MinuteQuality> }>(`${API}/portfolio/minute-batch?trade_date=${latestDay}`),
+    queryFn: () => json<{ data: Record<string, Bar[]>; source: string; freshness?: Record<string, { market_time?: string | null; received_at?: string | null; age_seconds?: number | null; stale?: boolean }>; quality?: Record<string, MinuteQuality>; missing_symbols?: string[]; complete?: boolean }>(`${API}/portfolio/minute-batch?trade_date=${latestDay}`),
     enabled: !!items.length, refetchInterval: tradingNow() ? 60_000 : false })
   const news = useQuery({ queryKey: ['myagent-quant-news'], queryFn: () => json<News>(`${API}/news`), refetchInterval: 180_000 })
   const tradeHistory = useQuery({ queryKey: ['portfolio-terminal-history', day],
@@ -487,9 +487,9 @@ export function PortfolioMonitorWidget() {
   const freshnessRows = Object.values(minute.data?.freshness || {})
   const latestFreshness = freshnessRows.find(row => row.market_time) || freshnessRows[0]
   const qualityRows = Object.values(minute.data?.quality || {})
-  const badQuality = qualityRows.some(row => row.valid === false)
+  const badQuality = qualityRows.some(row => row.valid === false) || minute.data?.complete === false
   const usableMinuteData = badQuality ? {} : (minute.data?.data || {})
-  const dataState = minute.isError ? '连接失败' : minute.isLoading ? '读取中' : badQuality ? '数据质量异常' : latestFreshness?.stale ? '已收盘/缓存' : latestFreshness?.market_time ? '行情可用' : '无时间戳'
+  const dataState = minute.isError ? '连接失败' : minute.isLoading ? '读取中' : badQuality ? `数据不完整${minute.data?.missing_symbols?.length ? `（缺 ${minute.data.missing_symbols.length} 只）` : ''}` : latestFreshness?.stale ? '已收盘/缓存' : latestFreshness?.market_time ? '行情可用' : '无时间戳'
   const chooseView = (mode: 'detail' | 'overview') => { setViewMode(mode); setUiPref('portfolio-terminal-view', JSON.stringify(mode)) }
   const chooseLayout = (mode: LayoutMode) => { setLayoutMode(mode); setUiPref('portfolio-terminal-layout', JSON.stringify(mode)) }
   const setLinkedBoard = (symbol: string, code: string) => {

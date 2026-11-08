@@ -18,7 +18,7 @@ from app.api.kline import get_daily
 from app.services.kline_sync import sync_minute_batch
 from app.services.portfolio_account import unavailable
 from app.tickflow.capabilities import Cap
-from app.services.market_data_service import freshness, minute_bars, minute_quality, quote_snapshot
+from app.services.market_data_service import batch_completeness, freshness, minute_bars, minute_quality, quote_snapshot
 from app.services.volume_forecast import forecast_amount
 
 router = APIRouter(prefix="/api/bridge", tags=["bridge"])
@@ -191,6 +191,7 @@ async def portfolio_minute_batch(request: Request, symbols: str = Query(..., max
         latest = rows[-1].get("datetime") if rows else None
         status[symbol] = freshness(latest, received_at=received_at)
         quality[symbol] = minute_quality(rows)
+    completeness = batch_completeness(grouped, errors)
     return {"trade_date": day.isoformat(), "source": source, "data": grouped,
             "freshness": status, "quality": quality, "errors": errors,
-            "request_count": request_count, "symbol_count": len(requested)}
+            "request_count": request_count, "symbol_count": len(requested), **completeness}

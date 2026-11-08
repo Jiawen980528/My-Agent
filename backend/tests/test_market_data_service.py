@@ -3,7 +3,7 @@ from datetime import datetime
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
-from app.services.market_data_service import freshness, minute_quality, normalize_symbol, quote_snapshot
+from app.services.market_data_service import batch_completeness, freshness, minute_quality, normalize_symbol, quote_snapshot
 
 
 class MarketDataServiceTests(unittest.TestCase):
@@ -53,6 +53,12 @@ class MarketDataServiceTests(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertEqual(result["duplicate_timestamps"], 1)
         self.assertFalse(result["sorted"])
+
+    def test_batch_completeness_reports_empty_and_error_symbols(self):
+        result = batch_completeness({"600000.SH": [{"datetime": "x"}], "159558.SZ": []}, {"159558.SZ": "PermissionError"})
+        self.assertEqual(result["missing_symbols"], ["159558.SZ"])
+        self.assertEqual(result["error_symbols"], ["159558.SZ"])
+        self.assertFalse(result["complete"])
 
 
 if __name__ == "__main__":
