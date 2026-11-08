@@ -30,7 +30,19 @@ class MarketDataServiceTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["name"], "测试")
         self.assertIn("market_time", result["items"][0])
         self.assertEqual(result["items"][0]["source"], "TickFlow")
+        self.assertEqual(result["missing_symbols"], [])
+        self.assertTrue(result["complete"])
         get_client.return_value.quotes.get.assert_called_once_with(symbols=["600000.SH"])
+
+    @patch("app.services.market_data_service._get_client")
+    def test_quote_snapshot_reports_missing_requested_symbols(self, get_client):
+        get_client.return_value.quotes.get.return_value = [{
+            "symbol": "600000.SH", "last_price": 10.2, "prev_close": 10.0,
+            "timestamp": "2026-11-08T10:00:00+08:00", "ext": {"name": "测试"},
+        }]
+        result = quote_snapshot(["600000.SH", "159558.SZ"])
+        self.assertEqual(result["missing_symbols"], ["159558.SZ"])
+        self.assertFalse(result["complete"])
 
     def test_minute_quality_rejects_duplicate_or_unsorted_rows(self):
         result = minute_quality([

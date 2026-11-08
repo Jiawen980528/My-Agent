@@ -66,7 +66,8 @@ def quote_snapshot(symbols: list[str]) -> dict[str, Any]:
     requested = list(dict.fromkeys(normalize_symbol(item) for item in symbols if str(item).strip()))
     received = datetime.now(CN_TZ)
     if not requested:
-        return {"source": "TickFlow", "items": [], **freshness(None, received_at=received)}
+        return {"source": "TickFlow", "items": [], "missing_symbols": [], "complete": True,
+                **freshness(None, received_at=received)}
     rows = _get_client().quotes.get(symbols=requested) or []
     items = []
     for row in rows:
@@ -87,7 +88,10 @@ def quote_snapshot(symbols: list[str]) -> dict[str, Any]:
         items.append(item)
     latest = next((item["market_time"] for item in reversed(items) if item["market_time"]), None)
     status = freshness(latest, received_at=received)
-    return {"source": "TickFlow", "items": items, **status}
+    returned = {str(item.get("symbol") or "") for item in items}
+    missing = [symbol for symbol in requested if symbol not in returned]
+    return {"source": "TickFlow", "items": items, "missing_symbols": missing,
+            "complete": not missing, **status}
 
 
 def minute_quality(items: list[dict[str, Any]]) -> dict[str, Any]:
