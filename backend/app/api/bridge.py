@@ -65,7 +65,13 @@ def shared_context(
     symbols: str = Query("", max_length=400),
     days: int = Query(60, ge=20, le=200),
 ):
-    """Return a compact market + selected-stock context for MyAgent AI."""
+    """Return a read-only, provenance-aware market context for MyAgent AI.
+
+    This endpoint is intentionally fail-closed: account values, quotes and
+    other optional feeds are included only when their real adapter returns
+    them.  Missing adapters are represented as ``unavailable`` rather than
+    being inferred from prices or browser state.
+    """
     _check_token(request)
     requested = []
     for raw in symbols.split(","):
@@ -91,6 +97,38 @@ def shared_context(
             # One unavailable symbol must not prevent the rest of the context.
             continue
     sources = sorted(set(kline_sources.values()))
+    # Keep the AI bridge useful for the current screen as well as historical
+    # analysis.  A quote failure must not make valid daily context disappear.
+    quotes: dict = {"status": "unavailable", "source": "unavailable", "items": []}
+    try:
+        qualified_symbols = list(kline_sources) or [
+            value for value in requested
+            if _SYMBOL.fullmatch(value)
+        ]
+        if qualified_symbols:
+            asset_types = {
+                symbol: request.app.state.repo.resolve_asset_type(symbol)
+                for symbol in qualified_symbols
+            }
+            quotes = quote_snapshot(qualified_symbols, asset_types=asset_types)
+    except Exception:
+        # The bridge must still return market/daily context when the realtime
+        # provider is down or the host is running without a repository.
+        quotes = {"status": "unavailable", "source": "unavailable", "items": []}
+
+    try:
+        account = account_status(request)
+    except Exception:
+        account = unavailable("账户只读适配器不可用")
+
+    capabilities = {
+        "quotes": quotes.get("status") == "ok" or bool(quotes.get("items")),
+        "daily_kline": bool(klines),
+        "account": bool(account.get("verified") is True),
+        "minute_kline": "通过 /portfolio-minute 或 /portfolio-minute-batch 按权限调用",
+        "fund_flow": "通过 MyAgent fund-flow 接口按数据源调用；未接入时不可用",
+        "orders": False,
+    }
     return {
         "source": sources[0] if len(sources) == 1 else "mixed" if sources else "unavailable",
         "kline_sources": kline_sources,
@@ -98,6 +136,10 @@ def shared_context(
         "market": overview,
         "symbols": requested,
         "klines": klines,
+        "quotes": quotes,
+        "account": account,
+        "capabilities": capabilities,
+        "read_only": True,
     }
 
 
