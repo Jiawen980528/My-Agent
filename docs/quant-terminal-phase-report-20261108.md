@@ -78,7 +78,7 @@
 - `4f90bd2d` 持仓看盘顶部明确显示监控标的来源、已录入数量比例，并提示当前没有券商实时账户同步，避免把监控列表或手工记录误解为实时账户持仓。
 - `a4195be4` 账户提示改为读取快照的 `account_verified/account_source`，仅在适配器核验通过时显示实时账户，否则显示未核验。
 - `e968e83d` 统一报价服务增加 `missing_symbols` 和 `complete` 元数据，缺失请求标的时显式报告，不再让上层误判为完整持仓行情。
-- 待提交：批量分钟行情增加 `missing_symbols/error_symbols/complete`，持仓看盘遇到缺标的或取数错误时停止使用该批数据并显示不完整状态。
+- `583c2a9d` 批量分钟行情增加 `missing_symbols/error_symbols/complete`，持仓看盘遇到缺标的或取数错误时停止使用该批数据并显示不完整状态。
 
 后续测试：本轮后端量化纯单元测试 23 项通过；Python 语法检查通过；前端本地 TypeScript 检查退出码 0。完整后端测试在当前 Python 3.9 环境无法导入项目依赖（如 polars/pytest），未据此声称全量通过。pnpm 常规命令曾被本机安全策略阻止安装步骤（esbuild 构建脚本未批准），未修改该策略。
 
