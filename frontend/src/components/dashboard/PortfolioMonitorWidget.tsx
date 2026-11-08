@@ -6,6 +6,7 @@ import * as echarts from 'echarts'
 import { api } from '@/lib/api'
 import { getPageScale } from '@/lib/pageZoom'
 import { setUiPref } from '@/lib/uiPrefs'
+import { usePreferences } from '@/lib/useSharedQueries'
 
 const API = '/quant/api/myagent/quant'
 const PUBLIC_API = '/quant/api/myagent'
@@ -390,6 +391,7 @@ function DecisionGuidePanel({ items, minuteData, source }: { items: Holding[]; m
 }
 
 export function PortfolioMonitorWidget() {
+  const { data: preferences } = usePreferences()
   const splitRef = useRef<HTMLDivElement>(null)
   const [paneWidths, setPaneWidths] = useState(() => loadObject('portfolio-terminal-pane-widths', { left: 175, right: 260 }))
   const resizePane = (side: 'left' | 'right', event: React.PointerEvent<HTMLDivElement>) => {
@@ -492,6 +494,34 @@ export function PortfolioMonitorWidget() {
     setLinkedBoards(next)
     setUiPref('portfolio-terminal-linked-boards', JSON.stringify(next))
   }
+  useEffect(() => {
+    const remote = preferences?.ui_prefs
+    if (!remote) return
+    const visibleRemote = remote.portfolio_terminal_visible
+    if (visibleRemote && typeof visibleRemote === 'object' && !Array.isArray(visibleRemote)) {
+      setVisible(current => ({ ...current, ...(visibleRemote as Partial<Record<Panel, boolean>>) }))
+    }
+    const decodeString = (value: unknown) => {
+      if (typeof value !== 'string') return value
+      try { return JSON.parse(value) as unknown } catch { return value }
+    }
+    const remoteView = decodeString(remote.portfolio_terminal_view)
+    const remoteLayout = decodeString(remote.portfolio_terminal_layout)
+    if (remoteView === 'detail' || remoteView === 'overview') setViewMode(remoteView)
+    if (remoteLayout === 'side' || remoteLayout === 'strip' || remoteLayout === 'grid') setLayoutMode(remoteLayout)
+    const linked = remote.portfolio_terminal_linked_boards
+    if (linked && typeof linked === 'object' && !Array.isArray(linked)) setLinkedBoards(linked as Record<string, string>)
+    const symbols = remote.portfolio_terminal_extra_symbols
+    if (Array.isArray(symbols)) setExtraSymbols(symbols.filter((value): value is string => typeof value === 'string'))
+    const boards = remote.portfolio_terminal_extra_boards
+    if (Array.isArray(boards)) setExtraBoards(boards.filter((value): value is string => typeof value === 'string'))
+    const widths = remote.portfolio_terminal_pane_widths
+    if (widths && typeof widths === 'object' && !Array.isArray(widths)) {
+      const value = widths as { left?: unknown; right?: unknown }
+      const left = Number(value.left), right = Number(value.right)
+      if (Number.isFinite(left) && Number.isFinite(right)) setPaneWidths({ left, right })
+    }
+  }, [preferences?.ui_prefs])
   const addSymbol = () => {
     const symbol = symbolInput.trim().toUpperCase().replace(/\.SS$/, '.SH')
     if (!/^\d{6}\.(SH|SZ|BJ)$/.test(symbol)) {

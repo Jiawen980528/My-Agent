@@ -2414,6 +2414,8 @@ export interface ConfigBackupApplyResult {
 }
 
 export interface Preferences {
+  /** 用户界面偏好副本；局部组件配置通过此字段跨设备恢复。 */
+  ui_prefs?: Record<string, unknown>
   realtime_quotes_enabled: boolean
   watchlist_groups_in_nav: boolean
   minute_sync_enabled: boolean
