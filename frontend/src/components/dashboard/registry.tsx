@@ -343,7 +343,7 @@ export function minSizeOf(t: WidgetType): { w: number; h: number } {
   return { w: d?.minW ?? 2, h: d?.minH ?? 4 }
 }
 
-/** 默认布局 — 用户定稿 v2(2026-09-27): 顶部通栏 → 中段四列等高(分布/雷达/趋势/梯队 各8行) → 双热度+右侧监控高栏 → 四榜单。
+/** 默认布局 — 顶部通栏 → 持仓综合监控 → 市场分布/趋势 → 榜单 → 资金/持仓/板块/news。
  * 坐标必须是竖直压实后的稳定形态(列内不留空隙), 否则 RGL 渲染时会自动上提,
  * 导致「恢复默认」的 JSON 等值判断永不成立、每次都落 blob 而非 null。 */
 export const DEFAULT_LAYOUT: DashboardItem[] = [
@@ -362,4 +362,7 @@ export const DEFAULT_LAYOUT: DashboardItem[] = [
   { i: 'turnover', t: 'turnover', x: 4, y: 43, w: 2, h: 13 },
   { i: 'activity', t: 'activity', x: 6, y: 43, w: 2, h: 13 },
   { i: 'market-news', t: 'market-news', x: 0, y: 56, w: 6, h: 12 },
+  { i: 'fund-flow', t: 'fund-flow', x: 0, y: 68, w: 6, h: 13 },
+  { i: 'holdings', t: 'holdings', x: 6, y: 68, w: 6, h: 13 },
+  { i: 'sector-watch', t: 'sector-watch', x: 0, y: 81, w: 12, h: 13 },
 ]
