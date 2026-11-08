@@ -454,7 +454,7 @@ export function PortfolioMonitorWidget() {
   const day = pickedDay || latestDay
   const [hindsightQuantity, setHindsightQuantity] = useState(20000)
   const minute = useQuery({ queryKey: ['portfolio-widget-minute', latestDay],
-    queryFn: () => json<{ data: Record<string, Bar[]>; source: string }>(`${API}/portfolio/minute-batch?trade_date=${latestDay}`),
+    queryFn: () => json<{ data: Record<string, Bar[]>; source: string; freshness?: Record<string, { market_time?: string | null; received_at?: string | null; age_seconds?: number | null; stale?: boolean }> }>(`${API}/portfolio/minute-batch?trade_date=${latestDay}`),
     enabled: !!items.length, refetchInterval: tradingNow() ? 60_000 : false })
   const news = useQuery({ queryKey: ['myagent-quant-news'], queryFn: () => json<News>(`${API}/news`), refetchInterval: 180_000 })
   const tradeHistory = useQuery({ queryKey: ['portfolio-terminal-history', day],
@@ -479,6 +479,9 @@ export function PortfolioMonitorWidget() {
     setMenu(null)
   }
   const shown = listMode === 'recorded' ? allItems.filter(item => item.holding_source) : allItems
+  const freshnessRows = Object.values(minute.data?.freshness || {})
+  const latestFreshness = freshnessRows.find(row => row.market_time) || freshnessRows[0]
+  const dataState = minute.isError ? '连接失败' : minute.isLoading ? '读取中' : latestFreshness?.stale ? '已收盘/缓存' : latestFreshness?.market_time ? '行情可用' : '无时间戳'
   const chooseView = (mode: 'detail' | 'overview') => { setViewMode(mode); localStorage.setItem('portfolio-terminal-view', JSON.stringify(mode)) }
   const chooseLayout = (mode: LayoutMode) => { setLayoutMode(mode); localStorage.setItem('portfolio-terminal-layout', JSON.stringify(mode)) }
   const setLinkedBoard = (symbol: string, code: string) => {
@@ -517,7 +520,7 @@ export function PortfolioMonitorWidget() {
   return <section className="relative h-full overflow-auto rounded-card border border-border bg-surface p-2 text-foreground"
     onContextMenu={event => { event.preventDefault(); setMenu({ x: Math.max(8, Math.min(event.clientX, innerWidth - 220)), y: Math.max(8, Math.min(event.clientY, innerHeight - 440)) }) }}>
     <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 border-b border-border pb-1">
-      <div><h2 className="text-sm font-semibold">持仓看盘工作区</h2><p className="text-[11px] text-muted">左侧切换标的 · 右键选择显示内容 · {minute.data?.source || '分钟行情读取中'}</p></div>
+      <div><h2 className="text-sm font-semibold">持仓看盘工作区</h2><p className="text-[11px] text-muted">左侧切换标的 · 右键选择显示内容 · {minute.data?.source || '分钟行情读取中'} · <span className={dataState === '行情可用' ? 'text-bull' : 'text-warning'}>{dataState}</span>{latestFreshness?.market_time ? ` · ${latestFreshness.market_time}` : ''}</p></div>
       <div className="flex flex-wrap items-center justify-end gap-1 text-xs"><button type="button" onClick={() => chooseView('detail')} className={`rounded border border-border px-2 py-0.5 ${viewMode === 'detail' ? 'bg-accent/20 text-accent' : 'text-muted'}`}>个股详情</button>
         <button type="button" onClick={() => chooseView('overview')} className={`rounded border border-border px-2 py-0.5 ${viewMode === 'overview' ? 'bg-accent/20 text-accent' : 'text-muted'}`}>持仓实时总览</button>
         <input aria-label="交易日期" type="date" value={day} max={latestDay} onChange={e => setPickedDay(e.target.value)} className="rounded border border-border bg-base px-1 py-0.5" />
