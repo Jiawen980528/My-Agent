@@ -562,6 +562,9 @@ export function PortfolioMonitorWidget() {
         <button type="button" onClick={() => setPickedDay('')} className="text-accent">最新交易日</button>
         <Link to="/myagent-quant" className="text-accent">管理持仓</Link></div>
     </div>
+    {snapshot.data && <div className="mb-1.5 rounded border border-border bg-base/40 px-2 py-1 text-[11px]">
+      <span className="text-muted">监控标的来源：</span><b>{snapshot.data.source || '未标注'}</b> · <span className="text-muted">已录入持仓 {items.filter(item => item.holding_source).length}/{items.length}</span> · <span className="text-warning">未连接券商实时账户，数量/成本不代表实时账户同步</span>
+    </div>}
     {tradeHistory.data?.account_snapshot && <div className="mb-1.5 rounded border border-warning/50 bg-warning/5 px-2 py-1 text-[11px]">
       <b>{day} 历史账户截图 · 待与券商核对</b>　总资产 ¥{tradeHistory.data.account_snapshot.total_assets}　持仓 ¥{tradeHistory.data.account_snapshot.position_value}
       　现金 ¥{tradeHistory.data.account_snapshot.cash_available}　当日盈亏 ¥{tradeHistory.data.account_snapshot.day_pnl}
