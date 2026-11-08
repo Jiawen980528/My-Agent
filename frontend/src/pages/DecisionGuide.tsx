@@ -15,6 +15,16 @@ const px = (n: number | null) => n == null || !Number.isFinite(n) ? '—' : n.to
 const tradingNow = () => { const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Shanghai' })); const m = now.getHours() * 60 + now.getMinutes(); return now.getDay() > 0 && now.getDay() < 6 && ((m >= 570 && m <= 690) || (m >= 780 && m <= 900)) }
 async function json<T>(url: string): Promise<T> { const r = await fetch(url, { credentials: 'include' }); const body = await r.json(); if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`); return body }
 function tradeDay() { const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Shanghai' })); while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1); return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }) }
+function savedLinkedBoard(symbol: string): string {
+  if (typeof window === 'undefined') return ''
+  try {
+    const value = JSON.parse(window.localStorage.getItem('portfolio-terminal-linked-boards') || '{}') as Record<string, unknown>
+    const code = String(value[symbol] || '').toUpperCase()
+    return /^BK\d{4}$/.test(code) ? code : ''
+  } catch {
+    return ''
+  }
+}
 
 function LiveCurve({ bars, color = '#4da3ff' }: { bars: Bar[]; color?: string }) {
   const values = bars.map(row => Number(row.close)).filter(Number.isFinite)
@@ -65,7 +75,7 @@ export function DecisionGuide() {
     refetchInterval: tradingNow() ? 30_000 : false,
     staleTime: 30_000,
   })
-  const linkedBoardCode = selected?.item.board?.code?.toUpperCase().match(/^BK\d{4}$/)?.[0] || ''
+  const linkedBoardCode = selected?.item.board?.code?.toUpperCase().match(/^BK\d{4}$/)?.[0] || (selected?.item.symbol ? savedLinkedBoard(selected.item.symbol) : '')
   const linkedBoard = useQuery({
     queryKey: ['decision-guide-board', linkedBoardCode],
     queryFn: () => json<BoardContext>(`/quant/api/myagent/fund-flow/sector-kline?sector=${linkedBoardCode}&period=1m`),
