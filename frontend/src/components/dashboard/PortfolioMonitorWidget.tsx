@@ -230,16 +230,17 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
   }, [boardSearch, boardSearchQuery.data?.items, boardOptions])
   useEffect(() => {
     const selected = boardOptions.find(option => option.code === linkedBoardCode)
-    setBoardSearch(selected ? `${selected.name} (${selected.code})` : '')
+    if (selected) setBoardSearch(`${selected.name} (${selected.code})`)
+    else if (!linkedBoardCode) setBoardSearch('')
     setBoardChoiceError('')
-    if (linkedBoardCode && boardOptions.length && !selected) onLinkedBoardChange('')
   }, [item.symbol, linkedBoardCode, boardOptions])
   const applyBoardSearch = () => {
     const raw = boardSearch.trim()
     if (!raw) { onLinkedBoardChange(''); setBoardChoiceError(''); return }
     const code = raw.match(/(?:BK\d{4}|\d{6}\.(?:TI|SH|SZ))/i)?.[0]?.toUpperCase()
-    const match = boardOptions.find(option => option.code === code || option.name === raw || raw.includes(option.code))
-      || boardOptions.find(option => option.name.includes(raw))
+    const remoteOptions = boardSearchQuery.data?.items || []
+    const match = [...remoteOptions, ...boardOptions].find(option => option.code === code || option.name === raw || raw.includes(option.code))
+      || [...remoteOptions, ...boardOptions].find(option => option.name.includes(raw))
     if (!match) { setBoardChoiceError('未找到该板块，请输入名称、BK 代码或同花顺指数代码'); return }
     onLinkedBoardChange(match.code); setBoardSearch(`${match.name} (${match.code})`); setBoardChoiceError('')
   }
