@@ -13,6 +13,7 @@ import pytest
 from app import secrets_store
 from app.api import settings as settings_api
 from app.services import ai_provider
+from app.services import shared_ai
 
 
 def test_probe_requires_base_url_model_and_key(monkeypatch):
@@ -159,6 +160,32 @@ async def test_test_endpoint_falls_back_to_saved_key(monkeypatch):
     assert result["ok"] is True
     assert seen["api_key"] == "sk-saved"
     assert seen["protocol"] == "responses"
+
+
+@pytest.mark.asyncio
+async def test_test_endpoint_uses_matching_saved_profile_key(monkeypatch):
+    """Testing another provider must not send the currently active provider key."""
+    seen: dict = {}
+
+    async def fake_probe(**kwargs):
+        seen.update(kwargs)
+        return "OK"
+
+    monkeypatch.setattr(ai_provider, "probe_ai_config", fake_probe)
+    monkeypatch.setattr(settings_api.secrets_store, "get_ai_key", lambda: "sk-qwen-active")
+    monkeypatch.setattr(shared_ai, "profiles", lambda: [
+        {"provider": "openai_compat", "base_url": "https://api.deepseek.com", "model": "deepseek-chat", "api_key": "sk-deepseek"},
+    ])
+
+    result = await settings_api.test_ai_settings(settings_api.AiTestIn(
+        provider="openai_compat",
+        base_url="https://api.deepseek.com",
+        api_key=None,
+        model="deepseek-chat",
+    ))
+
+    assert result["ok"] is True
+    assert seen["api_key"] == "sk-deepseek"
 
 
 @pytest.mark.asyncio

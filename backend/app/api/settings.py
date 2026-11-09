@@ -296,7 +296,18 @@ async def test_ai_settings(req: AiTestIn) -> dict:
     )
 
     provider = req.provider or "openai_compat"
-    api_key = (req.api_key or "").strip() or (secrets_store.get_ai_key() or "")
+    api_key = (req.api_key or "").strip()
+    if not api_key:
+        # A blank draft key must use the saved key for this provider/endpoint,
+        # rather than the currently selected global provider's key. Otherwise
+        # testing DeepSeek while Qwen is active sends the Qwen key to DeepSeek.
+        from app.services import shared_ai
+        requested_base = req.base_url.strip().rstrip("/")
+        matching = next((profile for profile in shared_ai.profiles()
+                         if profile.get("provider") == provider
+                         and str(profile.get("base_url", "")).rstrip("/") == requested_base
+                         and (not req.model.strip() or profile.get("model") == req.model.strip())), None)
+        api_key = (matching or {}).get("api_key", "") or (secrets_store.get_ai_key() or "")
     protocol = req.protocol if req.protocol == RESPONSES_PROTOCOL else ""
     try:
         text = await probe_ai_config(
