@@ -348,17 +348,16 @@ export function minSizeOf(t: WidgetType): { w: number; h: number } {
   return { w: d?.minW ?? 2, h: d?.minH ?? 4 }
 }
 
-/** 默认布局 — 首屏优先呈现指数/KPI、大盘实时曲线与量能、持仓综合监控；
- * 下方再放市场宽度、板块、资金流和新闻。这样首次打开就能进入“看盘”状态，
- * 其余窗口仍可通过自定义布局或右键添加。
+/** 默认布局 — 只围绕持仓、市场走势、资金流向和新闻影响；
+ * 其余窗口仍可通过功能中心按需添加。
  * 坐标必须是竖直压实后的稳定形态(列内不留空隙), 否则 RGL 渲染时会自动上提,
  * 导致「恢复默认」的 JSON 等值判断永不成立、每次都落 blob 而非 null。 */
-/** 简洁看盘：首屏只保留市场、量能和持仓核心窗口。 */
+/** 简洁看盘：首屏只保留持仓相关的核心窗口。 */
 export const DEFAULT_LAYOUT: DashboardItem[] = [
-  { i: 'indices', t: 'indices', x: 0, y: 0, w: 12, h: 2 },
-  { i: 'kpi', t: 'kpi', x: 0, y: 2, w: 12, h: 2 },
-  { i: 'market-overview', t: 'market-overview', x: 0, y: 4, w: 12, h: 18 },
-  { i: 'portfolio-monitor', t: 'portfolio-monitor', x: 0, y: 22, w: 12, h: 24 },
+  { i: 'market-overview', t: 'market-overview', x: 0, y: 0, w: 12, h: 18 },
+  { i: 'portfolio-monitor', t: 'portfolio-monitor', x: 0, y: 18, w: 12, h: 24 },
+  { i: 'fund-flow', t: 'fund-flow', x: 0, y: 42, w: 6, h: 13 },
+  { i: 'market-news', t: 'market-news', x: 6, y: 42, w: 6, h: 12 },
 ]
 
 /** 功能版本：所有内置看板窗口，便于用户按需删减和重新布局。 */
