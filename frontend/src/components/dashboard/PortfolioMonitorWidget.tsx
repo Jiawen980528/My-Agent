@@ -9,6 +9,8 @@ import type { MinuteKlineRow } from '@/lib/api'
 import { getPageScale } from '@/lib/pageZoom'
 import { setUiPref } from '@/lib/uiPrefs'
 import { usePreferences } from '@/lib/useSharedQueries'
+import { startReviewGeneration, isReviewGenerating } from '@/lib/reviewStore'
+import { useReviewState } from '@/lib/useReviewStore'
 
 const API = '/quant/api/myagent/quant'
 const PUBLIC_API = '/quant/api/myagent'
@@ -409,7 +411,7 @@ function HoldingsOverview({ items, minuteData, source, onSelect }: {
   </section>
 }
 
-function DecisionGuidePanel({ items, minuteData, source }: { items: Holding[]; minuteData: Record<string, Bar[]>; source?: string }) {
+function DecisionGuidePanel({ items, minuteData, source, aiText, aiBusy, onAiReview }: { items: Holding[]; minuteData: Record<string, Bar[]>; source?: string; aiText?: string; aiBusy: boolean; onAiReview: () => void }) {
   const guides = items.map(item => {
     const rows = minuteData[item.symbol] || []
     const closes = rows.map(row => Number(row.close)).filter(Number.isFinite)
@@ -419,19 +421,31 @@ function DecisionGuidePanel({ items, minuteData, source }: { items: Holding[]; m
     const ma20 = closes.length >= 20 ? closes.slice(-20).reduce((sum, value) => sum + value, 0) / 20 : null
     const support = rows.length ? Math.min(...rows.slice(-20).map(row => Number(row.low))) : null
     const resistance = rows.length ? Math.max(...rows.slice(-20).map(row => Number(row.high))) : null
+    const peak = rows.length ? Math.max(...rows.slice(-20).map(row => Number(row.high))) : null
+    const pullbackPct = peak && last ? (last / peak - 1) * 100 : null
+    const pullback = rows.length >= 5 && pullbackPct != null && pullbackPct <= -0.4 && last != null && ma5 != null && last < ma5
     const change = first && last ? (last / first - 1) * 100 : null
     const trend = last == null || ma5 == null ? '数据不足' : last >= ma5 && (ma20 == null || last >= ma20) ? '短线偏强' : last < ma5 && (ma20 == null || last < ma20) ? '短线偏弱' : '震荡观察'
-    const action = last == null ? '暂不可判断' : support != null && last <= support * 1.01 ? '接近支撑·等待确认' : resistance != null && last >= resistance * .99 ? '接近压力·防追高' : trend === '短线偏强' ? '持有·观察回踩' : trend === '短线偏弱' ? '暂不操作' : '区间观察'
-    return { item, last, change, support, resistance, trend, action, time: rows.at(-1)?.datetime }
+    const action = last == null ? '暂不可判断' : pullback ? '冲高回落·等待确认' : support != null && last <= support * 1.01 ? '接近支撑·等待确认' : resistance != null && last >= resistance * .99 ? '接近压力·防追高' : trend === '短线偏强' ? '持有·观察回踩' : trend === '短线偏弱' ? '暂不操作' : '区间观察'
+    const advice = pullback
+      ? `不追买；跌破支撑 ${price(support)} 且板块同步走弱才考虑减仓/反T，重新站回均价线并放量才考虑回补`
+      : support != null && last != null && last <= support * 1.01
+        ? '只观察支撑是否企稳，未出现止跌确认前不加仓'
+        : resistance != null && last != null && last >= resistance * .99
+          ? '不在压力位追高，等待突破放量或回踩确认'
+          : '等待多周期和板块同步确认，暂无强制操作'
+    return { item, last, change, support, resistance, trend, action, advice, pullbackPct, time: rows.at(-1)?.datetime }
   })
   return <aside className="min-w-0 rounded border border-border bg-base/50 p-2 text-xs">
-    <div className="flex items-center justify-between gap-2 border-b border-border pb-1"><b>下周关注 / 交易指引</b><span className="text-[10px] text-muted">规则实时更新</span></div>
-    <p className="py-1 text-[10px] text-muted">按持仓实时分时生成关注清单；日线、60分钟、15分钟数据未齐时不输出强信号。</p>
+    <div className="flex items-center justify-between gap-2 border-b border-border pb-1"><b>实时操作建议</b><div className="flex items-center gap-2"><span className="text-[10px] text-muted">规则实时更新</span><button type="button" onClick={onAiReview} disabled={aiBusy} className="rounded border border-accent/50 px-1.5 py-0.5 text-[10px] text-accent disabled:opacity-50">{aiBusy ? 'AI分析中…' : 'AI复核'}</button></div></div>
+    <p className="py-1 text-[10px] text-muted">识别冲高回落、支撑/压力和板块联动；建议是条件式观察，不自动下单。</p>
     <div className="space-y-1">{guides.map(row => <div key={row.item.symbol} className="rounded border border-border/60 bg-surface px-1.5 py-1">
       <div className="flex justify-between gap-1"><b className="truncate">{row.item.name}</b><span className={row.action.includes('持有') ? 'text-bull' : row.action.includes('暂') || row.action.includes('压力') ? 'text-warning' : 'text-accent'}>{row.action}</span></div>
       <div className="mt-0.5 flex justify-between text-[10px] text-muted"><span>{row.item.symbol} · {row.trend} · {row.change == null ? '—' : pct(row.change)}</span><span>最新 {row.last == null ? price(row.item.price) : price(row.last)}</span></div>
       <div className="mt-0.5 grid grid-cols-2 gap-1 text-[10px] text-muted"><span>支撑 {row.support == null ? '—' : price(row.support)}</span><span>压力 {row.resistance == null ? '—' : price(row.resistance)}</span></div>
+      <div className="mt-1 rounded bg-elevated/60 px-1.5 py-1 text-[10px] leading-relaxed text-secondary"><b className="text-foreground">怎么做：</b>{row.advice}{row.pullbackPct != null && <span className="ml-1 text-muted">（距近端高点 {row.pullbackPct.toFixed(2)}%）</span>}</div>
     </div>)}</div>
+    {aiText && <div className="mt-1 rounded border border-accent/30 bg-accent/5 px-1.5 py-1 text-[10px] leading-relaxed text-secondary"><b className="text-accent">AI复核：</b>{aiText}</div>}
     <p className="mt-1 text-[10px] text-muted">数据源 {source || '—'} · 更新时间 {guides.map(row => row.time).filter(Boolean).sort().at(-1) || '—'} · 仅供研究，不自动下单。</p>
   </aside>
 }
@@ -466,6 +480,8 @@ export function PortfolioMonitorWidget() {
     queryFn: () => json<PortfolioSnapshot>(`${API}/portfolio/snapshot`),
     refetchInterval: tradingNow() ? 30_000 : false })
   const items = useMemo(() => snapshot.data?.items || [], [snapshot.data?.items])
+  const review = useReviewState()
+  const aiBusy = isReviewGenerating()
   const [selected, setSelected] = useState('')
   const [selectedBoard, setSelectedBoard] = useState('')
   const [viewMode, setViewMode] = useState<'detail' | 'overview'>(() => loadObject('portfolio-terminal-view', 'detail'))
@@ -541,6 +557,18 @@ export function PortfolioMonitorWidget() {
   const badQuality = qualityRows.some(row => row.valid === false) || minute.data?.complete === false
   const usableMinuteData = badQuality ? {} : (minute.data?.data || {})
   const dataState = minute.isError ? '连接失败' : minute.isLoading ? '读取中' : badQuality ? `数据不完整${minute.data?.missing_symbols?.length ? `（缺 ${minute.data.missing_symbols.length} 只）` : ''}` : latestFreshness?.stale ? '已收盘/缓存' : latestFreshness?.market_time ? '行情可用' : '无时间戳'
+  const runAiReview = () => {
+    if (aiBusy) return
+    const context = shown.map(item => {
+      const rows = usableMinuteData[item.symbol] || []
+      const last = rows.at(-1)?.close ?? item.price
+      const peak = rows.length ? Math.max(...rows.slice(-20).map(row => Number(row.high))) : null
+      const pullback = peak && last ? ((last / peak - 1) * 100).toFixed(2) : '—'
+      return `${item.name}(${item.symbol}) 最新${last ?? '—'}，近20根高点回落${pullback}%`
+    }).join('；')
+    void startReviewGeneration(undefined, `请基于真实行情和板块联动复核我的持仓实时操作建议。重点识别冲高回落：${context}。对每只标的明确说明现在是观察、持有、减仓、正T或反T观察，给出触发价格、数量依据、止损/失效条件和数据时间。没有足够数据就明确说无法判断，不要编造资金流或交易信号。`)
+  }
+  const aiText = review.content.trim().replace(/[#*_`]/g, '').replace(/\s+/g, ' ').slice(0, 520)
   const chooseView = (mode: 'detail' | 'overview') => { setViewMode(mode); setUiPref('portfolio-terminal-view', JSON.stringify(mode)) }
   const chooseLayout = (mode: LayoutMode) => { setLayoutMode(mode); setUiPref('portfolio-terminal-layout', JSON.stringify(mode)) }
   const setLinkedBoard = (symbol: string, code: string) => {
@@ -662,7 +690,7 @@ export function PortfolioMonitorWidget() {
         : <p className="p-4 text-xs text-muted">暂无监控标的</p>}
       {layoutMode === 'side' && <div role="separator" aria-label="拖动调整策略栏宽度" aria-orientation="vertical" title="拖动调整策略栏宽度"
         onPointerDown={event => resizePane('right', event)} className="portfolio-split-handle cursor-ew-resize touch-none bg-border/60 hover:bg-accent active:bg-accent" />}
-      {layoutMode === 'side' && <DecisionGuidePanel items={shown} minuteData={usableMinuteData} source={minute.data?.source} />}
+      {layoutMode === 'side' && <DecisionGuidePanel items={shown} minuteData={usableMinuteData} source={minute.data?.source} aiText={aiText} aiBusy={aiBusy} onAiReview={runAiReview} />}
     </div>}</>}
     <section className="mt-2 rounded border border-border bg-base/50 p-2 text-xs">
       <div className="flex justify-between gap-2"><b>{day} 操作时间线 · {tradeHistory.data?.trades.length ?? 0} 笔</b><span className="text-muted">用户提供/手工记录，非券商实时成交</span></div>
