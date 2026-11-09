@@ -38,6 +38,9 @@ jobs:
           cp frontend/package.json payload/frontend/package.json
           cp backend/pyproject.toml payload/pyproject.toml
           cp scripts/generate_manifest.py payload/generate_manifest.py
+          cp -a external/myagent-service/app payload/myagent_app
+          cp external/myagent-service/requirements.txt payload/myagent_requirements.txt
+          git rev-parse HEAD:external/myagent-service/app > payload/myagent-source-id
           tar -C payload -czf code.tar.gz .
           sha256sum code.tar.gz > code.tar.gz.sha256
           du -h code.tar.gz

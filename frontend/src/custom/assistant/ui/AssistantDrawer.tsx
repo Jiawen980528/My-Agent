@@ -34,6 +34,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { cn } from '@/lib/cn'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
+import { SharedAISelector } from '@/components/SharedAISelector'
 import { usePreferences } from '@/lib/useSharedQueries'
 import { DEEPSEEK_FALLBACK_RANGE, discountRangeLabel, useSponsorModelItems } from '@/lib/sponsor-discount'
 import {
@@ -85,8 +86,9 @@ function saveWidth(width: number) {
 
 function clampWidth(width: number): number {
   // 右缘贴齐, 至少给页面主体留 64px 上下文。
-  const maxWidth = Math.max(MIN_WIDTH, window.innerWidth - 64)
-  return Math.min(Math.max(width, MIN_WIDTH), maxWidth)
+  const maxWidth = Math.max(280, window.innerWidth - 16)
+  const minWidth = Math.min(MIN_WIDTH, maxWidth)
+  return Math.min(Math.max(width, minWidth), maxWidth)
 }
 
 export function AssistantDrawer() {
@@ -290,12 +292,12 @@ function DrawerHeader({
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   return (
-    <div className="relative flex h-14 shrink-0 items-center gap-2 border-b border-border px-4">
+    <div className="relative flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2">
       <Sparkles className="h-4 w-4 shrink-0 text-accent" />
       <span className="shrink-0 text-sm font-semibold text-foreground">AI 助手</span>
       <select aria-label="AI 工具模式" value={mode} disabled={sending} onChange={e => onModeChange(e.target.value as AssistantMode)}
         className="rounded border border-border bg-base px-1 py-0.5 text-[10px] text-secondary disabled:opacity-50">
-        <option value="myagent">MyAgent 统一</option><option value="tickflow">TickFlow 专业工具</option>
+        <option value="myagent">MyAgent 通用助手</option><option value="tickflow">量化工具助手</option>
       </select>
       {status?.model && (
         <span
@@ -305,6 +307,7 @@ function DrawerHeader({
           {status.model}
         </span>
       )}
+      <SharedAISelector compact disabled={sending} />
       <RhPromoBanner />
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
         <div className="relative">

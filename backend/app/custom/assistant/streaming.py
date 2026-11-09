@@ -26,6 +26,7 @@ from typing import Any
 from openai import AsyncOpenAI
 
 from app import secrets_store
+from app.services.shared_ai import routed
 from app.config import settings
 from app.services import ai_responses
 from app.services.ai_provider import (
@@ -86,6 +87,7 @@ def _client(timeout: float) -> AsyncOpenAI:
     )
 
 
+@routed
 async def stream_openai_round(
     messages: Sequence[dict[str, Any]],
     tools: Sequence[dict[str, Any]],

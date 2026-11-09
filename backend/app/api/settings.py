@@ -339,6 +339,17 @@ def save_ai_settings(req: AiSettingsIn) -> dict:
         normalize_codex_reasoning_effort,
     )
 
+    from app.services import shared_ai
+
+    previous_profile = shared_ai.snapshot()
+    # An empty key may reuse this endpoint's saved key, never another platform's.
+    if req.provider != "codex_cli" and req.base_url and not req.api_key:
+        if req.base_url.rstrip("/") != previous_profile.get("base_url"):
+            matching = next((p for p in shared_ai.profiles() if p["base_url"] == req.base_url.rstrip("/")), None)
+            if matching is None and previous_profile.get("api_key"):
+                raise HTTPException(status_code=400, detail="切换到新接口时请填写该平台的 API Key")
+            if matching is not None:
+                req.api_key = matching["api_key"]
     updates: dict = {}
     if req.provider:
         updates["ai_provider"] = req.provider
@@ -399,7 +410,9 @@ def save_ai_settings(req: AiSettingsIn) -> dict:
         settings.ai_round_checkpoint = req.round_checkpoint
 
     if updates:
+        shared_ai.remember(previous_profile)
         secrets_store.save(updates)
+        shared_ai.remember(shared_ai.snapshot())
 
     provider = current_ai_provider()
     return {
@@ -428,6 +441,7 @@ def clear_ai_settings() -> dict:
     from app.config import settings
 
     secrets_store.clear(
+        "ai_profiles", "ai_selection_mode",
         "ai_provider",
         "ai_base_url",
         "ai_api_key",
@@ -2433,3 +2447,44 @@ def sound_packs_file(name: str, request: Request) -> FileResponse:
         raise HTTPException(status_code=404, detail=f"语音包 '{name}' 不存在")
     media_type = _SOUND_PACK_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
     return FileResponse(path, media_type=media_type)
+
+
+class AiSelectionIn(BaseModel):
+    profile_id: str
+    mode: Literal["auto", "manual"] = "auto"
+
+
+@router.get("/ai/profiles")
+def shared_ai_profiles() -> dict:
+    from app.services.shared_ai import public_profiles
+    return public_profiles()
+
+
+@router.post("/ai/selection")
+def select_shared_ai(req: AiSelectionIn) -> dict:
+    from app.services import shared_ai
+    try:
+        shared_ai.select(req.profile_id, req.mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, **shared_ai.public_profiles()}
+
+
+@router.post("/ai/models")
+async def discover_ai_models(req: AiTestIn) -> dict:
+    from openai import AsyncOpenAI
+    from app.services import shared_ai
+    from app.services.ai_provider import normalize_openai_base_url
+    current = shared_ai.snapshot()
+    key = (req.api_key or "").strip()
+    if not key:
+        matching = next((p for p in shared_ai.profiles() if p["base_url"] == req.base_url.rstrip("/")), None)
+        key = matching["api_key"] if matching else (current["api_key"] if current["base_url"] == req.base_url.rstrip("/") else "")
+    if not key:
+        raise HTTPException(status_code=400, detail="请填写此接口的 API Key")
+    try:
+        async with AsyncOpenAI(api_key=key, base_url=normalize_openai_base_url(req.base_url), timeout=20, max_retries=0) as client:
+            result = await client.models.list()
+        return {"items": sorted({item.id for item in result.data if item.id})}
+    except Exception as exc:  # noqa: BLE001 — return no provider credentials or raw response
+        raise HTTPException(status_code=502, detail="获取模型列表失败；请检查接口，或手动填写平台提供的模型 ID") from exc

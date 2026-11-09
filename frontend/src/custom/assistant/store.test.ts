@@ -13,7 +13,7 @@ beforeEach(() => {
   requests = []
   replies = []
   vi.stubGlobal('fetch', vi.fn(async (url, init) => {
-    if (url === '/api/custom/assistant/chat') {
+    if (url === '/quant/api/custom/assistant/chat') {
       requests.push(JSON.parse(init.body))
       return new Response((replies.shift() ?? []).map(e => JSON.stringify(e)).join('\n'))
     }

@@ -101,6 +101,10 @@ def get_tickflow_key() -> str:
 
 def get_ai_key() -> str:
     """取当前 AI Key:secrets.json 优先,否则 .env。"""
+    from app.services.shared_ai import current_override
+    override = current_override()
+    if override is not None:
+        return str(override.get("api_key") or "")
     val = load().get("ai_api_key")
     if val:
         return val
@@ -110,6 +114,10 @@ def get_ai_key() -> str:
 
 def get_ai_config(key: str, default: str = "") -> str:
     """取 AI 配置项:secrets.json 优先,否则 config。"""
+    from app.services.shared_ai import current_override
+    override = current_override()
+    if override is not None and key.removeprefix("ai_") in override:
+        return str(override[key.removeprefix("ai_")] or default)
     val = load().get(key)
     if val:
         return val

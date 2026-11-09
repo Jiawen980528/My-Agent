@@ -7,6 +7,8 @@
  * 的注释一一对应; 未知事件类型(如 ping)静默忽略。
  */
 
+import { apiUrl } from '@/lib/apiBase'
+
 export interface AssistantStatus {
   configured: boolean
   provider: string
@@ -67,13 +69,17 @@ export interface AssistantContext {
 
 export type AssistantMode = 'myagent' | 'tickflow'
 const MODE_KEY = 'tf-assistant-mode'
+
+export function assistantApiUrl(path: string): string {
+  return apiUrl(path)
+}
 export function getAssistantMode(): AssistantMode {
-  return localStorage.getItem(MODE_KEY) === 'tickflow' ? 'tickflow' : 'myagent'
+  return localStorage.getItem(MODE_KEY) === 'myagent' ? 'myagent' : 'tickflow'
 }
 export function setAssistantMode(mode: AssistantMode): void { localStorage.setItem(MODE_KEY, mode) }
 
 async function requestJson<T>(path: string): Promise<T> {
-  const res = await fetch(path)
+  const res = await fetch(assistantApiUrl(path))
   if (!res.ok) throw new Error(`AI 助手接口请求失败: ${res.status}`)
   return res.json() as Promise<T>
 }
@@ -94,7 +100,7 @@ export function fetchAssistantSuggests(): Promise<QuickSuggest[]> {
 
 /** 动作工具确认卡回调: approve=false 拒绝执行(后端超时同样视为拒绝)。 */
 export async function decideAssistantAction(callId: string, approve: boolean): Promise<void> {
-  const res = await fetch(`/api/custom/assistant/actions/${callId}/decision`, {
+  const res = await fetch(assistantApiUrl(`/api/custom/assistant/actions/${callId}/decision`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ approve }),
@@ -108,7 +114,7 @@ export async function* assistantChatStream(
   signal?: AbortSignal,
 ): AsyncGenerator<AssistantEvent> {
   if (getAssistantMode() === 'tickflow') {
-    const res = await fetch('/api/custom/assistant/chat', {
+    const res = await fetch(assistantApiUrl('/api/custom/assistant/chat'), {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal,
     })
     if (!res.ok) throw new Error(`TickFlow 专业工具请求失败：${res.status}`)
@@ -135,7 +141,7 @@ export async function* assistantChatStream(
   if (!latest) throw new Error('请输入问题')
   const location = [body.context?.page, body.context?.symbol].filter(Boolean).join(' · ')
   const message = location ? `量化页面：${location}\n用户问题：${latest}` : latest
-  const res = await fetch('/api/myagent/chat', {
+  const res = await fetch(assistantApiUrl('/api/myagent/chat'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message }),

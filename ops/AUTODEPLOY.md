@@ -47,3 +47,8 @@ workflow-file permission) to push changes or start the workflow. Actions secrets
 do not grant this chat access. SSH authentication is verified. The new code-package helper still needs a first end-to-end deployment after installation.
 The health check verifies startup only, not holdings, charts, trading behavior or
 AI routes. Resolve the known UI/data issues before promoting another release.
+
+
+## Shared AI service update
+
+The upgraded helper now updates both the existing stock-panel and MyAgent services. Install the updated setup script once before using this workflow version. Both existing Compose projects, runtime dependencies and persistent mounts are checked before stopping services. See `docs/shared-ai.md` for routing, migration, secret handling and rollback behavior.
