@@ -24,8 +24,8 @@ export function useDashboardLayout(): {
   const { data: prefs } = usePreferences()
   const saved = useMemo(() => {
     // 首次切换到持仓工作区时强制套用一次新布局，避免旧的全宽布局偏好覆盖页面升级。
-    if (typeof window !== 'undefined' && !window.localStorage.getItem('dashboard-layout-holdings-v6')) {
-      window.localStorage.setItem('dashboard-layout-holdings-v6', '1')
+    if (typeof window !== 'undefined' && !window.localStorage.getItem('dashboard-layout-holdings-v7')) {
+      window.localStorage.setItem('dashboard-layout-holdings-v7', '1')
       return cloneItems(DEFAULT_LAYOUT)
     }
     const normalized = normalizeDashboardLayout(prefs?.dashboard_layout ?? undefined)
