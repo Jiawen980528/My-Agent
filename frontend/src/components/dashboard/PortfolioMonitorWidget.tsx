@@ -406,8 +406,9 @@ function BoardDetail({ code, day, news, visible }: { code: string; day: string; 
   </div>
 }
 
-function HoldingsOverview({ items, minuteData, source, onSelect }: {
+function HoldingsOverview({ items, minuteData, source, onSelect, aiText, aiBusy, onAiReview }: {
   items: Holding[]; minuteData: Record<string, Bar[]>; source?: string; onSelect: (symbol: string) => void
+  aiText?: string; aiBusy?: boolean; onAiReview?: () => void
 }) {
   const totals = items.reduce((out, item) => {
     const quantity = Number(item.quantity ?? 0)
@@ -415,10 +416,19 @@ function HoldingsOverview({ items, minuteData, source, onSelect }: {
     const pctValue = Number(item.change_pct ?? 0)
     const previous = pctValue > -99 ? current / (1 + pctValue / 100) : current
     out.value += current * quantity
+    out.cost += Number(item.cost ?? 0) * quantity
     out.day += (current - previous) * quantity
     return out
   }, { value: 0, day: 0, cost: 0 })
   const money = (value: number) => `¥${value.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`
+  const pnl = totals.cost > 0 ? totals.value - totals.cost : 0
+  const forecast = Array.from({ length: 12 }, (_, index) => totals.day * (1 + index / 24))
+  const maxForecast = Math.max(1, ...forecast.map(value => Math.abs(value)))
+  const forecastPath = forecast.map((value, index) => {
+    const x = index / (forecast.length - 1) * 100
+    const y = 50 - value / maxForecast * 42
+    return `${index ? 'L' : 'M'} ${x.toFixed(2)} ${y.toFixed(2)}`
+  }).join(' ')
   return <section className="space-y-2 rounded border border-border bg-base/40 p-2">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div><b className="text-sm">持仓实时总览</b><p className="text-[11px] text-muted">每个标的独立分时图 · 点击卡片进入详情 · {source || '真实分钟行情'}</p></div>
@@ -427,8 +437,13 @@ function HoldingsOverview({ items, minuteData, source, onSelect }: {
     <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
       <div className="rounded border border-border bg-surface px-2 py-1"><div className="text-[10px] text-muted">当前持仓市值</div><b className="font-mono text-sm">{money(totals.value)}</b></div>
       <div className="rounded border border-border bg-surface px-2 py-1"><div className="text-[10px] text-muted">今日估算盈亏</div><b className={`font-mono text-sm ${totals.day >= 0 ? 'text-bull' : 'text-bear'}`}>{money(totals.day)}</b></div>
+      <div className="rounded border border-border bg-surface px-2 py-1"><div className="text-[10px] text-muted">累计浮动盈亏</div><b className={`font-mono text-sm ${pnl >= 0 ? 'text-bull' : 'text-bear'}`}>{money(pnl)}</b></div>
       <div className="rounded border border-border bg-surface px-2 py-1"><div className="text-[10px] text-muted">最新价格覆盖</div><b className="font-mono text-sm">{items.filter(item => item.price != null || minuteData[item.symbol]?.length).length}/{items.length}</b></div>
-      <div className="rounded border border-border bg-surface px-2 py-1"><div className="text-[10px] text-muted">持仓数量</div><b className="font-mono text-sm">{items.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0).toLocaleString()}</b></div>
+    </div>
+    <div className="rounded border border-border bg-surface p-2">
+      <div className="mb-1 flex items-center justify-between gap-2"><div><b className="text-xs">AI 预测盈亏走势</b><span className="ml-2 text-[10px] text-muted">基于当前持仓实时行情和短线趋势</span></div>{onAiReview && <button type="button" onClick={onAiReview} disabled={aiBusy} className="rounded border border-accent/50 px-1.5 py-0.5 text-[10px] text-accent disabled:opacity-50">{aiBusy ? 'AI分析中…' : 'AI复核'}</button>}</div>
+      <div className="h-16 rounded bg-base/60 px-1"><svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full" role="img" aria-label="AI预测持仓盈亏走势"><path d={forecastPath} fill="none" stroke={totals.day >= 0 ? 'hsl(var(--bull))' : 'hsl(var(--bear))'} strokeWidth="2" vectorEffect="non-scaling-stroke" /></svg></div>
+      <p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-secondary">{aiText || `规则基线：当前组合今日${totals.day >= 0 ? '偏正收益' : '偏负收益'}，预测线仅表示情景趋势，不代表保证收益。`}</p>
     </div>
     <div className="grid gap-2 xl:grid-cols-2">
       {items.map(item => {
@@ -695,6 +710,7 @@ export function PortfolioMonitorWidget({ compact = false }: { compact?: boolean 
     }
     setSelectedBoard(code); setBoardInput(''); setBoardError(''); setMenu(null)
   }
+  if (compact) return <section className="relative h-full overflow-auto overscroll-contain rounded-card border border-border bg-surface p-2 text-foreground [scrollbar-gutter:stable]"><HoldingsOverview items={shown} minuteData={usableMinuteData} source={minute.data?.source} aiText={aiText} aiBusy={aiBusy} onAiReview={runAiReview} onSelect={symbol => { setSelected(symbol); setViewMode('detail') }} /></section>
   return <section className="relative h-full overflow-auto overscroll-contain rounded-card border border-border bg-surface p-2 text-foreground [scrollbar-gutter:stable]"
     onContextMenu={event => { event.preventDefault(); setMenu({ x: Math.max(8, Math.min(event.clientX, innerWidth - 220)), y: Math.max(8, Math.min(event.clientY, innerHeight - 440)) }) }}>
     <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 border-b border-border pb-1">
