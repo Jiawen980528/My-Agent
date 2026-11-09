@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { BarChart3, Bot, ExternalLink, Globe2, Info, LineChart, RefreshCw } from 'lucide-react'
@@ -37,6 +37,40 @@ function tone(v: number | null | undefined): string {
 
 function forecastText(value: number | undefined | null): string {
   return value == null ? '—' : amount(value)
+}
+
+type BreadthPoint = { time: string; up: number; flat: number; down: number }
+
+function BreadthTrend({ data }: { data: OverviewMarket }) {
+  const [points, setPoints] = useState<BreadthPoint[]>([])
+  useEffect(() => {
+    const point = { time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }), up: data.breadth.up, flat: data.breadth.flat, down: data.breadth.down }
+    setPoints(current => {
+      const last = current.at(-1)
+      if (last && last.up === point.up && last.flat === point.flat && last.down === point.down) return current
+      return [...current, point].slice(-48)
+    })
+  }, [data.breadth.down, data.breadth.flat, data.breadth.up])
+  const max = Math.max(1, ...points.flatMap(point => [point.up, point.flat, point.down]))
+  const path = (key: 'up' | 'flat' | 'down') => points.map((point, index) => {
+    const x = points.length <= 1 ? 0 : index / (points.length - 1) * 100
+    const y = 100 - point[key] / max * 92 - 4
+    return `${index ? 'L' : 'M'} ${x.toFixed(2)} ${y.toFixed(2)}`
+  }).join(' ')
+  return <div className="rounded border border-border bg-base/35 p-2">
+    <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+      <b className="text-xs">市场涨跌动态</b>
+      <span className="text-[10px] text-muted">页面打开后每次刷新记录 · 最近 {points.length} 个观测点</span>
+    </div>
+    <div className="h-32 rounded bg-base/50 px-1 py-1">
+      {points.length > 1 ? <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full" role="img" aria-label="上涨平盘下跌家数动态曲线">
+        <path d={path('up')} fill="none" stroke="hsl(var(--bull))" strokeWidth="1.8" vectorEffect="non-scaling-stroke" />
+        <path d={path('flat')} fill="none" stroke="hsl(var(--fg-muted))" strokeWidth="1.4" vectorEffect="non-scaling-stroke" />
+        <path d={path('down')} fill="none" stroke="hsl(var(--bear))" strokeWidth="1.8" vectorEffect="non-scaling-stroke" />
+      </svg> : <div className="flex h-full items-center justify-center text-[10px] text-muted">等待下一次市场数据刷新后绘制曲线</div>}
+    </div>
+    <div className="mt-1 flex flex-wrap gap-3 text-[10px] text-muted"><span className="text-bull">● 上涨 {data.breadth.up}</span><span>● 平盘 {data.breadth.flat}</span><span className="text-bear">● 下跌 {data.breadth.down}</span></div>
+  </div>
 }
 
 export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket; tradeDate?: string }) {
@@ -157,6 +191,8 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
           </div>
         </div>
       </div>
+
+      <div className="mt-3"><BreadthTrend data={data} /></div>
 
       <div className="mt-3 rounded border border-border bg-base/35 p-2">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">

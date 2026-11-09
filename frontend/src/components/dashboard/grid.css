@@ -50,6 +50,8 @@
 .dash-grid-resizable:not(.dash-grid-editing) .react-grid-item {
   overflow: visible;
   z-index: 0;
+  content-visibility: auto;
+  contain-intrinsic-size: 520px;
   transition: z-index 0s linear 120ms;
 }
 .dash-grid-resizable:not(.dash-grid-editing) .react-grid-item:hover,

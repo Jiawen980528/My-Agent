@@ -661,7 +661,7 @@ export function PortfolioMonitorWidget() {
     }
     setSelectedBoard(code); setBoardInput(''); setBoardError(''); setMenu(null)
   }
-  return <section className="relative h-full overflow-auto rounded-card border border-border bg-surface p-2 text-foreground"
+  return <section className="relative h-full overflow-auto overscroll-contain rounded-card border border-border bg-surface p-2 text-foreground [scrollbar-gutter:stable]"
     onContextMenu={event => { event.preventDefault(); setMenu({ x: Math.max(8, Math.min(event.clientX, innerWidth - 220)), y: Math.max(8, Math.min(event.clientY, innerHeight - 440)) }) }}>
     <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 border-b border-border pb-1">
       <div><h2 className="text-sm font-semibold">持仓看盘工作区</h2><p className="text-[11px] text-muted">左侧切换标的 · 右键选择显示内容 · {minute.data?.source || '分钟行情读取中'} · <span className={dataState === '行情可用' ? 'text-bull' : 'text-warning'}>{dataState}</span>{latestFreshness?.market_time ? ` · ${latestFreshness.market_time}` : ''}{badQuality ? ' · 已停止使用异常分钟数据' : ''}</p></div>

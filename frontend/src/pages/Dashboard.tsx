@@ -125,6 +125,7 @@ export function Dashboard() {
     queryKey: QK.overviewMarket(selectedDate),
     queryFn: () => api.overviewMarket(selectedDate),
     staleTime: 5_000,
+    refetchInterval: 30_000,
     placeholderData: (prev) => prev,
   })
   const data = overview.data
