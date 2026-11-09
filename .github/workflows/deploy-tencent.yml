@@ -1,0 +1,72 @@
+name: Deploy Tencent
+
+# Start manually after reviewing CI; production is never updated by a PR.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tencent-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build on GitHub, not on the production server
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: myagent-release:${{ github.sha }}
+          build-args: USE_CN_MIRROR=0
+          cache-from: type=gha,scope=tencent
+          cache-to: type=gha,mode=max,scope=tencent
+      - name: Check isolated startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name release-check -p 127.0.0.1:13018:3018 \
+            -e DATA_DIR=/tmp/release-check myagent-release:"$GITHUB_SHA"
+          ready=false
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:13018/health >/dev/null; then
+              ready=true; break
+            fi
+            sleep 3
+          done
+          docker logs --tail 30 release-check
+          docker rm -f release-check
+          test "$ready" = true
+      - name: Upload and deploy
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_HOST"
+          test "$DEPLOY_USER" = myagent-deploy
+          test -n "$DEPLOY_SSH_KEY"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          trap 'rm -f ~/.ssh/deploy_key' EXIT
+          docker save myagent-release:"$GITHUB_SHA" | gzip -1 > image.tar.gz
+          sha256sum image.tar.gz > image.tar.gz.sha256
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          opts=(-i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ServerAliveInterval=30)
+          ssh "${opts[@]}" "$target" "mkdir -p /home/myagent-deploy/releases/$GITHUB_SHA"
+          scp "${opts[@]}" image.tar.gz image.tar.gz.sha256 "$target:/home/myagent-deploy/releases/$GITHUB_SHA/"
+          ssh "${opts[@]}" "$target" "sudo -n /usr/local/sbin/myagent-deploy $GITHUB_SHA"
