@@ -443,8 +443,16 @@ function DecisionGuidePanel({ items, minuteData, source, aiText, aiBusy, onAiRev
           : '等待多周期和板块同步确认，暂无强制操作'
     return { item, last, change, support, resistance, rangeWidth, trend, action, advice, pullbackPct, time: rows.at(-1)?.datetime }
   })
+  const activeGuide = guides.find(row => /做T|冲高回落|接近支撑|接近压力/.test(row.action))
+  const reminder = activeGuide
+    ? `${activeGuide.item.name}：${activeGuide.action}`
+    : guides.length ? '当前没有触发操作条件，等待价格靠近支撑/压力或重新站回均价线' : '暂无分钟数据，无法生成实时提醒'
   return <aside className="min-w-0 rounded border border-border bg-base/50 p-2 text-xs">
     <div className="flex items-center justify-between gap-2 border-b border-border pb-1"><b>实时操作建议</b><div className="flex items-center gap-2"><span className="text-[10px] text-muted">规则实时更新</span><button type="button" onClick={onAiReview} disabled={aiBusy} className="rounded border border-accent/50 px-1.5 py-0.5 text-[10px] text-accent disabled:opacity-50">{aiBusy ? 'AI分析中…' : 'AI复核'}</button></div></div>
+    <div className={`mt-1 rounded border px-1.5 py-1.5 ${activeGuide ? 'border-warning/50 bg-warning/10' : 'border-border bg-surface'}`}>
+      <div className="flex items-center justify-between gap-2"><b className={activeGuide ? 'text-warning' : 'text-secondary'}>{activeGuide ? '实时提醒' : '当前判断'}</b><span className="text-[10px] text-muted">每15秒刷新</span></div>
+      <div className="mt-0.5 leading-relaxed text-secondary">{reminder}</div>
+    </div>
     <p className="py-1 text-[10px] text-muted">识别冲高回落、支撑/压力和板块联动；建议是条件式观察，不自动下单。</p>
     <div className="space-y-1">{guides.map(row => <div key={row.item.symbol} className="rounded border border-border/60 bg-surface px-1.5 py-1">
       <div className="flex justify-between gap-1"><b className="truncate">{row.item.name}</b><span className={row.action.includes('持有') ? 'text-bull' : row.action.includes('暂') || row.action.includes('压力') ? 'text-warning' : 'text-accent'}>{row.action}</span></div>
@@ -485,7 +493,8 @@ export function PortfolioMonitorWidget() {
   useEffect(() => { setUiPref('portfolio-terminal-pane-widths', JSON.stringify(paneWidths)) }, [paneWidths])
   const snapshot = useQuery({ queryKey: ['portfolio-widget-snapshot'],
     queryFn: () => json<PortfolioSnapshot>(`${API}/portfolio/snapshot`),
-    refetchInterval: tradingNow() ? 30_000 : false })
+    refetchInterval: () => tradingNow() ? 15_000 : false,
+    refetchOnWindowFocus: true })
   const items = useMemo(() => snapshot.data?.items || [], [snapshot.data?.items])
   const review = useReviewState()
   const aiBusy = isReviewGenerating()
@@ -534,7 +543,9 @@ export function PortfolioMonitorWidget() {
   const [hindsightQuantity, setHindsightQuantity] = useState(20000)
   const minute = useQuery({ queryKey: ['portfolio-widget-minute', latestDay],
     queryFn: () => json<{ data: Record<string, Bar[]>; source: string; freshness?: Record<string, { market_time?: string | null; received_at?: string | null; age_seconds?: number | null; stale?: boolean }>; quality?: Record<string, MinuteQuality>; missing_symbols?: string[]; complete?: boolean }>(`${API}/portfolio/minute-batch?trade_date=${latestDay}`),
-    enabled: !!items.length, refetchInterval: tradingNow() ? 60_000 : false })
+    enabled: !!items.length,
+    refetchInterval: () => tradingNow() ? 15_000 : false,
+    refetchOnWindowFocus: true })
   const news = useQuery({ queryKey: ['myagent-quant-news'], queryFn: () => json<News>(`${API}/news`), refetchInterval: 180_000 })
   const tradeHistory = useQuery({ queryKey: ['portfolio-terminal-history', day],
     queryFn: () => json<History>(`${API}/terminal/history?trade_date=${day}`), staleTime: 60_000 })
