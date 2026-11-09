@@ -46,6 +46,17 @@
   border-color: hsl(var(--accent));
 }
 
+/* 浏览态卡片保持悬浮层次，并允许阴影和内部弹层越过网格单元显示。 */
+.dash-grid-resizable:not(.dash-grid-editing) .react-grid-item {
+  overflow: visible;
+  z-index: 0;
+  transition: z-index 0s linear 120ms;
+}
+.dash-grid-resizable:not(.dash-grid-editing) .react-grid-item:hover,
+.dash-grid-resizable:not(.dash-grid-editing) .react-grid-item:focus-within {
+  z-index: 5;
+}
+
 .dash-grid-editing .react-grid-item > .react-resizable-handle {
   position: absolute;
   width: 14px;
