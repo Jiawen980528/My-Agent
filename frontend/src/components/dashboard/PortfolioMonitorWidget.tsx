@@ -426,15 +426,22 @@ function DecisionGuidePanel({ items, minuteData, source, aiText, aiBusy, onAiRev
     const pullback = rows.length >= 5 && pullbackPct != null && pullbackPct <= -0.4 && last != null && ma5 != null && last < ma5
     const change = first && last ? (last / first - 1) * 100 : null
     const trend = last == null || ma5 == null ? '数据不足' : last >= ma5 && (ma20 == null || last >= ma20) ? '短线偏强' : last < ma5 && (ma20 == null || last < ma20) ? '短线偏弱' : '震荡观察'
-    const action = last == null ? '暂不可判断' : pullback ? '冲高回落·等待确认' : support != null && last <= support * 1.01 ? '接近支撑·等待确认' : resistance != null && last >= resistance * .99 ? '接近压力·防追高' : trend === '短线偏强' ? '持有·观察回踩' : trend === '短线偏弱' ? '暂不操作' : '区间观察'
+    const rangeWidth = support && resistance ? (resistance / support - 1) * 100 : null
+    const nearSupport = support != null && last != null && last <= support * 1.015
+    const nearResistance = resistance != null && last != null && last >= resistance * .985
+    const action = last == null ? '暂不可判断' : pullback ? '冲高回落·等待确认' : trend === '震荡观察' && nearSupport && (rangeWidth ?? 0) >= 0.8 ? '震荡靠近支撑·做T观察' : trend === '震荡观察' && nearResistance && (rangeWidth ?? 0) >= 0.8 ? '震荡靠近压力·做T观察' : support != null && last <= support * 1.01 ? '接近支撑·等待确认' : resistance != null && last >= resistance * .99 ? '接近压力·防追高' : trend === '短线偏强' ? '持有·观察回踩' : trend === '短线偏弱' ? '暂不操作' : '区间中部·等待边界'
     const advice = pullback
       ? `不追买；跌破支撑 ${price(support)} 且板块同步走弱才考虑减仓/反T，重新站回均价线并放量才考虑回补`
+      : trend === '震荡观察' && nearSupport && (rangeWidth ?? 0) >= 0.8
+        ? `有底仓且有可卖份额：等待支撑 ${price(support)} 止跌确认后再考虑轻仓正T；无底仓不在中间价追买`
+        : trend === '震荡观察' && nearResistance && (rangeWidth ?? 0) >= 0.8
+          ? `有底仓：靠近压力 ${price(resistance)} 且量能不足时才观察反T；突破并放量则不做反T`
       : support != null && last != null && last <= support * 1.01
         ? '只观察支撑是否企稳，未出现止跌确认前不加仓'
         : resistance != null && last != null && last >= resistance * .99
           ? '不在压力位追高，等待突破放量或回踩确认'
           : '等待多周期和板块同步确认，暂无强制操作'
-    return { item, last, change, support, resistance, trend, action, advice, pullbackPct, time: rows.at(-1)?.datetime }
+    return { item, last, change, support, resistance, rangeWidth, trend, action, advice, pullbackPct, time: rows.at(-1)?.datetime }
   })
   return <aside className="min-w-0 rounded border border-border bg-base/50 p-2 text-xs">
     <div className="flex items-center justify-between gap-2 border-b border-border pb-1"><b>实时操作建议</b><div className="flex items-center gap-2"><span className="text-[10px] text-muted">规则实时更新</span><button type="button" onClick={onAiReview} disabled={aiBusy} className="rounded border border-accent/50 px-1.5 py-0.5 text-[10px] text-accent disabled:opacity-50">{aiBusy ? 'AI分析中…' : 'AI复核'}</button></div></div>
@@ -442,7 +449,7 @@ function DecisionGuidePanel({ items, minuteData, source, aiText, aiBusy, onAiRev
     <div className="space-y-1">{guides.map(row => <div key={row.item.symbol} className="rounded border border-border/60 bg-surface px-1.5 py-1">
       <div className="flex justify-between gap-1"><b className="truncate">{row.item.name}</b><span className={row.action.includes('持有') ? 'text-bull' : row.action.includes('暂') || row.action.includes('压力') ? 'text-warning' : 'text-accent'}>{row.action}</span></div>
       <div className="mt-0.5 flex justify-between text-[10px] text-muted"><span>{row.item.symbol} · {row.trend} · {row.change == null ? '—' : pct(row.change)}</span><span>最新 {row.last == null ? price(row.item.price) : price(row.last)}</span></div>
-      <div className="mt-0.5 grid grid-cols-2 gap-1 text-[10px] text-muted"><span>支撑 {row.support == null ? '—' : price(row.support)}</span><span>压力 {row.resistance == null ? '—' : price(row.resistance)}</span></div>
+      <div className="mt-0.5 grid grid-cols-3 gap-1 text-[10px] text-muted"><span>支撑 {row.support == null ? '—' : price(row.support)}</span><span>压力 {row.resistance == null ? '—' : price(row.resistance)}</span><span>区间 {row.rangeWidth == null ? '—' : `${row.rangeWidth.toFixed(2)}%`}</span></div>
       <div className="mt-1 rounded bg-elevated/60 px-1.5 py-1 text-[10px] leading-relaxed text-secondary"><b className="text-foreground">怎么做：</b>{row.advice}{row.pullbackPct != null && <span className="ml-1 text-muted">（距近端高点 {row.pullbackPct.toFixed(2)}%）</span>}</div>
     </div>)}</div>
     {aiText && <div className="mt-1 rounded border border-accent/30 bg-accent/5 px-1.5 py-1 text-[10px] leading-relaxed text-secondary"><b className="text-accent">AI复核：</b>{aiText}</div>}
