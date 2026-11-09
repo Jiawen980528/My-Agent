@@ -1,4 +1,4 @@
-name: Inspect code deployment transfer
+name: Upload shared AI installer
 on:
   workflow_dispatch:
 permissions:
@@ -10,8 +10,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: codex/fast-code-deploy
-      - name: Read code transfer size and health
+          ref: codex/fix-assistant-mount
+      - name: Upload installer
         shell: bash
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -25,4 +25,6 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           trap 'rm -f ~/.ssh/deploy_key' EXIT
-          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$DEPLOY_USER@$DEPLOY_HOST" 'stat -c "%s bytes modified=%y" /home/myagent-deploy/releases/b186730cd5d94f907b5aa5cc106a206594042576/code.tar.gz; sleep 10; stat -c "%s bytes modified=%y" /home/myagent-deploy/releases/b186730cd5d94f907b5aa5cc106a206594042576/code.tar.gz; curl -fsS --max-time 10 http://127.0.0.1:8001/health'
+          sha256sum ops/setup-tencent.sh
+          scp -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 ops/setup-tencent.sh "$DEPLOY_USER@$DEPLOY_HOST:/home/myagent-deploy/setup-tencent-shared-ai.sh"
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$DEPLOY_USER@$DEPLOY_HOST" 'chmod 700 /home/myagent-deploy/setup-tencent-shared-ai.sh; sha256sum /home/myagent-deploy/setup-tencent-shared-ai.sh; bash -n /home/myagent-deploy/setup-tencent-shared-ai.sh'
