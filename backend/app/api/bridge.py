@@ -86,6 +86,7 @@ def _validate_ptrade_snapshot(payload: object) -> dict:
         "quotes": payload.get("quotes") if isinstance(payload.get("quotes"), list) else [],
         "blocks": payload.get("blocks") if isinstance(payload.get("blocks"), list) else [],
         "trades": payload.get("trades") if isinstance(payload.get("trades"), list) else [],
+        "signals": payload.get("signals") if isinstance(payload.get("signals"), list) else [],
     }
 
 
@@ -118,6 +119,7 @@ async def ptrade_read_only_snapshot(request: Request):
         "position_count": len(payload["positions"]),
         "quote_count": len(payload["quotes"]),
         "block_count": len(payload["blocks"]),
+        "signal_count": len(payload["signals"]),
     }
 
 
