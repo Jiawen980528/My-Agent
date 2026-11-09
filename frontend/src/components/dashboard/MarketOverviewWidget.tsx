@@ -154,13 +154,13 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
         })}
       </div>
 
-      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,0.85fr)]">
+      <div className="grid min-h-0 flex-1 gap-3">
         <div className="min-h-0 rounded border border-border bg-base/35 p-2">
           <div className="mb-1 flex items-center justify-between gap-2 text-xs">
             <b>{selected.name} · 分时走势</b>
             <span className="text-[10px] text-muted">{chartRows.length ? `${chartRows.length}根分钟K · 可缩放` : minute.isLoading ? '读取中…' : '暂无分钟数据'}</span>
           </div>
-          {chartRows.length ? <EChartsIntraday data={chartRows} height={300} date={minute.data?.date ?? undefined} showLimitLines={false} showAvgLine /> : <div className="flex h-[300px] items-center justify-center text-xs text-muted">{minute.isLoading ? <><RefreshCw className="mr-1 h-3 w-3 animate-spin" />正在读取分钟走势…</> : '当前没有可用的分钟数据，请检查分钟数据源和交易日期'}</div>}
+          {chartRows.length ? <EChartsIntraday data={chartRows} height={300} date={minute.data?.date ?? undefined} showLimitLines={false} showAvgLine={false} /> : <div className="flex h-[300px] items-center justify-center text-xs text-muted">{minute.isLoading ? <><RefreshCw className="mr-1 h-3 w-3 animate-spin" />正在读取分钟走势…</> : '当前没有可用的分钟数据，请检查分钟数据源和交易日期'}</div>}
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted">
             <span>当前来源：{sourceText}</span>
             <span>最后时间：{chartRows.at(-1)?.datetime ?? '—'}</span>
@@ -168,7 +168,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
           </div>
         </div>
 
-        <div className="min-h-0 max-h-full space-y-2 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+        {false && <div className="min-h-0 max-h-full space-y-2 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
           <div className="grid grid-cols-2 gap-1.5">
             {marketStats.map(item => <div key={item.label} className="rounded border border-border bg-elevated/45 p-2"><div className="text-[10px] text-muted">{item.label}</div><div className="mt-0.5 font-mono text-sm font-semibold">{item.value}</div><div className="text-[9px] text-secondary">{item.sub}</div></div>)}
           </div>
@@ -197,7 +197,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
               <Link to="/settings?tab=data-sources" className="inline-flex items-center gap-1 text-[10px] text-accent hover:underline"><Info className="h-3 w-3" />查看数据源配置</Link>
             </div>}
           </div>}
-        </div>
+        </div>}
       </div>
 
       {false && <div className="mt-3"><BreadthTrend data={data} /></div>}
