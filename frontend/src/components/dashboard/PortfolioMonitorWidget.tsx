@@ -202,7 +202,8 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
   const inferredBoard = useMemo(() => {
     if (linkedBoardCode || !boardOptions.length) return undefined
     const source = item.name.replace(/(ETF|LOF|联接|指数|基金|发起式|易方达|华夏|华泰柏瑞|南方|国泰|富国|广发|嘉实|博时|华安|招商|天弘|银华)/gi, '')
-    const keywords = [...new Set(source.match(/[\u4e00-\u9fff]{2,}/g) || [])]
+    const sourceVariants = [source, source.replace(/材料/g, '')]
+    const keywords = [...new Set(sourceVariants.flatMap(value => value.match(/[\u4e00-\u9fff]{2,}/g) || []))]
     if (!keywords.length) return undefined
     return [...boardOptions]
       .map(option => {
