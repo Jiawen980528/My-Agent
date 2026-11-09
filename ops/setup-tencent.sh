@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $EUID == 0 ]] || { echo 'Run with sudo'; exit 1; }
+id myagent-deploy >/dev/null
+command -v docker >/dev/null
+command -v flock >/dev/null
+command -v curl >/dev/null
+docker inspect TickFlow_Stock_Panel >/dev/null
+install -d -m 755 /usr/local/sbin
+cat > /usr/local/sbin/myagent-deploy <<'MYAGENT_DEPLOY_HELPER'
+#!/usr/bin/env bash
+# Install root-owned at /usr/local/sbin/myagent-deploy. Deployment access permits
+# running repository code in the existing application container; trust main.
+set -euo pipefail
+[[ $EUID == 0 && $# == 1 && $1 =~ ^[0-9a-f]{40}$ ]] || exit 2
+exec 9>/run/lock/myagent-deploy.lock
+flock -n 9 || { echo 'Another deployment is running'; exit 1; }
+sha=$1
+release="/home/myagent-deploy/releases/$sha"
+cd "$release"
+sha256sum -c image.tar.gz.sha256
+docker load -i image.tar.gz
+docker image inspect "myagent-release:$sha" >/dev/null
+
+cd /opt/tick-stock-panel
+project=$(docker inspect TickFlow_Stock_Panel --format '{{ index .Config.Labels "com.docker.compose.project" }}')
+[[ -n $project && $project != '<no value>' ]] || exit 1
+codex_home=$(docker inspect TickFlow_Stock_Panel --format '{{range .Mounts}}{{if eq .Destination "/root/.codex"}}{{.Source}}{{end}}{{end}}')
+[[ -d $codex_home ]] || { echo 'Codex mount missing; stop for review'; exit 1; }
+export CODEX_HOME_HOST="$codex_home"
+old=$(docker inspect TickFlow_Stock_Panel --format '{{.Image}}')
+backup="/opt/my-agent-backups/$(date +%Y%m%d-%H%M%S)-$sha"
+install -d -m 700 "$backup"
+docker tag "$old" "myagent-rollback:$sha"
+cp -a .env tiers.yaml docker-compose*.yml "$backup/"
+
+compose=(docker compose -p "$project" -f docker-compose.yml -f docker-compose.prod.yml)
+printf 'services:\n  app:\n    image: myagent-release:%s\n' "$sha" > "$backup/release.yml"
+printf 'services:\n  app:\n    image: myagent-rollback:%s\n' "$sha" > "$backup/rollback.yml"
+"${compose[@]}" -f "$backup/release.yml" config --quiet
+needed=$(du -sk /opt/tick-stock-panel-data | awk '{print $1}')
+available=$(df -Pk /opt | awk 'END {print $4}')
+(( available > needed + 1048576 )) || { echo 'Insufficient backup space'; exit 1; }
+
+# Stop only the application for a consistent backup. Never remove orphan services.
+docker stop TickFlow_Stock_Panel
+trap 'docker start TickFlow_Stock_Panel >/dev/null || true' EXIT
+tar -C /opt -cf "$backup/data.tar" tick-stock-panel-data
+trap - EXIT
+
+rollback() {
+  trap - ERR
+  set +e
+  "${compose[@]}" -f "$backup/rollback.yml" up -d --no-build --pull never --no-deps app
+  echo "Deployment failed. Previous image restarted; data backup: $backup/data.tar"
+  echo 'Data has NOT been restored automatically; review migrations before restoring.'
+  exit 1
+}
+trap rollback ERR
+"${compose[@]}" -f "$backup/release.yml" up -d --no-build --pull never --no-deps app
+ready=false
+for attempt in $(seq 1 60); do
+  if curl -fsS --max-time 5 http://127.0.0.1:8001/health >/dev/null; then
+    ready=true; break
+  fi
+  sleep 3
+done
+[[ $ready == true ]]
+cp "$backup/release.yml" docker-compose.github.yml
+trap - ERR
+echo "Deployed $sha; backup: $backup"
+MYAGENT_DEPLOY_HELPER
+chown root:root /usr/local/sbin/myagent-deploy
+chmod 755 /usr/local/sbin/myagent-deploy
+rule=$(mktemp)
+trap 'rm -f "$rule"' EXIT
+printf '%s\n' 'myagent-deploy ALL=(root) NOPASSWD: /usr/local/sbin/myagent-deploy' > "$rule"
+visudo -cf "$rule"
+install -o root -g root -m 440 "$rule" /etc/sudoers.d/myagent-deploy
+echo 'Setup complete. Add the following PUBLIC line as DEPLOY_KNOWN_HOSTS:'
+printf '129.211.213.208 '
+cat /etc/ssh/ssh_host_ed25519_key.pub
