@@ -1,4 +1,4 @@
-name: Inspect deployment transfer
+name: Prepare code deployment helper
 on:
   workflow_dispatch:
 permissions:
@@ -8,7 +8,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Read transfer size and health
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/fast-code-deploy
+      - name: Upload reviewed helper installer without running it
         shell: bash
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -22,4 +25,6 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           trap 'rm -f ~/.ssh/deploy_key' EXIT
-          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$DEPLOY_USER@$DEPLOY_HOST" 'stat -c "%n %s bytes modified=%y" /home/myagent-deploy/releases/4be9178e4f85bfecc730112470228bf93528f4bf/image.tar.gz; sleep 10; stat -c "%s bytes modified=%y" /home/myagent-deploy/releases/4be9178e4f85bfecc730112470228bf93528f4bf/image.tar.gz; curl -fsS --max-time 10 http://127.0.0.1:8001/health'
+          scp -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 ops/setup-tencent.sh "$DEPLOY_USER@$DEPLOY_HOST:/home/myagent-deploy/setup-tencent-code.sh"
+          sha256sum ops/setup-tencent.sh
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$DEPLOY_USER@$DEPLOY_HOST" 'sha256sum /home/myagent-deploy/setup-tencent-code.sh; bash -n /home/myagent-deploy/setup-tencent-code.sh' 
