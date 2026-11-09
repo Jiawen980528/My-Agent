@@ -1,4 +1,4 @@
-name: Prepare code deployment helper
+name: Inspect code deployment transfer
 on:
   workflow_dispatch:
 permissions:
@@ -11,7 +11,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: codex/fast-code-deploy
-      - name: Upload reviewed helper installer without running it
+      - name: Read code transfer size and health
         shell: bash
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -25,6 +25,4 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           trap 'rm -f ~/.ssh/deploy_key' EXIT
-          scp -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 ops/setup-tencent.sh "$DEPLOY_USER@$DEPLOY_HOST:/home/myagent-deploy/setup-tencent-code.sh"
-          sha256sum ops/setup-tencent.sh
-          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$DEPLOY_USER@$DEPLOY_HOST" 'sha256sum /home/myagent-deploy/setup-tencent-code.sh; bash -n /home/myagent-deploy/setup-tencent-code.sh' 
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$DEPLOY_USER@$DEPLOY_HOST" 'stat -c "%s bytes modified=%y" /home/myagent-deploy/releases/b186730cd5d94f907b5aa5cc106a206594042576/code.tar.gz; sleep 10; stat -c "%s bytes modified=%y" /home/myagent-deploy/releases/b186730cd5d94f907b5aa5cc106a206594042576/code.tar.gz; curl -fsS --max-time 10 http://127.0.0.1:8001/health'
