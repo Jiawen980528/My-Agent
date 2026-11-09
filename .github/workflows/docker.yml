@@ -59,7 +59,8 @@ jobs:
         with:
           context: .
           push: true
-          platforms: linux/amd64,linux/arm64
+          # 腾讯云线上服务器为 amd64；单架构发布显著缩短每次部署时间。
+          platforms: linux/amd64
           # GitHub runner 在海外, 关掉国内镜像源(USE_CN_MIRROR=0)
           # 让构建直连官方 npm/PyPI, 反而更快更稳;
           # 本地/国内手动 docker build 仍走 Dockerfile 默认的 CN 镜像。
