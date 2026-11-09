@@ -123,8 +123,12 @@ codex_home=$(docker inspect TickFlow_Stock_Panel --format '{{range .Mounts}}{{if
 export CODEX_HOME_HOST="$codex_home"
 export COMPOSE_REMOVE_ORPHANS=false
 old=$(docker inspect TickFlow_Stock_Panel --format '{{.Image}}')
-backup="/opt/my-agent-backups/$(date +%Y%m%d-%H%M%S)-$sha"
-install -d -m 700 "$backup"
+backup_root=/opt/my-agent-backups
+today=$(date +%Y%m%d)
+backup="$backup_root/$(date +%Y%m%d-%H%M%S)-$sha"
+install -d -m 700 "$backup_root" "$backup"
+# 同一天复用已有数据备份；每次发布仍保存独立回滚配置。
+data_backup=$(find "$backup_root" -mindepth 1 -maxdepth 1 -type d -name "$today-*" -print0 | sort -z | head -z -n 1 | xargs -0 -r -n1 printf '%s' || true)
 docker tag "$old" "myagent-rollback:$sha"
 cp -a .env tiers.yaml docker-compose*.yml "$backup/"
 
@@ -159,8 +163,14 @@ available=$(df -Pk /opt | awk 'END {print $4}')
 # Stop only the application for a consistent backup. Never remove orphan services.
 docker stop TickFlow_Stock_Panel myagent
 trap 'docker start TickFlow_Stock_Panel myagent >/dev/null || true' EXIT
-tar -C /opt -cf "$backup/data.tar" tick-stock-panel-data
-tar -C "$agent_data" -cf "$backup/myagent-data.tar" .
+if [[ -n "$data_backup" && -f "$data_backup/data.tar" && -f "$data_backup/myagent-data.tar" ]]; then
+  ln -s "$data_backup/data.tar" "$backup/data.tar"
+  ln -s "$data_backup/myagent-data.tar" "$backup/myagent-data.tar"
+  echo "Reusing daily data backup: $data_backup"
+else
+  tar -C /opt -cf "$backup/data.tar" tick-stock-panel-data
+  tar -C "$agent_data" -cf "$backup/myagent-data.tar" .
+fi
 trap - EXIT
 
 rollback() {
@@ -219,4 +229,6 @@ cp "$backup/release.yml" docker-compose.github.yml
 cp "$backup/myagent-release.yml" "$agent_workdir/docker-compose.shared-ai.yml"
 chmod 600 docker-compose.github.yml "$agent_workdir/docker-compose.shared-ai.yml"
 trap - ERR
+# 只保留最近 5 个回滚目录，避免备份无限增长。
+find "$backup_root" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' | sort -nr | tail -n +6 | cut -d' ' -f2- | xargs -r rm -rf
 echo "Deployed $sha; backup: $backup"
