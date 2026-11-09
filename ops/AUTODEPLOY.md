@@ -1,9 +1,8 @@
 # Tencent deployment setup
 
-Status: files prepared, not yet installed on the server or pushed to GitHub.
+Status: code-package update prepared; the server helper must be upgraded once before using this workflow.
 This workflow is manual (`Actions > Deploy Tencent > Run workflow` on main).
-Review CI and the complete change before running it. It builds in GitHub, uploads
-an image over SSH, and never downloads Python dependencies on the production server.
+Review CI and the complete change before running it. It builds the frontend on GitHub and uploads only backend code and compiled frontend assets over SSH. The server reuses its existing Python environment, packages the new code locally with networking disabled, and never downloads dependencies for ordinary code changes. Container packaging remains local; full runtime images are not transferred.
 
 ## One-time server installation
 
@@ -20,7 +19,9 @@ This authorizes deployments of trusted repository code, not unrestricted sudo.
 Do not grant the account Docker group membership. Protect main and review workflow
 changes: an image deployment can execute code with existing application credentials.
 
-The helper preserves the current Compose project name and Codex mount, uses
+Dependency declarations are compared before deployment; changed dependencies require a separately prepared runtime upgrade and fail before stopping the existing service.
+
+The helper preserves the current Compose project name and Codex mount, explicitly disables orphan removal, uses
 `--no-deps`, does not remove orphan containers, and backs up data with the app
 stopped. Data changes are not automatically reversed on image rollback.
 Existing stock-panel and MyAgent integration must be reviewed after deployment.
@@ -43,7 +44,6 @@ required reviewers. No provider API key belongs in this workflow.
 
 The cloud chat additionally needs valid GitHub write authentication (including
 workflow-file permission) to push changes or start the workflow. Actions secrets
-do not grant this chat access. SSH authentication and the deployment helper must
-be tested after installation. No production deploy has been run from these files.
+do not grant this chat access. SSH authentication is verified. The new code-package helper still needs a first end-to-end deployment after installation.
 The health check verifies startup only, not holdings, charts, trading behavior or
 AI routes. Resolve the known UI/data issues before promoting another release.

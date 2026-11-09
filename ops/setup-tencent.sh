@@ -17,10 +17,47 @@ exec 9>/run/lock/myagent-deploy.lock
 flock -n 9 || { echo 'Another deployment is running'; exit 1; }
 sha=$1
 release="/home/myagent-deploy/releases/$sha"
-cd "$release"
-sha256sum -c image.tar.gz.sha256
-docker load -i image.tar.gz
-docker image inspect "myagent-release:$sha" >/dev/null
+[[ -f "$release/code.tar.gz" && ! -L "$release/code.tar.gz" ]] || exit 1
+read -r expected filename < "$release/code.tar.gz.sha256"
+[[ $expected =~ ^[0-9a-f]{64}$ && $filename == code.tar.gz ]] || exit 1
+context=$(mktemp -d /opt/myagent-release-context.XXXXXX)
+chmod 700 "$context"
+cp "$release/code.tar.gz" "$context/code.tar.gz"
+actual=$(sha256sum "$context/code.tar.gz" | awk '{print $1}')
+[[ $actual == "$expected" ]] || { echo 'Checksum mismatch'; exit 1; }
+python3 - "$context" <<'PYTHON'
+import pathlib, subprocess, sys, tarfile, tomllib
+root = pathlib.Path(sys.argv[1])
+with tarfile.open(root / 'code.tar.gz') as archive:
+    for member in archive.getmembers():
+        target = (root / member.name).resolve()
+        if not target.is_relative_to(root) or not (member.isfile() or member.isdir()):
+            raise SystemExit('Unsafe archive member')
+    archive.extractall(root, filter='data')
+old = tomllib.loads(subprocess.check_output(
+    ['docker', 'exec', 'TickFlow_Stock_Panel', 'cat', '/app/pyproject.toml'], text=True))
+new = tomllib.loads((root / 'pyproject.toml').read_text())
+for key in ('requires-python', 'dependencies', 'optional-dependencies'):
+    if old['project'].get(key) != new['project'].get(key):
+        raise SystemExit('Dependencies changed; prepare a separate runtime upgrade first: ' + key)
+print('Dependency declarations match; reusing the existing server environment')
+PYTHON
+old=$(docker inspect TickFlow_Stock_Panel --format '{{.Image}}')
+docker tag "$old" "myagent-runtime:$sha"
+cat > "$context/Dockerfile" <<'DOCKERFILE'
+ARG RUNTIME_IMAGE
+FROM ${RUNTIME_IMAGE}
+WORKDIR /app
+RUN rm -rf /app/app /app/static
+COPY app /app/app
+COPY static /app/static
+COPY frontend/package.json /app/frontend/package.json
+COPY pyproject.toml /app/pyproject.toml
+COPY generate_manifest.py /tmp/generate_manifest.py
+RUN APP_VER=$(/app/.venv/bin/python -c "import json; print(json.load(open('/app/frontend/package.json'))['version'])") && /app/.venv/bin/python /tmp/generate_manifest.py --root /app --output /app/app/upgrade_manifest.json --version "$APP_VER"
+CMD ["/app/.venv/bin/python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3018"]
+DOCKERFILE
+docker build --network none --build-arg "RUNTIME_IMAGE=myagent-runtime:$sha" -t "myagent-release:$sha" "$context"
 
 cd /opt/tick-stock-panel
 project=$(docker inspect TickFlow_Stock_Panel --format '{{ index .Config.Labels "com.docker.compose.project" }}')
@@ -28,6 +65,7 @@ project=$(docker inspect TickFlow_Stock_Panel --format '{{ index .Config.Labels 
 codex_home=$(docker inspect TickFlow_Stock_Panel --format '{{range .Mounts}}{{if eq .Destination "/root/.codex"}}{{.Source}}{{end}}{{end}}')
 [[ -d $codex_home ]] || { echo 'Codex mount missing; stop for review'; exit 1; }
 export CODEX_HOME_HOST="$codex_home"
+export COMPOSE_REMOVE_ORPHANS=false
 old=$(docker inspect TickFlow_Stock_Panel --format '{{.Image}}')
 backup="/opt/my-agent-backups/$(date +%Y%m%d-%H%M%S)-$sha"
 install -d -m 700 "$backup"
