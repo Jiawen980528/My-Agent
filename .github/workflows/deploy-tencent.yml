@@ -3,6 +3,10 @@ name: Deploy Tencent
 # Start manually after reviewing CI; production is never updated by a PR.
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/deploy-tencent.yml'
+      - 'ops/**'
 
 permissions:
   contents: read
@@ -12,8 +16,34 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify-connection:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify SSH and deployment permission without changing the server
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$DEPLOY_USER" = myagent-deploy
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_SSH_KEY"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          trap 'rm -f ~/.ssh/deploy_key' EXIT
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 "$DEPLOY_USER@$DEPLOY_HOST" \
+            'id -un; test -x /usr/local/sbin/myagent-deploy; sudo -n -l /usr/local/sbin/myagent-deploy 0000000000000000000000000000000000000000'
   deploy:
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: production
