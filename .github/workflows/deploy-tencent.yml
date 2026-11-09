@@ -1,81 +1,47 @@
 name: Deploy Tencent
-
-# Start manually after reviewing CI; production is never updated by a PR.
 on:
   workflow_dispatch:
   pull_request:
     paths:
       - '.github/workflows/deploy-tencent.yml'
       - 'ops/**'
-
 permissions:
   contents: read
-
 concurrency:
   group: tencent-production
   cancel-in-progress: false
-
 jobs:
-  verify-connection:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    steps:
-      - name: Verify SSH and deployment permission without changing the server
-        shell: bash
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-        run: |
-          set -euo pipefail
-          test "$DEPLOY_USER" = myagent-deploy
-          test -n "$DEPLOY_HOST"
-          test -n "$DEPLOY_SSH_KEY"
-          test -n "$DEPLOY_KNOWN_HOSTS"
-          install -d -m 700 ~/.ssh
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          trap 'rm -f ~/.ssh/deploy_key' EXIT
-          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes \
-            -o ConnectTimeout=15 "$DEPLOY_USER@$DEPLOY_HOST" \
-            'id -un; test -x /usr/local/sbin/myagent-deploy; sudo -n -l /usr/local/sbin/myagent-deploy 0000000000000000000000000000000000000000'
   deploy:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     environment: production
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - name: Build on GitHub, not on the production server
-        uses: docker/build-push-action@v6
+      - uses: pnpm/action-setup@v4
         with:
-          context: .
-          load: true
-          tags: myagent-release:${{ github.sha }}
-          build-args: USE_CN_MIRROR=0
-          cache-from: type=gha,scope=tencent
-          cache-to: type=gha,mode=max,scope=tencent
-      - name: Check isolated startup
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Build frontend and package code only
         shell: bash
         run: |
           set -euo pipefail
-          docker run -d --name release-check -p 127.0.0.1:13018:3018 \
-            -e DATA_DIR=/tmp/release-check myagent-release:"$GITHUB_SHA"
-          ready=false
-          for attempt in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:13018/health >/dev/null; then
-              ready=true; break
-            fi
-            sleep 3
-          done
-          docker logs --tail 30 release-check
-          docker rm -f release-check
-          test "$ready" = true
-      - name: Upload and deploy
+          pnpm --dir frontend install --frozen-lockfile
+          pnpm --dir frontend build
+          mkdir -p payload/frontend
+          cp -a backend/app payload/app
+          cp -a frontend/dist payload/static
+          cp frontend/package.json payload/frontend/package.json
+          cp backend/pyproject.toml payload/pyproject.toml
+          cp scripts/generate_manifest.py payload/generate_manifest.py
+          tar -C payload -czf code.tar.gz .
+          sha256sum code.tar.gz > code.tar.gz.sha256
+          du -h code.tar.gz
+      - name: Upload code and deploy with existing server dependencies
         shell: bash
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -84,8 +50,8 @@ jobs:
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
-          test -n "$DEPLOY_HOST"
           test "$DEPLOY_USER" = myagent-deploy
+          test -n "$DEPLOY_HOST"
           test -n "$DEPLOY_SSH_KEY"
           test -n "$DEPLOY_KNOWN_HOSTS"
           install -d -m 700 ~/.ssh
@@ -93,10 +59,8 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           trap 'rm -f ~/.ssh/deploy_key' EXIT
-          docker save myagent-release:"$GITHUB_SHA" | gzip -1 > image.tar.gz
-          sha256sum image.tar.gz > image.tar.gz.sha256
           target="$DEPLOY_USER@$DEPLOY_HOST"
           opts=(-i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ServerAliveInterval=30)
           ssh "${opts[@]}" "$target" "mkdir -p /home/myagent-deploy/releases/$GITHUB_SHA"
-          scp "${opts[@]}" image.tar.gz image.tar.gz.sha256 "$target:/home/myagent-deploy/releases/$GITHUB_SHA/"
+          scp "${opts[@]}" code.tar.gz code.tar.gz.sha256 "$target:/home/myagent-deploy/releases/$GITHUB_SHA/"
           ssh "${opts[@]}" "$target" "sudo -n /usr/local/sbin/myagent-deploy $GITHUB_SHA"
