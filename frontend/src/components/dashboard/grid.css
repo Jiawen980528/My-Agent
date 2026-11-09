@@ -48,7 +48,7 @@
 
 /* 浏览态卡片保持悬浮层次，并允许阴影和内部弹层越过网格单元显示。 */
 .dash-grid-resizable:not(.dash-grid-editing) .react-grid-item {
-  overflow: visible;
+  overflow: hidden;
   z-index: 0;
   content-visibility: auto;
   contain-intrinsic-size: 520px;
