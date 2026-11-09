@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { useEffect, useRef, type ReactNode } from 'react'
 
 /**
@@ -125,7 +126,7 @@ export function Modal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  return (
+  const content = (
     <div
       className={overlayClassName}
       onMouseDown={(e) => {
@@ -152,4 +153,8 @@ export function Modal({
       </div>
     </div>
   )
+  // 看板组件位于 react-grid-layout 的 transform/overflow 容器内时，
+  // 普通 fixed 元素会被限制在原窗口里，表现为“点击后占用原位置”。
+  // 统一挂到 body，确保所有对话框都是真正的全屏浮层，可滚动、可关闭。
+  return typeof document === 'undefined' ? content : createPortal(content, document.body)
 }
