@@ -352,13 +352,23 @@ export function Dashboard() {
           </div>
           {layoutProfileStatus && <span className={layoutProfileStatus.includes('失败') || layoutProfileStatus.includes('无效') ? 'text-danger' : 'text-muted'}>{layoutProfileStatus}</span>}
           {!dashEditing ? (
-            <button
-              onClick={() => setDashEditing(true)}
-              title="拖拽调整组件位置与宽高"
-              className="inline-flex items-center gap-1 rounded-btn border border-border bg-elevated px-2 py-1 text-[11px] text-secondary transition-colors hover:text-foreground hover:border-accent/40"
-            >
-              <GripVertical className="h-3 w-3" />自定义布局
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={resetDashLayout}
+                title="显示市场实时、量能、持仓分时、关联板块、资金和新闻"
+                className="inline-flex items-center gap-1 rounded-btn border border-accent/40 bg-accent/10 px-2 py-1 text-[11px] text-accent transition-colors hover:bg-accent/20"
+              >
+                <Gauge className="h-3 w-3" />核心看盘
+              </button>
+              <button
+                onClick={() => setDashEditing(true)}
+                title="拖拽调整组件位置与宽高"
+                className="inline-flex items-center gap-1 rounded-btn border border-border bg-elevated px-2 py-1 text-[11px] text-secondary transition-colors hover:text-foreground hover:border-accent/40"
+              >
+                <GripVertical className="h-3 w-3" />自定义布局
+              </button>
+            </>
           ) : (
             <>
               <button

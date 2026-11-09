@@ -24,10 +24,15 @@ export function useDashboardLayout(): {
   const { data: prefs } = usePreferences()
   const saved = useMemo(() => {
     const normalized = normalizeDashboardLayout(prefs?.dashboard_layout ?? undefined)
-    // 版本升级迁移：旧布局没有大盘走势主窗口时，把它放到指数/KPI之后。
-    // 只补缺失组件，不覆盖用户已有的布局顺序和尺寸。
-    if (normalized.some(item => item.t === 'market-overview')) return normalized
-    const next: DashboardItem[] = [...normalized, { i: 'market-overview', t: 'market-overview', x: 0, y: 4, w: 12, h: 20 }]
+    // 版本升级迁移：旧布局可能只有指数/KPI，导致新版看盘能力一直藏在“添加窗口”里。
+    // 只补缺失的核心窗口，不覆盖用户已保存的坐标、尺寸和其他自定义窗口。
+    const next = [...normalized]
+    if (!next.some(item => item.t === 'market-overview')) {
+      next.push({ i: 'market-overview', t: 'market-overview', x: 0, y: 0, w: 12, h: 16 })
+    }
+    if (!next.some(item => item.t === 'portfolio-monitor')) {
+      next.push({ i: 'portfolio-monitor', t: 'portfolio-monitor', x: 0, y: 0, w: 12, h: 24 })
+    }
     return compactLayout(next)
   }, [prefs?.dashboard_layout])
   const [local, setLocal] = useState<DashboardItem[] | null>(null)
