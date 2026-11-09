@@ -199,6 +199,22 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
   const [chartPeriod, setChartPeriod] = useState<ChartPeriod>('1m')
   const [boardSearch, setBoardSearch] = useState('')
   const [boardChoiceError, setBoardChoiceError] = useState('')
+  const inferredBoard = useMemo(() => {
+    if (linkedBoardCode || !boardOptions.length) return undefined
+    const source = item.name.replace(/(ETF|LOF|联接|指数|基金|发起式|易方达|华夏|华泰柏瑞|南方|国泰|富国|广发|嘉实|博时|华安|招商|天弘|银华)/gi, '')
+    const keywords = [...new Set(source.match(/[\u4e00-\u9fff]{2,}/g) || [])]
+    if (!keywords.length) return undefined
+    return [...boardOptions]
+      .map(option => {
+        const name = option.name.replace(/[行业概念指数板块]/g, '')
+        const matched = keywords.filter(keyword => name.includes(keyword) || keyword.includes(name))
+        const score = matched.reduce((sum, keyword) => sum + keyword.length * 10, 0) + (source.includes(option.name) ? 100 : 0)
+        return { option, score }
+      })
+      .filter(row => row.score > 0)
+      .sort((a, b) => b.score - a.score)[0]?.option
+  }, [item.name, linkedBoardCode, boardOptions])
+  const effectiveBoardCode = linkedBoardCode || inferredBoard?.code || ''
   const boardListId = `linked-board-${item.symbol.replace(/\W/g, '-')}`
   const boardSearchQuery = useQuery({
     queryKey: ['linked-board-search', boardSearch.trim()],
@@ -233,14 +249,14 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
   const board = useQuery({ queryKey: ['portfolio-board-widget', item.symbol, day],
     queryFn: () => json<Board>(`${API}/portfolio/board/${item.symbol}?trade_date=${day}`),
     staleTime: 30_000, refetchInterval: isLatest && tradingNow() ? 60_000 : false })
-  const linkedBoard = useQuery({ queryKey: ['portfolio-linked-board-widget', linkedBoardCode, day, chartPeriod], queryFn: () =>
+  const linkedBoard = useQuery({ queryKey: ['portfolio-linked-board-widget', effectiveBoardCode, day, chartPeriod], queryFn: () =>
     json<{ name: string; rows: { time: string; close: number; high: number; low: number; volume: number }[]; source: string; latest_time: string }>(
-      `${PUBLIC_API}/fund-flow/sector-kline?sector=${encodeURIComponent(linkedBoardCode || '')}&period=${chartPeriod === '1d' || chartPeriod === '1w' ? 'daily' : chartPeriod}`),
-    enabled: !!linkedBoardCode, staleTime: 30_000, refetchInterval: isLatest && tradingNow() ? 60_000 : false })
-  const selectedFlow = useQuery({ queryKey: ['portfolio-selected-flow', flowScope, linkedBoardCode],
+      `${PUBLIC_API}/fund-flow/sector-kline?sector=${encodeURIComponent(effectiveBoardCode)}&period=${chartPeriod === '1d' || chartPeriod === '1w' ? 'daily' : chartPeriod}`),
+    enabled: !!effectiveBoardCode, staleTime: 30_000, refetchInterval: isLatest && tradingNow() ? 60_000 : false })
+  const selectedFlow = useQuery({ queryKey: ['portfolio-selected-flow', flowScope, effectiveBoardCode],
     queryFn: () => json<{ rows: { time: string; main: number }[]; source: string; latest_time: string }>(
-      `${PUBLIC_API}/fund-flow/live${flowScope === 'linked' && linkedBoardCode ? `?sector=${encodeURIComponent(linkedBoardCode)}` : ''}`),
-    enabled: flowScope === 'market' || !!linkedBoardCode, staleTime: 30_000,
+      `${PUBLIC_API}/fund-flow/live${flowScope === 'linked' && effectiveBoardCode ? `?sector=${encodeURIComponent(effectiveBoardCode)}` : ''}`),
+    enabled: flowScope === 'market' || !!effectiveBoardCode, staleTime: 30_000,
     refetchInterval: isLatest && tradingNow() ? 60_000 : false })
   const history = useQuery({ queryKey: ['portfolio-minute-range', item.symbol],
     queryFn: () => api.klineMinuteRange(item.symbol, 20), staleTime: 60_000 })
@@ -289,14 +305,14 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
     const input: MinuteKlineRow[] = sourceRows.map(row => ({ datetime: row.datetime, open: row.close, high: row.high, low: row.low, close: row.close, volume: row.volume || 0, amount: row.amount ?? null }))
     return resampleMinutes(input, period).map(row => ({ datetime: row.date, open: row.open, high: row.high, low: row.low, close: row.close, volume: row.volume }))
   }, [chartPeriod, dailyHistory.data?.rows, historyRows, stockRows])
-  const autoBoardName = usableBoardName(board.data?.board?.name) ? board.data?.board?.name : usableBoardName(item.board?.name) ? item.board?.name : undefined
+  const autoBoardName = usableBoardName(board.data?.board?.name) ? board.data?.board?.name : usableBoardName(item.board?.name) ? item.board?.name : inferredBoard?.name
   const boardName = linkedBoard.data?.name || autoBoardName || '关联行业板块待绑定'
-  const boardRows = linkedBoardCode
+  const boardRows = effectiveBoardCode
     ? chartPeriod === '1w'
       ? weeklyRows((linkedBoard.data?.rows || []).map(row => ({ date: row.time, open: row.close, high: row.high, low: row.low, close: row.close, volume: row.volume })))
       : (linkedBoard.data?.rows || []).map(row => ({ ...row, datetime: row.time }))
     : chartPeriod === '1m' && autoBoardName ? (board.data?.rows || []) : []
-  const flow = linkedBoardCode ? undefined : board.data?.flow?.at(-1)
+  const flow = effectiveBoardCode ? undefined : board.data?.flow?.at(-1)
   const relatedNews = usableBoardName(boardName) ? news.filter(row => row.sector_names?.some(name => name === boardName || name.includes(boardName) || boardName.includes(name))).slice(0, 5) : []
   const last = stockRows.at(-1), first = stockRows[0], bLast = boardRows.at(-1), bFirst = boardRows[0]
   const stockMove = first && last ? (last.close / first.close - 1) * 100 : null
@@ -337,13 +353,13 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
     {visible.board && <section className="rounded border border-border bg-base/50 p-1.5">
       <div className="flex flex-wrap items-center justify-between gap-1 px-1 text-xs"><b>{boardName} · {chartPeriod === '1d' || chartPeriod === '1w' ? '板块K线' : '板块分时'}</b><span className="text-muted">{linkedBoard.data?.source || board.data?.source || '数据源待确认'}</span></div>
       <TimeChart rows={boardRows} title={boardName} color="#e3a54d" height={150} />
-      <p className="px-1 text-[11px] text-muted">区间涨跌 {pct(boardMove)} · {linkedBoard.data?.latest_time || board.data?.last_market_time || '暂无时间'}；{linkedBoardCode ? `自选板块 ${linkedBoardCode}` : autoBoardName ? '自动关联行业板块' : '请先选择真实行业/指数板块'}</p>
+      <p className="px-1 text-[11px] text-muted">区间涨跌 {pct(boardMove)} · {linkedBoard.data?.latest_time || board.data?.last_market_time || '暂无时间'}；{linkedBoardCode ? `自选板块 ${linkedBoardCode}` : inferredBoard ? `按持仓名称自动关联 ${inferredBoard.name}` : autoBoardName ? '自动关联行业板块' : '请先选择真实行业/指数板块'}</p>
     </section>}
     <div className="grid gap-1.5 lg:grid-cols-2">
       {visible.flow && <section className="rounded border border-border bg-base/50 p-2 text-xs">
         <div className="flex flex-wrap items-center justify-between gap-1"><b>资金流向</b><select aria-label="资金流向范围" value={flowScope} onChange={event => setFlowScope(event.target.value as 'linked' | 'market')} className="rounded border border-border bg-base px-1 py-0.5"><option value="linked">关联板块</option><option value="market">全市场</option></select></div>
         <p className="mt-1">主力净流 {selectedFlow.data?.latest_time?.slice(0, 10) === day && selectedFlow.data.rows.length
-          ? `${selectedFlow.data.rows.at(-1)!.main.toFixed(2)} 亿` : flowScope === 'linked' && !linkedBoardCode && flow ? `${flow.main_yi.toFixed(2)} 亿` : '数据源未接入或该日期无数据'}</p>
+          ? `${selectedFlow.data.rows.at(-1)!.main.toFixed(2)} 亿` : flowScope === 'linked' && !effectiveBoardCode && flow ? `${flow.main_yi.toFixed(2)} 亿` : '数据源未接入或该日期无数据'}</p>
         <p className="text-[11px] text-muted">{selectedFlow.data?.source || board.data?.source || '独立资金流供应商'} · {selectedFlow.data?.latest_time || flow?.datetime || '暂无更新时间'}</p>
         <Link to="/fund-flow" className="text-accent">查看完整资金走势 ↗</Link></section>}
       {visible.signal && <section className="rounded border border-border bg-base/50 p-2 text-xs"><b>做T观察</b>
