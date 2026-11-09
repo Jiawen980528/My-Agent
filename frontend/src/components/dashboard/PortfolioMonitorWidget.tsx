@@ -16,7 +16,7 @@ const API = '/quant/api/myagent/quant'
 const PUBLIC_API = '/quant/api/myagent'
 type Bar = { datetime: string; open?: number | null; close: number; high: number; low: number; volume?: number; amount?: number | null }
 type Holding = { symbol: string; name: string; holding_source?: string | null; quantity?: number | null;
-  price?: number | null; prev_close?: number | null; change_pct?: number | null; market_timestamp?: string | number | null;
+  price?: number | null; prev_close?: number | null; cost?: number | null; change_pct?: number | null; market_timestamp?: string | number | null;
   board?: { name: string; code: string } | null }
 type Board = { board?: { name: string; code: string }; rows: Bar[]; flow?: { datetime: string; main_yi: number }[];
   flow_status?: string; source?: string; last_market_time?: string }
