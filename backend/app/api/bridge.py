@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import json
 import os
 import re
+import time
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -16,7 +18,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from app.api.overview import market_overview
 from app.api.kline import get_daily
 from app.services.kline_sync import selected_minute_source, sync_minute_batch
-from app.services.portfolio_account import unavailable
+from app.services.portfolio_account import normalize_snapshot, unavailable
 from app.tickflow.capabilities import Cap
 from app.services.market_data_service import batch_completeness, freshness, minute_bars, minute_quality, quote_snapshot
 from app.services.volume_forecast import forecast_amount
@@ -24,6 +26,7 @@ from app.services.volume_forecast import forecast_amount
 router = APIRouter(prefix="/api/bridge", tags=["bridge"])
 _SYMBOL = re.compile(r"^\d{6}\.(SH|SZ|BJ)$")
 _CN = ZoneInfo("Asia/Shanghai")
+_ptrade_snapshot_times: dict[str, list[float]] = {}
 
 
 def _qualified_symbol(value: str) -> str:
@@ -42,10 +45,105 @@ def _check_token(request: Request) -> None:
         raise HTTPException(status_code=401, detail="bridge unauthorized")
 
 
+def _validate_ptrade_snapshot(payload: object) -> dict:
+    """Validate a read-only PTrade payload without accepting credentials or commands."""
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="PTrade 快照必须是 JSON 对象")
+    if payload.get("read_only") is not True:
+        raise HTTPException(status_code=422, detail="只接受 read_only=true 的快照")
+    source = str(payload.get("source") or "").strip().lower()
+    if source != "ptrade":
+        raise HTTPException(status_code=422, detail="source 必须为 ptrade")
+    items = payload.get("positions", [])
+    if not isinstance(items, list) or len(items) > 1000:
+        raise HTTPException(status_code=422, detail="positions 格式或数量无效")
+    symbol_re = re.compile(r"^\d{6}\.(SH|SZ|BJ|SS)$")
+    clean_positions = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        symbol = str(item.get("symbol") or "").strip().upper().replace(".SS", ".SH")
+        if not symbol_re.fullmatch(symbol):
+            continue
+        clean_positions.append({
+            "symbol": symbol,
+            "name": str(item.get("name") or symbol)[:80],
+            "quantity": item.get("quantity"),
+            "available_quantity": item.get("available_quantity"),
+            "cost": item.get("cost"),
+            "last": item.get("last"),
+            "change_pct": item.get("change_pct"),
+            "market_value": item.get("market_value"),
+        })
+    # Only the documented read-only fields are retained. Unknown keys are dropped.
+    return {
+        "source": "ptrade",
+        "read_only": True,
+        "received_at": datetime.now(_CN).isoformat(timespec="seconds"),
+        "as_of": str(payload.get("as_of") or "")[:80],
+        "account": payload.get("account") if isinstance(payload.get("account"), dict) else {},
+        "positions": clean_positions,
+        "quotes": payload.get("quotes") if isinstance(payload.get("quotes"), list) else [],
+        "blocks": payload.get("blocks") if isinstance(payload.get("blocks"), list) else [],
+        "trades": payload.get("trades") if isinstance(payload.get("trades"), list) else [],
+    }
+
+
+@router.post("/ptrade/read-only")
+async def ptrade_read_only_snapshot(request: Request):
+    """Receive a locally collected PTrade snapshot; never places broker actions."""
+    _check_token(request)
+    ip = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    recent = [stamp for stamp in _ptrade_snapshot_times.get(ip, []) if now - stamp < 60]
+    if len(recent) >= 30:
+        raise HTTPException(status_code=429, detail="PTrade 快照一分钟最多上传 30 次")
+    content_length = int(request.headers.get("content-length", "0") or "0")
+    if content_length > 1_000_000:
+        raise HTTPException(status_code=413, detail="PTrade 快照超过 1 MB")
+    recent.append(now)
+    _ptrade_snapshot_times[ip] = recent
+    try:
+        payload = _validate_ptrade_snapshot(await request.json())
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail="PTrade 快照不是有效 JSON") from exc
+    # Keep this in process for the current dashboard bridge. Persistence is deliberately
+    # delegated to the existing account adapter so this endpoint cannot overwrite ledgers.
+    request.app.state.ptrade_read_only_snapshot = payload
+    return {
+        "status": "ok",
+        "source": "ptrade",
+        "read_only": True,
+        "received_at": payload["received_at"],
+        "position_count": len(payload["positions"]),
+        "quote_count": len(payload["quotes"]),
+        "block_count": len(payload["blocks"]),
+    }
+
+
+@router.get("/ptrade/read-only")
+def get_ptrade_read_only_snapshot(request: Request):
+    """Return the latest in-memory PTrade snapshot for server-side consumers."""
+    _check_token(request)
+    return getattr(request.app.state, "ptrade_read_only_snapshot", {
+        "status": "unavailable",
+        "source": "ptrade",
+        "read_only": True,
+        "reason": "尚未收到本机 PTrade 只读快照",
+    })
+
+
 @router.get("/account-status")
 def account_status(request: Request):
     """Expose the read-only account-provider contract without inventing data."""
     _check_token(request)
+    app = getattr(request, "app", None)
+    state = getattr(app, "state", None)
+    ptrade_snapshot = getattr(state, "ptrade_read_only_snapshot", None)
+    if isinstance(ptrade_snapshot, dict) and ptrade_snapshot.get("source") == "ptrade":
+        account = dict(ptrade_snapshot.get("account") or {})
+        account["items"] = ptrade_snapshot.get("positions", [])
+        return normalize_snapshot(account, source="ptrade", verified=True)
     provider = str(os.getenv("PORTFOLIO_ACCOUNT_PROVIDER") or "").strip().lower()
     if provider not in {"qmt", "ptrade", "broker_realtime"}:
         return unavailable("未配置券商只读账户适配器")

@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 from app.api import bridge
+from fastapi import HTTPException
 
 
 def test_shared_context_reports_actual_kline_sources(monkeypatch):
@@ -73,3 +74,32 @@ def test_shared_context_qualifies_bare_code_for_quote_fallback(monkeypatch):
 
     assert captured == ["159558.SZ"]
     assert result["capabilities"]["quotes"] is True
+
+
+def test_ptrade_snapshot_is_read_only_and_normalized():
+    result = bridge._validate_ptrade_snapshot({
+        "source": "ptrade",
+        "read_only": True,
+        "positions": [
+            {"symbol": "588080.SS", "name": "科创50ETF", "quantity": 1000, "last": 1.2},
+            {"symbol": "not-a-symbol", "quantity": 9999},
+        ],
+        "quotes": [{"symbol": "588080.SS", "last": 1.2}],
+        "blocks": [{"code": "BK0001", "name": "半导体"}],
+    })
+    assert result["read_only"] is True
+    assert result["positions"] == [{
+        "symbol": "588080.SH", "name": "科创50ETF", "quantity": 1000,
+        "available_quantity": None, "cost": None, "last": 1.2,
+        "change_pct": None, "market_value": None,
+    }]
+    assert result["trades"] == []
+
+
+def test_ptrade_snapshot_rejects_non_read_only():
+    try:
+        bridge._validate_ptrade_snapshot({"source": "ptrade", "read_only": False})
+    except HTTPException as exc:
+        assert exc.status_code == 422
+    else:
+        raise AssertionError("non-read-only payload must be rejected")
