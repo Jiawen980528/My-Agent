@@ -145,7 +145,7 @@ export function DashboardGrid({ ctx, items, onItemsChange, editing, onAddWidget 
   const isMobile = mounted && width < 768
 
   return (
-    <div ref={containerRef as unknown as React.RefObject<HTMLDivElement>} className={cn('dash-grid dash-grid-resizable relative', editing && 'dash-grid-editing')}
+    <div ref={containerRef as unknown as React.RefObject<HTMLDivElement>} className={cn('dash-grid dash-grid-resizable relative min-h-full pb-6', editing && 'dash-grid-editing')}
       onContextMenu={event => {
         if (!onAddWidget || (event.target as HTMLElement).closest('[data-dashboard-widget="portfolio-monitor"]')) return
         event.preventDefault()
@@ -202,7 +202,10 @@ export function DashboardGrid({ ctx, items, onItemsChange, editing, onAddWidget 
                   // overflow-hidden 根除内容溢出压盖相邻组件(卡片内容自然高度可能大于格子);
                   editing && 'cursor-grab select-none rounded-card ring-1 ring-accent/30 hover:ring-accent/60 active:cursor-grabbing',
                 )}
-                style={{ overflow: 'hidden' }}
+                // Keep the widget surface visible in normal mode so a panel's
+                // own scroll area and floating shadow are not clipped by the
+                // grid item. Editing mode still clips while resizing.
+                style={{ overflow: editing ? 'hidden' : 'visible' }}
               >
                 {editing && (
                   <div className="absolute inset-x-0 top-0 z-10 flex h-6 items-center justify-between rounded-t-card bg-surface/95 pl-2 pr-5 text-[10px] text-secondary shadow-sm">
