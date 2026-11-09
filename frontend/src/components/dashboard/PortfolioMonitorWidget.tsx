@@ -409,10 +409,26 @@ function BoardDetail({ code, day, news, visible }: { code: string; day: string; 
 function HoldingsOverview({ items, minuteData, source, onSelect }: {
   items: Holding[]; minuteData: Record<string, Bar[]>; source?: string; onSelect: (symbol: string) => void
 }) {
+  const totals = items.reduce((out, item) => {
+    const quantity = Number(item.quantity ?? 0)
+    const current = Number(item.price ?? minuteData[item.symbol]?.at(-1)?.close ?? 0)
+    const pctValue = Number(item.change_pct ?? 0)
+    const previous = pctValue > -99 ? current / (1 + pctValue / 100) : current
+    out.value += current * quantity
+    out.day += (current - previous) * quantity
+    return out
+  }, { value: 0, day: 0, cost: 0 })
+  const money = (value: number) => `¥${value.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`
   return <section className="space-y-2 rounded border border-border bg-base/40 p-2">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div><b className="text-sm">持仓实时总览</b><p className="text-[11px] text-muted">每个标的独立分时图 · 点击卡片进入详情 · {source || '真实分钟行情'}</p></div>
       <span className="text-[11px] text-muted">共 {items.length} 个监控标的</span>
+    </div>
+    <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+      <div className="rounded border border-border bg-surface px-2 py-1"><div className="text-[10px] text-muted">当前持仓市值</div><b className="font-mono text-sm">{money(totals.value)}</b></div>
+      <div className="rounded border border-border bg-surface px-2 py-1"><div className="text-[10px] text-muted">今日估算盈亏</div><b className={`font-mono text-sm ${totals.day >= 0 ? 'text-bull' : 'text-bear'}`}>{money(totals.day)}</b></div>
+      <div className="rounded border border-border bg-surface px-2 py-1"><div className="text-[10px] text-muted">最新价格覆盖</div><b className="font-mono text-sm">{items.filter(item => item.price != null || minuteData[item.symbol]?.length).length}/{items.length}</b></div>
+      <div className="rounded border border-border bg-surface px-2 py-1"><div className="text-[10px] text-muted">持仓数量</div><b className="font-mono text-sm">{items.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0).toLocaleString()}</b></div>
     </div>
     <div className="grid gap-2 xl:grid-cols-2">
       {items.map(item => {
