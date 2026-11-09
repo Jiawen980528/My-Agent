@@ -483,7 +483,7 @@ function DecisionGuidePanel({ items, minuteData, source, aiText, aiBusy, onAiRev
   </aside>
 }
 
-export function PortfolioMonitorWidget() {
+export function PortfolioMonitorWidget({ compact = false }: { compact?: boolean } = {}) {
   const { data: preferences } = usePreferences()
   const splitRef = useRef<HTMLDivElement>(null)
   const [paneWidths, setPaneWidths] = useState(() => loadObject('portfolio-terminal-pane-widths', { left: 175, right: 260 }))
@@ -519,7 +519,7 @@ export function PortfolioMonitorWidget() {
   const [selected, setSelected] = useState('')
   const [selectedBoard, setSelectedBoard] = useState('')
   const [viewMode, setViewMode] = useState<'detail' | 'overview'>(() => loadObject('portfolio-terminal-view', 'detail'))
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => loadObject('portfolio-terminal-layout', 'side'))
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => compact ? 'grid' : loadObject('portfolio-terminal-layout', 'side'))
   const [linkedBoards, setLinkedBoards] = useState<Record<string, string>>(() => loadObject('portfolio-terminal-linked-boards', {}))
   const [extraSymbols, setExtraSymbols] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('portfolio-terminal-extra-symbols') || '[]') }
@@ -628,7 +628,7 @@ export function PortfolioMonitorWidget() {
     const remoteView = decodeString(remote.portfolio_terminal_view)
     const remoteLayout = decodeString(remote.portfolio_terminal_layout)
     if (remoteView === 'detail' || remoteView === 'overview') setViewMode(remoteView)
-    if (remoteLayout === 'side' || remoteLayout === 'strip' || remoteLayout === 'grid') setLayoutMode(remoteLayout)
+    if (!compact && (remoteLayout === 'side' || remoteLayout === 'strip' || remoteLayout === 'grid')) setLayoutMode(remoteLayout)
     const linked = remote.portfolio_terminal_linked_boards
     if (linked && typeof linked === 'object' && !Array.isArray(linked)) setLinkedBoards(linked as Record<string, string>)
     const symbols = remote.portfolio_terminal_extra_symbols
@@ -702,7 +702,12 @@ export function PortfolioMonitorWidget() {
     <div className="mb-1 flex flex-wrap items-center justify-between gap-2 rounded border border-border bg-base/40 px-2 py-1 text-[11px]">
       <span className="text-muted">详情布局</span><div className="flex gap-1"><button type="button" onClick={() => chooseLayout('side')} className={`rounded px-2 py-0.5 ${layoutMode === 'side' ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>左侧列表</button><button type="button" onClick={() => chooseLayout('strip')} className={`rounded px-2 py-0.5 ${layoutMode === 'strip' ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>横向长条</button><button type="button" onClick={() => chooseLayout('grid')} className={`rounded px-2 py-0.5 ${layoutMode === 'grid' ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>网格总览</button></div>
     </div>
-    {layoutMode === 'grid' && <HoldingsOverview items={shown} minuteData={usableMinuteData} source={minute.data?.source} onSelect={symbol => { setSelected(symbol); chooseLayout('side') }} />}
+    {layoutMode === 'grid' && <>
+      <HoldingsOverview items={shown} minuteData={usableMinuteData} source={minute.data?.source} onSelect={symbol => { setSelected(symbol); setSelectedBoard('') }} />
+      {active && <Detail item={active} day={day} latestBars={usableMinuteData[active.symbol] || []} minuteSource={minute.data?.source} news={news.data?.items || []} visible={visible}
+        trades={(tradeHistory.data?.trades || []).filter(trade => trade.symbol === active.symbol)} linkedBoardCode={linkedBoards[active.symbol] || ''} boardOptions={boardOptions} onLinkedBoardChange={code => setLinkedBoard(active.symbol, code)} />}
+      <DecisionGuidePanel items={shown} minuteData={usableMinuteData} source={minute.data?.source} aiText={aiText} aiBusy={aiBusy} onAiReview={runAiReview} />
+    </>}
     {layoutMode !== 'grid' && <div ref={splitRef} className={layoutMode === 'side' ? 'portfolio-detail-split grid gap-y-2 md:gap-x-0' : 'space-y-2'}
       style={layoutMode === 'side' ? { '--portfolio-left': `${paneWidths.left}px`, '--portfolio-right': `${paneWidths.right}px` } as React.CSSProperties : undefined}>
       {layoutMode === 'strip' && <div className="flex gap-1 overflow-x-auto rounded border border-border bg-base/50 p-1">{shown.map(item => <button key={item.symbol} type="button" onClick={() => { setSelected(item.symbol); setSelectedBoard('') }} className={`min-w-44 rounded border border-border px-2 py-1 text-left hover:bg-elevated ${active?.symbol === item.symbol ? 'bg-accent/15' : ''}`}><div className="flex justify-between gap-1 text-xs"><b className="truncate">{item.name}</b><span className={Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}>{pct(item.change_pct)}</span></div><div className="text-[10px] text-muted">{item.symbol} · {price(item.price)}</div></button>)}</div>}
