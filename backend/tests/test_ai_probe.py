@@ -189,6 +189,28 @@ async def test_test_endpoint_uses_matching_saved_profile_key(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_test_endpoint_matches_saved_profile_by_host_when_v1_differs(monkeypatch):
+    seen: dict = {}
+
+    async def fake_probe(**kwargs):
+        seen.update(kwargs)
+        return "OK"
+
+    monkeypatch.setattr(ai_provider, "probe_ai_config", fake_probe)
+    monkeypatch.setattr(settings_api.secrets_store, "get_ai_key", lambda: "sk-qwen-active")
+    monkeypatch.setattr(shared_ai, "profiles", lambda: [
+        {"provider": "openai_compat", "base_url": "https://api.deepseek.com/v1", "model": "deepseek-chat", "api_key": "sk-deepseek"},
+    ])
+
+    result = await settings_api.test_ai_settings(settings_api.AiTestIn(
+        provider="openai_compat", base_url="https://api.deepseek.com", model="deepseek-chat",
+    ))
+
+    assert result["ok"] is True
+    assert seen["api_key"] == "sk-deepseek"
+
+
+@pytest.mark.asyncio
 async def test_codex_probe_uses_draft_model_and_default_without_saved_provider(monkeypatch, tmp_path):
     import tomllib
     from pathlib import Path
