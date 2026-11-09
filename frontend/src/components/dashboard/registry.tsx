@@ -313,7 +313,7 @@ export const WIDGET_DEFS: WidgetDef[] = [
   },
   {
     id: 'portfolio-monitor', label: '持仓·分时·板块·新闻', icon: LineChart, minW: 6, minH: 12, defW: 12, defH: 22,
-    render: () => <PortfolioMonitorWidget />,
+    render: () => <PortfolioMonitorWidget compact />,
   },
   {
     id: 'sector-watch', label: '关联板块异动', icon: BellRing, minW: 4, minH: 8, defW: 6, defH: 12,
