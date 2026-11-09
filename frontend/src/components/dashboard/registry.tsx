@@ -213,7 +213,7 @@ export const WIDGET_DEFS: WidgetDef[] = [
     render: ctx => <KpiWidget ctx={ctx} />,
   },
   {
-    id: 'market-overview', label: '大盘走势与量能', icon: LineChart, minW: 8, minH: 30, defW: 12, defH: 30,
+    id: 'market-overview', label: '大盘走势与量能', icon: LineChart, minW: 8, minH: 18, defW: 12, defH: 18,
     render: ctx => <MarketOverviewWidget data={ctx.data} tradeDate={ctx.data.as_of ?? undefined} />,
   },
   {
@@ -357,8 +357,8 @@ export function minSizeOf(t: WidgetType): { w: number; h: number } {
 export const DEFAULT_LAYOUT: DashboardItem[] = [
   { i: 'indices', t: 'indices', x: 0, y: 0, w: 12, h: 2 },
   { i: 'kpi', t: 'kpi', x: 0, y: 2, w: 12, h: 2 },
-  { i: 'market-overview', t: 'market-overview', x: 0, y: 4, w: 12, h: 30 },
-  { i: 'portfolio-monitor', t: 'portfolio-monitor', x: 0, y: 34, w: 12, h: 24 },
+  { i: 'market-overview', t: 'market-overview', x: 0, y: 4, w: 12, h: 18 },
+  { i: 'portfolio-monitor', t: 'portfolio-monitor', x: 0, y: 22, w: 12, h: 24 },
 ]
 
 /** 功能版本：所有内置看板窗口，便于用户按需删减和重新布局。 */

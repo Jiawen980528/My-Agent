@@ -172,7 +172,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
           <div className="grid grid-cols-2 gap-1.5">
             {marketStats.map(item => <div key={item.label} className="rounded border border-border bg-elevated/45 p-2"><div className="text-[10px] text-muted">{item.label}</div><div className="mt-0.5 font-mono text-sm font-semibold">{item.value}</div><div className="text-[9px] text-secondary">{item.sub}</div></div>)}
           </div>
-          <div className="rounded border border-border bg-elevated/35 p-2">
+          {false && <div className="rounded border border-border bg-elevated/35 p-2">
             <div className="mb-1 flex items-center justify-between"><b className="text-xs">预测中心</b><span className="text-[9px] text-muted">三种口径分开显示</span></div>
             <div className="mb-2 grid grid-cols-3 gap-1">
               {([['model', '量化模型', BarChart3], ['ai', '本地AI', Bot], ['public', '公共平台', Globe2] ] as const).map(([key, label, Icon]) => <button key={key} type="button" onClick={() => setForecastTab(key)} className={cn('inline-flex items-center justify-center gap-1 rounded border px-1.5 py-1 text-[10px]', forecastTab === key ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted')}><Icon className="h-3 w-3" />{label}</button>)}
@@ -196,13 +196,13 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
               <p className="text-[10px] text-muted">来源和延迟以数据源配置页为准。建议接入同花顺公共观点时单独增加provider、发布时间和原文链接字段。</p>
               <Link to="/settings?tab=data-sources" className="inline-flex items-center gap-1 text-[10px] text-accent hover:underline"><Info className="h-3 w-3" />查看数据源配置</Link>
             </div>}
-          </div>
+          </div>}
         </div>
       </div>
 
-      <div className="mt-3"><BreadthTrend data={data} /></div>
+      {false && <div className="mt-3"><BreadthTrend data={data} /></div>}
 
-      <div className="mt-3 rounded border border-border bg-base/35 p-2">
+      {false && <div className="mt-3 rounded border border-border bg-base/35 p-2">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div>
             <b className="text-xs">我的持仓实时总览</b>
@@ -240,7 +240,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
           </table>
           {!portfolio.isLoading && !portfolio.data?.items?.length && <p className="p-3 text-center text-[10px] text-muted">暂无持仓或监控标的，请先进入“管理持仓”录入或核对。</p>}
         </div>
-      </div>
+      </div>}
     </section>
   )
 }
