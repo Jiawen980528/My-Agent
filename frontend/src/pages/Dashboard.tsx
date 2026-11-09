@@ -17,7 +17,7 @@ import { scoreColor, quoteAge } from '@/components/dashboard/shared'
 import { DashboardGrid, normalizeDashboardLayout } from '@/components/dashboard/DashboardGrid'
 import { AddWidgetPanel } from '@/components/dashboard/AddWidgetPanel'
 import { useDashboardLayout } from '@/components/dashboard/useDashboardLayout'
-import { DEFAULT_LAYOUT, widgetDef, type WidgetCtx } from '@/components/dashboard/registry'
+import { DEFAULT_LAYOUT, FEATURE_LAYOUT, widgetDef, type WidgetCtx } from '@/components/dashboard/registry'
 import { cloneItems, GRID_COLS, MAX_ITEMS, type WidgetType } from '@/components/dashboard/layout'
 
 /** 兼容旧后端的预热标志; 同步/自动修复也会使统计暂不可用。 */
@@ -351,6 +351,8 @@ export function Dashboard() {
             <button type="button" onClick={() => layoutImportRef.current?.click()} className="text-muted hover:text-foreground">导入</button>
             <input ref={layoutImportRef} type="file" accept="application/json,.json" className="hidden" onChange={event => { void importLayoutProfile(event.target.files?.[0]); event.currentTarget.value = '' }} />
           </div>
+          <button type="button" onClick={() => { setDashItems(cloneItems(DEFAULT_LAYOUT)); setDashEditing(false); setLayoutProfileStatus('已切换简洁看盘') }} className="rounded-btn border border-accent/40 bg-accent/10 px-2 py-1 text-[11px] text-accent">简洁看盘</button>
+          <button type="button" onClick={() => { setDashItems(cloneItems(FEATURE_LAYOUT)); setDashEditing(true); setLayoutProfileStatus('已加载功能版本，可继续删减和布局') }} className="rounded-btn border border-border bg-elevated px-2 py-1 text-[11px] text-secondary hover:text-foreground">功能版本</button>
           {layoutProfileStatus && <span className={layoutProfileStatus.includes('失败') || layoutProfileStatus.includes('无效') ? 'text-danger' : 'text-muted'}>{layoutProfileStatus}</span>}
           {!dashEditing ? (
             <>

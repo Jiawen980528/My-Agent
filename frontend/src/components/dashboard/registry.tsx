@@ -353,11 +353,28 @@ export function minSizeOf(t: WidgetType): { w: number; h: number } {
  * 其余窗口仍可通过自定义布局或右键添加。
  * 坐标必须是竖直压实后的稳定形态(列内不留空隙), 否则 RGL 渲染时会自动上提,
  * 导致「恢复默认」的 JSON 等值判断永不成立、每次都落 blob 而非 null。 */
+/** 简洁看盘：首屏只保留市场、量能和持仓核心窗口。 */
 export const DEFAULT_LAYOUT: DashboardItem[] = [
   { i: 'indices', t: 'indices', x: 0, y: 0, w: 12, h: 2 },
   { i: 'kpi', t: 'kpi', x: 0, y: 2, w: 12, h: 2 },
   { i: 'market-overview', t: 'market-overview', x: 0, y: 4, w: 12, h: 16 },
   { i: 'portfolio-monitor', t: 'portfolio-monitor', x: 0, y: 20, w: 12, h: 24 },
+]
+
+/** 功能版本：所有内置看板窗口，便于用户按需删减和重新布局。 */
+export const FEATURE_LAYOUT: DashboardItem[] = [
+  ...WIDGET_DEFS.filter(def => !['page-panel', 'ext-link'].includes(def.id)).map((def, index) => ({
+    i: def.id,
+    t: def.id,
+    x: (index % 3) * 4,
+    y: Math.floor(index / 3) * 9,
+    w: 4,
+    h: Math.max(8, def.defH),
+  })),
+]
+
+/* 旧版完整默认布局保留在版本迁移之外；用户可通过“功能版本”恢复全部窗口。 */
+/*
   { i: 'distribution', t: 'distribution', x: 0, y: 44, w: 3, h: 8 },
   { i: 'radar', t: 'radar', x: 3, y: 44, w: 3, h: 8 },
   { i: 'trend', t: 'trend', x: 6, y: 44, w: 3, h: 8 },
@@ -373,4 +390,4 @@ export const DEFAULT_LAYOUT: DashboardItem[] = [
   { i: 'market-news', t: 'market-news', x: 0, y: 74, w: 6, h: 12 },
   { i: 'fund-flow', t: 'fund-flow', x: 0, y: 86, w: 6, h: 13 },
   { i: 'holdings', t: 'holdings', x: 6, y: 86, w: 6, h: 13 },
-]
+*/

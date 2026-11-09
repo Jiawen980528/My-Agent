@@ -118,7 +118,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
   }
 
   return (
-    <section className="h-full overflow-hidden rounded-card border border-border bg-surface/90 p-3 shadow-[0_1px_2px_hsl(var(--border)/0.4)]">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-card border border-border bg-surface/90 p-3 shadow-[0_1px_2px_hsl(var(--border)/0.4)]">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <LineChart className="h-4 w-4 text-accent" />
@@ -146,7 +146,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
         })}
       </div>
 
-      <div className="grid min-h-0 gap-3 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,0.85fr)]">
+      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,0.85fr)]">
         <div className="min-h-0 rounded border border-border bg-base/35 p-2">
           <div className="mb-1 flex items-center justify-between gap-2 text-xs">
             <b>{selected.name} · 分时走势</b>
@@ -160,7 +160,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
           </div>
         </div>
 
-        <div className="min-h-0 space-y-2 overflow-auto">
+        <div className="min-h-0 max-h-full space-y-2 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
           <div className="grid grid-cols-2 gap-1.5">
             {marketStats.map(item => <div key={item.label} className="rounded border border-border bg-elevated/45 p-2"><div className="text-[10px] text-muted">{item.label}</div><div className="mt-0.5 font-mono text-sm font-semibold">{item.value}</div><div className="text-[9px] text-secondary">{item.sub}</div></div>)}
           </div>
