@@ -116,12 +116,13 @@ function SponsorIntro() {
 
 const PRESETS: AiPreset[] = [
   { label: '自定义', url: '', model: '', website: '', websiteLabel: '', description: '不自动填充任何配置，完全手动填写 API 地址、模型和密钥。', custom: true, icon: SlidersHorizontal },
-  { label: 'RunningHub', url: 'https://llm.runninghub.ai/v1', model: 'openai/gpt-6-astra-saver', website: 'https://www.runninghub.ai/zh-cn/call-api/llm/models?source=github&inviteCode=edt5wh7c', websiteLabel: 'www.runninghub.ai · 赞助', sponsor: true, icon: Sparkles, description: <SponsorIntro /> },
-  { label: 'OpenAI', provider: OPENAI_PROVIDER, url: 'https://api.openai.com/v1', model: DEFAULT_OPENAI_MODEL, website: 'https://platform.openai.com/', websiteLabel: 'platform.openai.com', description: 'OpenAI 官方接口，可单独配置模型支持的推理强度。', icon: Atom },
-  { label: 'DeepSeek', url: 'https://api.deepseek.com', model: 'deepseek-v4-pro', website: 'https://www.deepseek.com/', websiteLabel: 'deepseek.com', description: 'DeepSeek 官方 OpenAI 兼容接口。', icon: Waves },
-  { label: '通义千问', url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-3.6plus', website: 'https://tongyi.aliyun.com/', websiteLabel: 'tongyi.aliyun.com', description: '阿里云 DashScope 兼容模式接口。', icon: Cloud },
-  { label: '智谱 GLM', url: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-5.2', website: 'https://open.bigmodel.cn/', websiteLabel: 'open.bigmodel.cn', description: '智谱 AI 官方 OpenAI 兼容接口。', icon: Gem },
-  { label: 'Kimi', url: 'https://api.moonshot.cn/v1', model: 'kimi-k2.7-code', website: 'https://platform.moonshot.cn/', websiteLabel: 'platform.moonshot.cn', description: '月之暗面 Moonshot 官方 OpenAI 兼容接口，支持超长上下文。', icon: Moon },
+  { label: 'RunningHub', url: 'https://llm.runninghub.ai/v1', model: 'openai/gpt-6-astra-saver', website: 'https://www.runninghub.ai/call-api/llm/models', websiteLabel: 'RunningHub · 模型与 API', sponsor: true, icon: Sparkles, description: <SponsorIntro /> },
+  { label: 'OpenAI', provider: OPENAI_PROVIDER, url: 'https://api.openai.com/v1', model: DEFAULT_OPENAI_MODEL, website: 'https://platform.openai.com/api-keys', websiteLabel: 'OpenAI · API 密钥', description: 'OpenAI 官方接口，可单独配置模型支持的推理强度。', icon: Atom },
+  { label: 'DeepSeek', url: 'https://api.deepseek.com', model: 'deepseek-v4-pro', website: 'https://platform.deepseek.com/', websiteLabel: 'DeepSeek · 开放平台', description: 'DeepSeek 官方 OpenAI 兼容接口。请使用 DeepSeek 开放平台签发的密钥。', icon: Waves },
+  { label: '通义千问', url: 'https://maas.qianwenaiapi.com/compatible-mode/v1', model: 'qwen3.7-plus', website: 'https://platform.qianwenai.com/', websiteLabel: '千问 AI 平台 · 按量付费', description: '千问 AI 平台中国区按量付费接口。请使用该平台签发的按量付费密钥；Token Plan 和阿里云百炼使用不同入口。', icon: Cloud },
+  { label: '阿里云百炼', url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', website: 'https://bailian.console.aliyun.com/', websiteLabel: '阿里云百炼 · 控制台', description: '保留原 DashScope 中国内地接口。新工作空间请按控制台提供的地域和工作空间地址填写，不要混用千问 AI 平台的密钥。', icon: Cloud },
+  { label: '智谱 GLM', url: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-5.2', website: 'https://bigmodel.cn/', websiteLabel: '智谱 · 开放平台', description: '智谱 AI 官方按量付费 OpenAI 兼容接口。Coding Plan 使用独立入口，请按账号类型配置。', icon: Gem },
+  { label: 'Kimi', url: 'https://api.moonshot.cn/v1', model: 'kimi-k2.7-code', website: 'https://platform.kimi.com/', websiteLabel: 'Kimi · 开放平台', description: 'Kimi 中国区 OpenAI 兼容接口。海外账号请按其控制台提供的地址配置。', icon: Moon },
   { label: 'Codex CLI', provider: CODEX_PROVIDER, url: '', model: DEFAULT_CODEX_MODEL, codexCommand: CODEX_COMMAND, website: 'https://developers.openai.com/codex/noninteractive', websiteLabel: 'codex exec', description: '调用本机 Codex CLI 的 codex exec, 适合已登录 ChatGPT/Codex 的本地环境。', icon: Terminal },
 ]
 
