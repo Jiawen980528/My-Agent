@@ -23,6 +23,11 @@ export function useDashboardLayout(): {
 } {
   const { data: prefs } = usePreferences()
   const saved = useMemo(() => {
+    // 首次切换到持仓工作区时强制套用一次新布局，避免旧的全宽布局偏好覆盖页面升级。
+    if (typeof window !== 'undefined' && !window.localStorage.getItem('dashboard-layout-holdings-v4')) {
+      window.localStorage.setItem('dashboard-layout-holdings-v4', '1')
+      return cloneItems(DEFAULT_LAYOUT)
+    }
     const normalized = normalizeDashboardLayout(prefs?.dashboard_layout ?? undefined)
     const types = new Set(normalized.map(item => item.t))
     // 将上一版默认的“指数/KPI/大盘/持仓”布局迁移为持仓中心布局；
