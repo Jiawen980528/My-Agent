@@ -28,7 +28,8 @@ export function useDashboardLayout(): {
     // 将上一版默认的“指数/KPI/大盘/持仓”布局迁移为持仓中心布局；
     // 用户已经添加其他窗口时保留其自定义布局。
     if ((types.size === 4 && types.has('indices') && types.has('kpi') && types.has('market-overview') && types.has('portfolio-monitor'))
-      || (types.size === 4 && types.has('market-overview') && types.has('portfolio-monitor') && types.has('fund-flow') && types.has('market-news'))) {
+      || (types.size === 4 && types.has('market-overview') && types.has('portfolio-monitor') && types.has('fund-flow') && types.has('market-news'))
+      || (types.size === 5 && types.has('market-overview') && types.has('portfolio-monitor') && types.has('kpi') && types.has('fund-flow') && types.has('market-news'))) {
       return cloneItems(DEFAULT_LAYOUT)
     }
     // 版本升级迁移：旧布局可能只有指数/KPI，导致新版看盘能力一直藏在“添加窗口”里。
