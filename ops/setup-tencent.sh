@@ -248,7 +248,33 @@ chown root:root /usr/local/sbin/myagent-deploy
 chmod 755 /usr/local/sbin/myagent-deploy
 rule=$(mktemp)
 trap 'rm -f "$rule"' EXIT
+cat > /usr/local/sbin/myagent-static-deploy <<'STATIC_HELPER'
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+[[ $EUID == 0 && $# == 1 && $1 =~ ^[0-9a-f]{40}$ ]] || exit 2
+sha=$1
+release="/home/myagent-deploy/releases/$sha"
+archive="$release/static.tar.gz"
+checksum="$release/static.tar.gz.sha256"
+[[ -f "$archive" && -f "$checksum" ]] || exit 1
+read -r expected filename < "$checksum"
+[[ $expected =~ ^[0-9a-f]{64}$ && $filename == static.tar.gz ]] || exit 1
+[[ $(sha256sum "$archive" | awk '{print $1}') == "$expected" ]] || { echo 'Checksum mismatch'; exit 1; }
+context=$(mktemp -d /opt/myagent-static-context.XXXXXX)
+trap 'rm -rf "$context"' EXIT
+tar -xzf "$archive" -C "$context"
+[[ -f "$context/index.html" ]] || exit 1
+docker inspect TickFlow_Stock_Panel >/dev/null
+docker cp "$context/." TickFlow_Stock_Panel:/app/static/
+docker cp "$context/index.html" TickFlow_Stock_Panel:/app/static/index.html
+curl -fsS --max-time 10 http://127.0.0.1:8001/health >/dev/null
+echo "Static frontend deployed $sha"
+STATIC_HELPER
+chown root:root /usr/local/sbin/myagent-static-deploy
+chmod 755 /usr/local/sbin/myagent-static-deploy
 printf '%s\n' 'myagent-deploy ALL=(root) NOPASSWD: /usr/local/sbin/myagent-deploy' > "$rule"
+printf '%s\n' 'myagent-deploy ALL=(root) NOPASSWD: /usr/local/sbin/myagent-static-deploy' >> "$rule"
 visudo -cf "$rule"
 install -o root -g root -m 440 "$rule" /etc/sudoers.d/myagent-deploy
 echo 'Setup complete. Add the following PUBLIC line as DEPLOY_KNOWN_HOSTS:'

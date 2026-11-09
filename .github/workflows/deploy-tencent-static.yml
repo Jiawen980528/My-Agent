@@ -1,0 +1,56 @@
+name: Deploy Tencent Static Frontend
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tencent-static-production
+  cancel-in-progress: true
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Build static assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --dir frontend install --frozen-lockfile
+          pnpm --dir frontend build
+          tar -C frontend/dist -czf static.tar.gz .
+          sha256sum static.tar.gz > static.tar.gz.sha256
+          du -h static.tar.gz
+      - name: Upload static assets without restarting backend
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$DEPLOY_USER" = myagent-deploy
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_SSH_KEY"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          trap 'rm -f ~/.ssh/deploy_key' EXIT
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          opts=(-i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ServerAliveInterval=30)
+          ssh "${opts[@]}" "$target" "mkdir -p /home/myagent-deploy/releases/$GITHUB_SHA"
+          scp "${opts[@]}" static.tar.gz static.tar.gz.sha256 "$target:/home/myagent-deploy/releases/$GITHUB_SHA/"
+          ssh "${opts[@]}" "$target" "sudo -n /usr/local/sbin/myagent-static-deploy $GITHUB_SHA"
