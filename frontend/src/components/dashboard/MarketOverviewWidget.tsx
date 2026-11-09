@@ -179,9 +179,9 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
             </div>
             {forecastTab === 'model' && <div className="space-y-1.5 text-[11px]">
               {volume.data?.status === 'ok' ? <>
-                <div className="grid grid-cols-3 gap-1"><span className="rounded bg-base p-1.5">当前累计<br /><b>{forecastText(volume.data.current_cumulative_amount)}</b></span><span className="rounded bg-base p-1.5">预测全天<br /><b>{forecastText(volume.data.forecast_amount)}</b></span><span className="rounded bg-base p-1.5">进度<br /><b>{forecastRatio == null ? '—' : `${(forecastRatio * 100).toFixed(1)}%`}</b></span></div>
-                <p className="text-[10px] text-muted">区间 {forecastText(volume.data.forecast_low)} – {forecastText(volume.data.forecast_high)} · 样本 {volume.data.sample_days ?? '—'}日 · {volume.data.method ?? '历史同期比例中位数'}。</p>
-                <p className="text-[10px] text-muted">来源：{volume.data.source ?? '未标注'} · 覆盖 {volume.data.covered_symbol_count ?? '—'}/{volume.data.symbol_count ?? '—'}只。</p>
+                <div className="grid grid-cols-3 gap-1"><span className="rounded bg-base p-1.5">当前累计<br /><b>{forecastText(volume.data?.current_cumulative_amount)}</b></span><span className="rounded bg-base p-1.5">预测全天<br /><b>{forecastText(volume.data?.forecast_amount)}</b></span><span className="rounded bg-base p-1.5">进度<br /><b>{forecastRatio == null ? '—' : `${((forecastRatio ?? 0) * 100).toFixed(1)}%`}</b></span></div>
+                <p className="text-[10px] text-muted">区间 {forecastText(volume.data?.forecast_low)} – {forecastText(volume.data?.forecast_high)} · 样本 {volume.data?.sample_days ?? '—'}日 · {volume.data?.method ?? '历史同期比例中位数'}。</p>
+                <p className="text-[10px] text-muted">来源：{volume.data?.source ?? '未标注'} · 覆盖 {volume.data?.covered_symbol_count ?? '—'}/{volume.data?.symbol_count ?? '—'}只。</p>
               </> : <p className="text-[10px] text-muted">{volume.isLoading ? '正在读取真实分钟成交额…' : volume.data?.reason ?? '预测暂不可用，需要当前日和至少3个可比交易日的分钟成交额。'}</p>}
             </div>}
             {forecastTab === 'ai' && <div className="space-y-1.5 text-[11px]">
