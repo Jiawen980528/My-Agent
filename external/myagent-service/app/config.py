@@ -71,6 +71,10 @@ class Settings:
             return {}
 
     def providers(self) -> dict[str, ProviderConfig]:
+        if os.getenv("SHARED_AI_ENABLED") == "1":
+            base = os.getenv("TICKFLOW_BRIDGE_URL", "http://tick-stock-panel:3018").rstrip("/")
+            key = os.getenv("TICKFLOW_BRIDGE_TOKEN", "").strip()
+            return {"shared": ProviderConfig("shared", "全站统一 AI", key, "auto", base + "/api/bridge/ai/v1")}
         profiles = {
             "openai": ProviderConfig("openai", "OpenAI", self.openai_api_key, self.openai_model, self.openai_base_url),
             "deepseek": ProviderConfig("deepseek", "DeepSeek", self.deepseek_api_key, self.deepseek_model, "https://api.deepseek.com/v1"),
@@ -94,6 +98,8 @@ class Settings:
 
     def provider_order(self) -> tuple[str, ...]:
         known = self.providers()
+        if "shared" in known:
+            return ("shared",)
         result: list[str] = []
         saved_order = self._provider_store().get("order")
         requested = saved_order if isinstance(saved_order, list) else (self.model_provider, *self.model_fallback_providers)

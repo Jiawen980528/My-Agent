@@ -13,6 +13,7 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from app.api.shared_ai import router as shared_ai_router
 from app.api.overview import market_overview
 from app.api.kline import get_daily
 from app.services.kline_sync import selected_minute_source, sync_minute_batch
@@ -256,3 +257,6 @@ async def portfolio_minute_batch(request: Request, symbols: str = Query(..., max
     return {"trade_date": day.isoformat(), "source": source, "data": grouped,
             "freshness": status, "quality": quality, "errors": errors,
             "request_count": request_count, "symbol_count": len(requested), **completeness}
+
+# Shares the existing server-to-server token boundary, never browser credentials.
+router.include_router(shared_ai_router)

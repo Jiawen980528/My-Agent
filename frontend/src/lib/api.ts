@@ -4,8 +4,9 @@
 // Prod:同源(FastAPI 托管前端 dist)
 
 import { toast } from '@/components/Toast'
+import { API_BASE } from './apiBase'
 
-const BASE = '/quant'
+const BASE = API_BASE
 
 type RequestOptions = RequestInit & {
   responseType?: 'json' | 'blob'
@@ -2840,6 +2841,10 @@ export const api = {
     request<{ ok: boolean; onboarding_completed: boolean }>(
       '/api/settings/onboarding/complete', { method: 'POST' },
     ),
+
+  sharedAiProfiles: () => request<{ mode: 'auto' | 'manual'; active_id: string; items: { id: string; label: string; model: string; base_url: string; provider: string }[] }>('/api/settings/ai/profiles'),
+  selectSharedAi: (profile_id: string, mode: 'auto' | 'manual') => request<{ ok: boolean }>('/api/settings/ai/selection', { method: 'POST', body: JSON.stringify({ profile_id, mode }) }),
+  discoverAiModels: (draft: { base_url: string; api_key?: string }) => request<{ items: string[] }>('/api/settings/ai/models', { method: 'POST', body: JSON.stringify(draft) }),
 
   /** 保存 AI 配置 */
   saveAiSettings: (ai: { provider?: string; base_url?: string; api_key?: string; model?: string; protocol?: string; reasoning_effort?: string; codex_command?: string; codex_reasoning_effort?: string; user_agent?: string; max_output_tokens?: number; context_window?: number; round_checkpoint?: number }) =>

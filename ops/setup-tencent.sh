@@ -6,12 +6,14 @@ command -v docker >/dev/null
 command -v flock >/dev/null
 command -v curl >/dev/null
 docker inspect TickFlow_Stock_Panel >/dev/null
+docker inspect myagent >/dev/null
 install -d -m 755 /usr/local/sbin
 cat > /usr/local/sbin/myagent-deploy <<'MYAGENT_DEPLOY_HELPER'
 #!/usr/bin/env bash
 # Install root-owned at /usr/local/sbin/myagent-deploy. Deployment access permits
 # running repository code in the existing application container; trust main.
 set -euo pipefail
+umask 077
 [[ $EUID == 0 && $# == 1 && $1 =~ ^[0-9a-f]{40}$ ]] || exit 2
 exec 9>/run/lock/myagent-deploy.lock
 flock -n 9 || { echo 'Another deployment is running'; exit 1; }
@@ -59,6 +61,71 @@ CMD ["/app/.venv/bin/python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.
 DOCKERFILE
 docker build --network none --build-arg "RUNTIME_IMAGE=myagent-runtime:$sha" -t "myagent-release:$sha" "$context"
 
+# Inspect the existing MyAgent deployment without printing credentials.
+python3 - "$context" "$sha" <<'PLANPY'
+import json, pathlib, secrets, subprocess, sys
+root = pathlib.Path(sys.argv[1]); sha = sys.argv[2]
+def inspect(name):
+    return json.loads(subprocess.check_output(['docker', 'inspect', name], text=True))[0]
+stock = inspect('TickFlow_Stock_Panel'); agent = inspect('myagent')
+def env(container):
+    return dict(item.split('=', 1) for item in container['Config']['Env'] if '=' in item)
+aenv = env(agent); senv = env(stock)
+if not aenv.get('ADMIN_TOKEN'):
+    raise SystemExit('MyAgent administrator token is not configured')
+labels = agent['Config']['Labels']
+service = labels.get('com.docker.compose.service')
+project = labels.get('com.docker.compose.project')
+workdir = pathlib.Path(labels.get('com.docker.compose.project.working_dir', ''))
+files = labels.get('com.docker.compose.project.config_files', '').split(',')
+if not service or not project or not workdir.is_absolute() or not workdir.is_dir() or not all(pathlib.Path(f).is_absolute() and pathlib.Path(f).is_file() for f in files):
+    raise SystemExit('Cannot safely identify the MyAgent Compose deployment')
+data = next((m['Source'] for m in agent['Mounts'] if m['Destination'] == '/app/data'), '')
+if not data or data == '/' or not pathlib.Path(data).is_dir():
+    raise SystemExit('MyAgent persistent data mount missing')
+requirements = subprocess.check_output(['docker', 'exec', 'myagent', 'cat', '/app/requirements.txt'])
+def requirement_lines(value):
+    return [line.split('#', 1)[0].strip() for line in value.decode().splitlines() if line.split('#', 1)[0].strip()]
+if requirement_lines(requirements) != requirement_lines((root / 'myagent_requirements.txt').read_bytes()):
+    raise SystemExit('MyAgent dependencies differ; prepare runtime upgrade separately')
+legacy_code = """import json
+from app.config import settings
+from app import provider_store
+items=[p.__dict__ for p in settings.providers().values() if p.api_key and p.name != 'shared']
+for name, item in provider_store.read().get('custom_providers', {}).items():
+    if isinstance(item, dict) and item.get('enabled', True) and item.get('api_key') and item.get('model'):
+        items.append({**item, 'name': name})
+print(json.dumps(items))
+"""
+legacy = subprocess.check_output(['docker', 'exec', 'myagent', 'python', '-c', legacy_code], text=True)
+(root / 'legacy-ai.json').write_text(legacy)
+plan = {'image': agent['Image'], 'project': project, 'service': service, 'workdir': str(workdir), 'files': files, 'data': data,
+        'token': senv.get('TICKFLOW_BRIDGE_TOKEN') or aenv.get('TICKFLOW_BRIDGE_TOKEN') or secrets.token_urlsafe(40),
+        'old_stock_token': senv.get('TICKFLOW_BRIDGE_TOKEN', ''),
+        'agent_admin_token': aenv['ADMIN_TOKEN'],
+        'old_stock_admin_token': senv.get('MYAGENT_ADMIN_TOKEN', ''),
+        'old_stock_bridge_url': senv.get('MYAGENT_BRIDGE_URL', ''),
+        'old_agent_env': {key: aenv.get(key, '') for key in ('SHARED_AI_ENABLED', 'TICKFLOW_BRIDGE_TOKEN', 'TICKFLOW_BRIDGE_URL')}}
+(root / 'myagent-plan.json').write_text(json.dumps(plan))
+print('MyAgent deployment and dependencies verified; credentials remain server-side')
+PLANPY
+plan_value() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$context/myagent-plan.json" "$1"; }
+agent_old=$(plan_value image)
+agent_project=$(plan_value project)
+agent_service=$(plan_value service)
+agent_workdir=$(plan_value workdir)
+agent_data=$(plan_value data)
+docker tag "$agent_old" "myagent-service-runtime:$sha"
+cat > "$context/MyAgent.Dockerfile" <<'AGENTDOCKER'
+ARG RUNTIME_IMAGE
+FROM ${RUNTIME_IMAGE}
+WORKDIR /app
+RUN rm -rf /app/app
+COPY myagent_app /app/app
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+AGENTDOCKER
+docker build --network none -f "$context/MyAgent.Dockerfile" --build-arg "RUNTIME_IMAGE=myagent-service-runtime:$sha" -t "myagent-service-release:$sha" "$context"
+
 cd /opt/tick-stock-panel
 project=$(docker inspect TickFlow_Stock_Panel --format '{{ index .Config.Labels "com.docker.compose.project" }}')
 [[ -n $project && $project != '<no value>' ]] || exit 1
@@ -73,38 +140,95 @@ docker tag "$old" "myagent-rollback:$sha"
 cp -a .env tiers.yaml docker-compose*.yml "$backup/"
 
 compose=(docker compose -p "$project" -f docker-compose.yml -f docker-compose.prod.yml)
-printf 'services:\n  app:\n    image: myagent-release:%s\n' "$sha" > "$backup/release.yml"
-printf 'services:\n  app:\n    image: myagent-rollback:%s\n' "$sha" > "$backup/rollback.yml"
+python3 - "$context" "$backup" "$sha" <<'CONFIGPY'
+import json, pathlib, sys
+context, backup = map(pathlib.Path, sys.argv[1:3]); sha = sys.argv[3]
+p = json.loads((context / 'myagent-plan.json').read_text())
+old_stock = json.loads(__import__('subprocess').check_output(['docker', 'inspect', 'TickFlow_Stock_Panel'], text=True))[0]['Image']
+configs = {
+ 'release.yml': {'services': {'app': {'image': 'myagent-release:' + sha, 'environment': {'TICKFLOW_BRIDGE_TOKEN': p['token'], 'MYAGENT_ADMIN_TOKEN': p['agent_admin_token'], 'MYAGENT_BRIDGE_URL': 'http://myagent:8000'}}}},
+ 'rollback.yml': {'services': {'app': {'image': old_stock, 'environment': {'TICKFLOW_BRIDGE_TOKEN': p['old_stock_token'], 'MYAGENT_ADMIN_TOKEN': p['old_stock_admin_token'], 'MYAGENT_BRIDGE_URL': p['old_stock_bridge_url']}}}},
+ 'myagent-release.yml': {'services': {p['service']: {'image': 'myagent-service-release:' + sha, 'environment': {'SHARED_AI_ENABLED': '1', 'TICKFLOW_BRIDGE_TOKEN': p['token'], 'TICKFLOW_BRIDGE_URL': 'http://tick-stock-panel:3018'}}}},
+ 'myagent-rollback.yml': {'services': {p['service']: {'image': p['image'], 'environment': p['old_agent_env']}}},
+}
+for name, config in configs.items():
+    (backup / name).write_text(json.dumps(config))
+for index, path in enumerate(p['files']):
+    __import__('shutil').copy2(path, backup / ('myagent-original-' + str(index) + '.yml'))
+if pathlib.Path(p['workdir'], '.env').is_file():
+    __import__('shutil').copy2(pathlib.Path(p['workdir'], '.env'), backup / 'myagent-original.env')
+CONFIGPY
+agent_compose=(docker compose --project-directory "$agent_workdir" -p "$agent_project")
+while IFS= read -r config; do agent_compose+=(-f "$config"); done < <(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))["files"]))' "$context/myagent-plan.json")
+"${agent_compose[@]}" -f "$backup/myagent-release.yml" config --quiet
 "${compose[@]}" -f "$backup/release.yml" config --quiet
+agent_needed=$(du -sk "$agent_data" | awk '{print $1}')
 needed=$(du -sk /opt/tick-stock-panel-data | awk '{print $1}')
 available=$(df -Pk /opt | awk 'END {print $4}')
-(( available > needed + 1048576 )) || { echo 'Insufficient backup space'; exit 1; }
+(( available > needed + agent_needed + 1048576 )) || { echo 'Insufficient backup space'; exit 1; }
 
 # Stop only the application for a consistent backup. Never remove orphan services.
-docker stop TickFlow_Stock_Panel
-trap 'docker start TickFlow_Stock_Panel >/dev/null || true' EXIT
+docker stop TickFlow_Stock_Panel myagent
+trap 'docker start TickFlow_Stock_Panel myagent >/dev/null || true' EXIT
 tar -C /opt -cf "$backup/data.tar" tick-stock-panel-data
+tar -C "$agent_data" -cf "$backup/myagent-data.tar" .
 trap - EXIT
 
 rollback() {
   trap - ERR
   set +e
   "${compose[@]}" -f "$backup/rollback.yml" up -d --no-build --pull never --no-deps app
+  "${agent_compose[@]}" -f "$backup/myagent-rollback.yml" up -d --no-build --pull never --no-deps "$agent_service"
   echo "Deployment failed. Previous image restarted; data backup: $backup/data.tar"
   echo 'Data has NOT been restored automatically; review migrations before restoring.'
   exit 1
 }
 trap rollback ERR
 "${compose[@]}" -f "$backup/release.yml" up -d --no-build --pull never --no-deps app
+"${agent_compose[@]}" -f "$backup/myagent-release.yml" up -d --no-build --pull never --no-deps "$agent_service"
 ready=false
 for attempt in $(seq 1 60); do
-  if curl -fsS --max-time 5 http://127.0.0.1:8001/health >/dev/null; then
+  if curl -fsS --max-time 5 http://127.0.0.1:8001/health >/dev/null && curl -fsS --max-time 5 http://127.0.0.1:8000/api/health >/dev/null; then
     ready=true; break
   fi
   sleep 3
 done
 [[ $ready == true ]]
+# Import existing server-side provider keys into the shared store without logging them.
+docker exec -i TickFlow_Stock_Panel /app/.venv/bin/python -c '
+import hashlib,json,sys
+from urllib.parse import urlsplit
+from app.services import shared_ai
+existing={p["id"] for p in shared_ai.profiles()}
+count=0
+for old in json.load(sys.stdin):
+    url=(old.get("base_url") or "https://api.openai.com/v1").rstrip("/")
+    if "/api/bridge/ai/" in url: continue
+    item={"provider":"openai_compat","base_url":url,"model":old["model"],"api_key":old["api_key"],"protocol":"chat_completions"}
+    item["id"]=hashlib.sha256("\n".join(item[k] for k in ("provider","base_url","model")).encode()).hexdigest()[:16]
+    item["label"]=urlsplit(url).hostname or old["name"]
+    if item["id"] not in existing:
+        shared_ai.remember(item); count+=1
+print("Existing AI profiles imported:",count)
+' < "$context/legacy-ai.json"
+docker exec myagent python -c '
+from app.config import settings
+from app.agent import get_client
+assert "shared" in settings.providers(), "MyAgent is not using shared configuration"
+client=get_client()
+models=client.models.list()
+assert any(item.id == "auto" for item in models.data), "Shared gateway model list missing"
+print("MyAgent shared gateway authenticated; configured choices:",len(models.data)-1)
+try:
+    response=client.chat.completions.create(model="auto",messages=[{"role":"user","content":"请只回复 OK"}])
+    assert response.choices and response.choices[0].message.content, "No text response"
+    print("Shared AI text probe: OK")
+except Exception as exc:
+    print("Shared AI provider probe requires review:",type(exc).__name__)
+'
 cp "$backup/release.yml" docker-compose.github.yml
+cp "$backup/myagent-release.yml" "$agent_workdir/docker-compose.shared-ai.yml"
+chmod 600 docker-compose.github.yml "$agent_workdir/docker-compose.shared-ai.yml"
 trap - ERR
 echo "Deployed $sha; backup: $backup"
 MYAGENT_DEPLOY_HELPER

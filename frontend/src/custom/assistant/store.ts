@@ -9,6 +9,7 @@
 import { useSyncExternalStore } from 'react'
 import {
   assistantChatStream,
+  assistantApiUrl,
   decideAssistantAction,
   type AssistantChart,
   type AssistantContext,
@@ -64,7 +65,7 @@ interface AssistantState {
 }
 
 const STORAGE_KEY = 'assistant.sessions.v1'
-const SESSIONS_URL = '/api/custom/assistant/sessions'
+const SESSIONS_URL = assistantApiUrl('/api/custom/assistant/sessions')
 const SERVER_SYNC_DEBOUNCE_MS = 1500
 const MAX_SESSIONS = 20
 const MAX_SESSION_MESSAGES = 200

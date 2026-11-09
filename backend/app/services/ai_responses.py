@@ -22,6 +22,7 @@ from typing import Any
 
 from app.services import ai_provider
 from app.services.ai_provider import Message
+from app.services.shared_ai import routed
 
 # Responses 的 incomplete_details.reason 与 status 语义对齐 chat 的 finish_reason。
 _LENGTH_INCOMPLETE_REASONS = {"length", "max_tokens", "max_output_tokens"}
@@ -76,7 +77,20 @@ def chat_input(messages: Sequence[Message]) -> list[dict[str, Any]]:
                     "arguments": str(fn.get("arguments") or ""),
                 })
             continue
-        items.append({"role": role, "content": str(m.get("content") or "")})
+        content = m.get("content") or ""
+        if isinstance(content, list):
+            blocks = []
+            for block in content:
+                if block.get("type") == "text":
+                    blocks.append({"type": "input_text", "text": block.get("text", "")})
+                elif block.get("type") == "image_url":
+                    image = block.get("image_url", {})
+                    blocks.append({"type": "input_image", "image_url": image.get("url", "")})
+                else:
+                    raise ValueError("Responses 暂不支持此附件类型")
+            items.append({"role": role, "content": blocks})
+        else:
+            items.append({"role": role, "content": str(content)})
     return items
 
 
@@ -281,6 +295,7 @@ async def run_text(
     return text
 
 
+@routed
 async def run_message_once(
     messages: Sequence[Message],
     *,

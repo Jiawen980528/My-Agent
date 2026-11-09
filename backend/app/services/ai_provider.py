@@ -20,6 +20,7 @@ from types import TracebackType
 from urllib.parse import urlsplit, urlunsplit
 
 from app import secrets_store
+from app.services.shared_ai import routed
 from app.config import settings
 
 OPENAI_COMPAT_PROVIDER = "openai_compat"
@@ -354,6 +355,7 @@ def ai_configured(provider: str | None = None) -> bool:
     return bool(secrets_store.get_ai_key())
 
 
+@routed
 async def generate_ai_text(
     messages: Sequence[Message],
     *,
@@ -506,6 +508,7 @@ def _parse_tool_arguments(raw: str) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+@routed
 async def stream_ai_text(
     messages: Sequence[Message],
     *,
@@ -568,6 +571,7 @@ async def _run_openai_once(
     return (message.content or "").strip()
 
 
+@routed
 async def _run_openai_message_once(
     messages: Sequence[Message],
     *,

@@ -58,6 +58,7 @@ border-top:1px solid rgba(127,145,170,.18);backdrop-filter:blur(10px)}}
     return html.replace("</body>", footer + "</body>")
 
 class ChatRequest(BaseModel):
+    model: str = Field(default="auto", max_length=200)
     message: str = Field(min_length=1, max_length=8000)
     attachment_ids: list[str] = Field(default_factory=list, max_length=5)
 class UploadRequest(BaseModel):
@@ -201,10 +202,18 @@ def config():
     profiles=settings.providers()
     order=settings.provider_order()
     names=[*order,*[name for name in profiles if name not in order]]
-    return {"model":profiles.get(settings.model_provider, profiles["openai"]).model,"api_key_configured":bool(settings.configured_provider_names()),"providers":[{"name":name,"label":profiles[name].label,"model":profiles[name].model,"configured":bool(profiles[name].api_key),"priority":order.index(name) + 1 if name in order else None} for name in names],"tools":[{"name":n,"risk":registry.get(n).risk,"permission":registry.get(n).permission} for n in registry.names()],"timezone":settings.timezone,"limits":{"max_model_calls":settings.max_model_calls,"max_task_seconds":settings.max_task_seconds,"max_task_cost_usd":settings.max_task_cost_usd}}
+    ready = bool(settings.configured_provider_names())
+    if "shared" in profiles:
+        try:
+            ready = bool(shared_model_options().get("configured"))
+        except HTTPException:
+            ready = False
+    return {"model":profiles.get(settings.model_provider, next(iter(profiles.values()))).model,"api_key_configured":ready,"providers":[{"name":name,"label":profiles[name].label,"model":profiles[name].model,"configured":(ready if name == "shared" else bool(profiles[name].api_key)),"priority":order.index(name) + 1 if name in order else None} for name in names],"tools":[{"name":n,"risk":registry.get(n).risk,"permission":registry.get(n).permission} for n in registry.names()],"shared_ai": "shared" in profiles,"timezone":settings.timezone,"limits":{"max_model_calls":settings.max_model_calls,"max_task_seconds":settings.max_task_seconds,"max_task_cost_usd":settings.max_task_cost_usd}}
 
 @app.put("/api/providers/config/{provider_name}", dependencies=[Depends(require_auth)])
 def update_provider(provider_name: str, req: ProviderUpdate):
+    if "shared" in settings.providers():
+        raise HTTPException(status_code=409, detail="此 Agent 已启用统一 AI 配置，请前往 /quant/settings?tab=ai 修改")
     try:
         provider_store.update_provider(provider_name, req.api_key, req.model, req.clear_key)
     except ValueError as exc:
@@ -214,6 +223,8 @@ def update_provider(provider_name: str, req: ProviderUpdate):
 
 @app.put("/api/providers/order", dependencies=[Depends(require_auth)])
 def update_provider_order(req: ProviderOrderUpdate):
+    if "shared" in settings.providers():
+        raise HTTPException(status_code=409, detail="此 Agent 已启用统一 AI 配置，请前往 /quant/settings?tab=ai 修改")
     try:
         provider_store.update_order(req.order)
     except ValueError as exc:
@@ -227,6 +238,8 @@ def list_custom_providers():
 
 @app.put("/api/providers/custom/{provider_name}", dependencies=[Depends(require_auth)])
 def update_custom_provider(provider_name: str, req: CustomProviderUpdate):
+    if "shared" in settings.providers():
+        raise HTTPException(status_code=409, detail="此 Agent 已启用统一 AI 配置，请前往 /quant/settings?tab=ai 修改")
     if provider_name != req.name:
         raise HTTPException(status_code=400, detail="接口名称与路径不一致")
     provider_store.update_custom_provider(req.model_dump())
@@ -234,6 +247,8 @@ def update_custom_provider(provider_name: str, req: CustomProviderUpdate):
 
 @app.delete("/api/providers/custom/{provider_name}", dependencies=[Depends(require_auth)])
 def delete_custom_provider(provider_name: str):
+    if "shared" in settings.providers():
+        raise HTTPException(status_code=409, detail="此 Agent 已启用统一 AI 配置，请前往 /quant/settings?tab=ai 修改")
     if not provider_store.delete_custom_provider(provider_name):
         raise HTTPException(status_code=404, detail="自定义接口不存在")
     return {"ok": True}
@@ -379,7 +394,7 @@ def chat(req: ChatRequest):
     try:
         attachment_context, attachments = attachment_store.context(req.attachment_ids)
         image_data_urls = attachment_store.image_data_urls(req.attachment_ids)
-        reply = run_agent(req.message, attachment_context=attachment_context, image_data_urls=image_data_urls)
+        reply = run_agent(req.message, attachment_context=attachment_context, image_data_urls=image_data_urls, model_selection=req.model)
         return {"reply": reply, "attachments": attachments}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -865,3 +880,19 @@ TickFlow共享实时上下文（如有）：{compact_tickflow}
 @app.get("/api/quant/sectors", dependencies=[Depends(require_auth)])
 def quant_sectors():
     return sector_payload()
+
+
+@app.get("/api/ai/models", dependencies=[Depends(require_auth)])
+def shared_model_options():
+    profiles = settings.providers()
+    if "shared" not in profiles:
+        return {"data": []}
+    import urllib.request
+    import json
+    profile = profiles["shared"]
+    request = urllib.request.Request(profile.base_url + "/models", headers={"Authorization": "Bearer " + profile.api_key})
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return json.load(response)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="统一 AI 服务暂不可用，请检查量化端 AI 设置") from exc

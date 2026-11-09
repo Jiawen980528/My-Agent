@@ -8,6 +8,7 @@ import {
 import { useSettings } from '@/lib/useSharedQueries'
 import { api, type SettingsState, type SponsorModelItem } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
+import { SharedAISelector } from '@/components/SharedAISelector'
 import { AnchorWrap } from '@/lib/useCardFlash'
 import { copyText } from '@/lib/clipboard'
 import { DEEPSEEK_FALLBACK_RANGE, MAX_DISCOUNT_FALLBACK_PCT, bandDiscountLabel, discountRangeLabel, loadSponsorModelItems, maxDiscountPct, useSponsorModelItems } from '@/lib/sponsor-discount'
@@ -295,6 +296,7 @@ export function SettingsAIPanel({ highlight }: { highlight?: string } = {}) {
     mutationFn: () => api.saveAiSettings(payload()),
     onSuccess: (result) => {
       setSaved(true)
+      qc.invalidateQueries({ queryKey: QK.sharedAiProfiles })
       setApiKey('')
       qc.setQueryData<SettingsState>(QK.settings, prev => prev ? {
         ...prev,
@@ -325,6 +327,7 @@ export function SettingsAIPanel({ highlight }: { highlight?: string } = {}) {
     mutationFn: () => api.clearAiSettings(),
     onSuccess: () => {
       setConfirmClear(false)
+      qc.invalidateQueries({ queryKey: QK.sharedAiProfiles })
       userEditedRef.current = false
       setProvider(OPENAI_COMPAT_PROVIDER)
       setSelectedPresetLabel(PRESETS[0].label)
@@ -426,7 +429,9 @@ export function SettingsAIPanel({ highlight }: { highlight?: string } = {}) {
     setModelsLoading(true)
     try {
       // 共享加载器自带 60s TTL 与并发合并, 与赞助商介绍条共用同一份数据
-      const items = await loadSponsorModelItems()
+      const items = selectedPreset.sponsor
+        ? await loadSponsorModelItems()
+        : (await api.discoverAiModels({ base_url: baseUrl.trim(), ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}) })).items.map(id => ({ id }))
       setModelItems(items)
     } catch (error) {
       setModelItems([])
@@ -533,7 +538,12 @@ export function SettingsAIPanel({ highlight }: { highlight?: string } = {}) {
       </div>
 
       <section className="overflow-hidden rounded-card border border-border bg-surface">
-        {/* 服务商 */}
+        <section className="rounded-card border border-border bg-surface px-5 py-4">
+        <h3 className="mb-2 text-sm font-medium">全站共用 AI</h3>
+        <SharedAISelector onSelected={() => { userEditedRef.current = false }} />
+        <p className="mt-2 text-xs text-muted">MyAgent、量化助手和分析功能共用这里保存的接口。自动选择优先使用当前配置，调用失败且尚未返回内容时尝试其他已保存接口。新接口保存后会加入列表。</p>
+      </section>
+      {/* 服务商 */}
         <div className="px-5 py-4">
           <SectionHeader label="服务商" />
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -643,14 +653,14 @@ export function SettingsAIPanel({ highlight }: { highlight?: string } = {}) {
                 </Field>
                 <Field label="模型">
                   <div ref={modelBoxRef} className="relative">
-                    <input type="text" value={model} onChange={e => handleModelChange(e.target.value)} placeholder="gpt-5.6-sol" className={`${INPUT_CLS} ${selectedPreset?.sponsor ? 'pr-9' : ''}`} />
-                    {selectedPreset?.sponsor && (
+                    <input type="text" value={model} onChange={e => handleModelChange(e.target.value)} placeholder="gpt-5.6-sol" className={`${INPUT_CLS} pr-9`} />
+                    {baseUrl && (
                       <button type="button" onClick={fetchModelOptions} aria-label="获取模型列表"
                         className="absolute right-1.5 top-1/2 flex h-6 w-7 -translate-y-1/2 items-center justify-center rounded-md border border-border/40 bg-base text-muted transition-colors hover:border-accent/40 hover:text-accent">
                         {modelsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ChevronDown className="h-3.5 w-3.5" />}
                       </button>
                     )}
-                    {selectedPreset?.sponsor && modelsOpen && (
+                    {modelsOpen && (
                       <div className="absolute z-20 mt-1 w-full rounded-lg border border-border/40 bg-base shadow-lg">
                         <div className="border-b border-border/30 p-2">
                           <input type="text" value={modelFilter} onChange={e => setModelFilter(e.target.value)}

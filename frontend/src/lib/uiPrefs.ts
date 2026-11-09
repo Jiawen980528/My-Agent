@@ -17,7 +17,9 @@
  * 策略池和主题优先恢复已有后端副本，防止旧端口恢复过时设置；本会话的新修改仍优先。
  */
 
-const ENDPOINT = '/api/settings/preferences/ui-prefs'
+import { apiUrl } from './apiBase'
+
+const ENDPOINT = apiUrl('/api/settings/preferences/ui-prefs')
 
 type Codec = 'bool01' | 'int' | 'float' | 'string' | 'json'
 
@@ -152,7 +154,7 @@ async function _doHydrate(): Promise<void> {
     try { before.set(key, localStorage.getItem(key)) } catch { before.set(key, null) }
   }
   try {
-    const res = await fetch('/api/settings/preferences', {
+    const res = await fetch(apiUrl('/api/settings/preferences'), {
       headers: { Accept: 'application/json' },
     })
     if (!res.ok) {
