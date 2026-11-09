@@ -11,7 +11,7 @@ import { api } from '@/lib/api'
 import { usePreferences } from '@/lib/useSharedQueries'
 import { DEFAULT_LAYOUT } from './registry'
 import { normalizeDashboardLayout } from './DashboardGrid'
-import { compactLayout, toBlob, type DashboardItem } from './layout'
+import { cloneItems, compactLayout, toBlob, type DashboardItem } from './layout'
 
 const SAVE_DEBOUNCE_MS = 800
 
@@ -24,6 +24,12 @@ export function useDashboardLayout(): {
   const { data: prefs } = usePreferences()
   const saved = useMemo(() => {
     const normalized = normalizeDashboardLayout(prefs?.dashboard_layout ?? undefined)
+    const types = new Set(normalized.map(item => item.t))
+    // 将上一版默认的“指数/KPI/大盘/持仓”布局迁移为持仓中心布局；
+    // 用户已经添加其他窗口时保留其自定义布局。
+    if (types.size === 4 && types.has('indices') && types.has('kpi') && types.has('market-overview') && types.has('portfolio-monitor')) {
+      return cloneItems(DEFAULT_LAYOUT)
+    }
     // 版本升级迁移：旧布局可能只有指数/KPI，导致新版看盘能力一直藏在“添加窗口”里。
     // 只补缺失的核心窗口，不覆盖用户已保存的坐标、尺寸和其他自定义窗口。
     const next = [...normalized]
