@@ -355,9 +355,10 @@ export function minSizeOf(t: WidgetType): { w: number; h: number } {
 /** 简洁看盘：首屏只保留持仓相关的核心窗口。 */
 export const DEFAULT_LAYOUT: DashboardItem[] = [
   { i: 'market-overview', t: 'market-overview', x: 0, y: 0, w: 12, h: 18 },
-  { i: 'portfolio-monitor', t: 'portfolio-monitor', x: 0, y: 18, w: 12, h: 24 },
-  { i: 'fund-flow', t: 'fund-flow', x: 0, y: 42, w: 6, h: 13 },
-  { i: 'market-news', t: 'market-news', x: 6, y: 42, w: 6, h: 12 },
+  { i: 'kpi', t: 'kpi', x: 0, y: 18, w: 12, h: 2 },
+  { i: 'portfolio-monitor', t: 'portfolio-monitor', x: 0, y: 20, w: 12, h: 24 },
+  { i: 'fund-flow', t: 'fund-flow', x: 0, y: 44, w: 6, h: 13 },
+  { i: 'market-news', t: 'market-news', x: 6, y: 44, w: 6, h: 12 },
 ]
 
 /** 功能版本：所有内置看板窗口，便于用户按需删减和重新布局。 */
