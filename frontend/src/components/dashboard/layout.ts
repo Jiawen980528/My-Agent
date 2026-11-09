@@ -13,7 +13,7 @@ export const GRID_ROW_HEIGHT = 32
 export const GRID_MARGIN = 6
 export const MAX_ITEMS = 40
 /** 单个组件高度上限(网格行), 防误操作拉出超长条 */
-export const MAX_H = 30
+export const MAX_H = 40
 
 export type WidgetType =
   | 'indices' | 'kpi' | 'market-overview' | 'distribution' | 'radar' | 'trend'

@@ -28,7 +28,7 @@ export function useDashboardLayout(): {
     // 只补缺失的核心窗口，不覆盖用户已保存的坐标、尺寸和其他自定义窗口。
     const next = [...normalized]
     if (!next.some(item => item.t === 'market-overview')) {
-      next.push({ i: 'market-overview', t: 'market-overview', x: 0, y: 0, w: 12, h: 16 })
+      next.push({ i: 'market-overview', t: 'market-overview', x: 0, y: 0, w: 12, h: 30 })
     }
     if (!next.some(item => item.t === 'portfolio-monitor')) {
       next.push({ i: 'portfolio-monitor', t: 'portfolio-monitor', x: 0, y: 0, w: 12, h: 24 })
