@@ -113,7 +113,15 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
 
   const runAI = () => {
     if (generating) return
-    void startReviewGeneration(undefined, '重点分析大盘走势、成交额、量能变化、科技成长与防守风格，并给出上行/震荡/下行条件。')
+    const holdingsContext = (portfolio.data?.items ?? []).slice(0, 30).map(item =>
+      `${item.name || item.symbol}(${item.symbol}) 涨跌${item.change_pct == null ? '未知' : `${item.change_pct.toFixed(2)}%`} 板块${item.board?.name || '未关联'}`,
+    ).join('；')
+    const focus = [
+      '重点分析大盘走势、成交额、量能变化、科技成长与防守风格，并给出上行/震荡/下行条件。',
+      holdingsContext ? `必须结合我的持仓逐只分析与市场和所属板块的同步/背离：${holdingsContext}` : '当前没有已核验持仓时，明确说明无法做持仓关联分析。',
+      '引用可用的历史交易日数据，区分当前行情、历史数据和推断，不给出自动下单指令。',
+    ].join('\n')
+    void startReviewGeneration(undefined, focus)
     setForecastTab('ai')
   }
 
