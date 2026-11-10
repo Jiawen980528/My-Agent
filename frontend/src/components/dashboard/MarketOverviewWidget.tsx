@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQueries, useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { BarChart3, Bot, ExternalLink, Globe2, Info, LineChart, RefreshCw } from 'lucide-react'
 import { EChartsIntraday } from '@/components/EChartsIntraday'
@@ -37,6 +37,26 @@ function tone(v: number | null | undefined): string {
 
 function forecastText(value: number | undefined | null): string {
   return value == null ? '—' : amount(value)
+}
+
+function median(values: number[]): number | null {
+  if (!values.length) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const middle = Math.floor(sorted.length / 2)
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
+}
+
+function sumAmounts(rows: Array<{ amount?: number | null }>): number | null {
+  const values = rows.map(row => Number(row.amount)).filter(value => Number.isFinite(value) && value > 0)
+  return values.length ? values.reduce((sum, value) => sum + value, 0) : null
+}
+
+function volumeProgress(rows: Array<{ datetime?: string }>): number {
+  if (rows.length < 2) return rows.length ? 0.1 : 0
+  const first = Date.parse(rows[0].datetime ?? '')
+  const last = Date.parse(rows.at(-1)?.datetime ?? '')
+  if (!Number.isFinite(first) || !Number.isFinite(last) || last <= first) return Math.min(1, rows.length / 240)
+  return Math.min(1, Math.max(0.05, (last - first) / (4 * 60 * 60 * 1000)))
 }
 
 type BreadthPoint = { time: string; up: number; flat: number; down: number }
@@ -84,6 +104,17 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
     refetchInterval: 60_000,
     staleTime: 30_000,
   })
+  const indexMinuteQueries = useQueries({ queries: INDEXES.map(item => ({
+    queryKey: ['dashboard-market-index-volume-minute', item.symbol, selectedDate || 'latest'],
+    queryFn: () => api.indexMinute(item.symbol, selectedDate || undefined),
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  })) })
+  const indexDailyQueries = useQueries({ queries: INDEXES.map(item => ({
+    queryKey: ['dashboard-market-index-volume-daily', item.symbol],
+    queryFn: () => api.indexDaily(item.symbol, 20),
+    staleTime: 5 * 60_000,
+  })) })
   const volume = useQuery({
     queryKey: QK.marketVolumeForecast(tradeDate),
     queryFn: () => api.marketVolumeForecast(tradeDate),
@@ -102,10 +133,25 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
   const publicIndex = data.indices.find(item => item.symbol === selectedSymbol)
   const recentAI = review.content.trim().replace(/[#*_`]/g, '').replace(/\s+/g, ' ').slice(0, 420)
   const chartRows = minute.data?.rows ?? []
+  const indexVolumeStats = useMemo(() => INDEXES.map((item, index) => {
+    const quote = data.indices.find(row => row.symbol === item.symbol)
+    const rows = item.symbol === selectedSymbol ? chartRows : (indexMinuteQueries[index]?.data?.rows ?? [])
+    const current = sumAmounts(rows) ?? (quote?.amount ?? null)
+    const historical = median((indexDailyQueries[index]?.data?.rows ?? []).map(row => Number(row.amount)).filter(value => Number.isFinite(value) && value > 0))
+    const change = current != null && historical ? (current / historical - 1) * 100 : null
+    const progress = volumeProgress(rows)
+    const forecast = current != null && progress > 0 ? current / progress : null
+    return { ...item, current, historical, change, forecast, progress, rows: rows.length }
+  }), [chartRows, data.indices, indexDailyQueries, indexMinuteQueries, selectedSymbol])
   const forecastRatio = volume.data?.status === 'ok' && volume.data.forecast_amount
     ? (volume.data.current_cumulative_amount ?? 0) / volume.data.forecast_amount
     : null
   const sourceText = minute.data?.source ?? '分钟数据源未标注'
+  const strongSectors = [...(data.concept_rank?.leading ?? []), ...(data.industry_rank?.leading ?? [])]
+    .sort((a, b) => (b.avg_pct ?? 0) - (a.avg_pct ?? 0)).slice(0, 6)
+  const recommendationRows = [...(data.top_gainers ?? []), ...(data.active_leaders ?? []), ...(data.turnover_leaders ?? [])]
+    .filter((row, index, all) => row.symbol && all.findIndex(item => item.symbol === row.symbol) === index)
+    .slice(0, 12)
   const marketStats = useMemo(() => [
     { label: '当前成交额', value: fmtBigNum(data.amount.total), sub: '点击右侧预测' },
     { label: '上涨 / 下跌', value: `${data.breadth.up} / ${data.breadth.down}`, sub: `上涨率 ${data.breadth.up_pct.toFixed(1)}%` },
@@ -119,9 +165,11 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
       `${item.name || item.symbol}(${item.symbol}) 涨跌${item.change_pct == null ? '未知' : `${item.change_pct.toFixed(2)}%`} 板块${item.board?.name || '未关联'}`,
     ).join('；')
     const focus = [
-      '重点分析大盘走势、成交额、量能变化、科技成长与防守风格，并给出上行/震荡/下行条件。',
+      '只基于给定的真实行情、量能、涨跌家数和板块数据分析，不允许编造缺失数据。重点分析大盘走势、成交额、量能变化、科技成长与防守风格，并给出上行/震荡/下行条件。',
+      `当前选中指数：${selected.name}；四个指数量能摘要：${indexVolumeStats.map(row => `${row.name}成交额${amount(row.current)}、较近20日中位数${pct(row.change)}、全天外推${amount(row.forecast)}`).join('；')}`,
+      `市场涨跌家数：上涨${data.breadth.up}、平盘${data.breadth.flat}、下跌${data.breadth.down}；强势板块：${strongSectors.map(row => `${row.name} ${pct(row.avg_pct)}`).join('、') || '暂无'}`,
       holdingsContext ? `必须结合我的持仓逐只分析与市场和所属板块的同步/背离：${holdingsContext}` : '当前没有已核验持仓时，明确说明无法做持仓关联分析。',
-      '引用可用的历史交易日数据，区分当前行情、历史数据和推断，不给出自动下单指令。',
+      '请严格按“市场结论｜量能证据｜指数分化｜强势板块与候选股观察｜上行条件｜下行条件｜策略”输出；策略只能是条件化观察，不给出自动下单指令。',
     ].join('\n')
     void startReviewGeneration(undefined, focus)
     setForecastTab('ai')
@@ -148,16 +196,18 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
       <div className="mb-2 grid grid-cols-2 gap-1.5 md:grid-cols-4">
         {INDEXES.map(item => {
           const quote = data.indices.find(index => index.symbol === item.symbol)
+          const volumeStats = indexVolumeStats.find(row => row.symbol === item.symbol)
           const active = item.symbol === selectedSymbol
           return <button key={item.symbol} type="button" onClick={() => setSelectedSymbol(item.symbol)} className={cn('rounded border px-2 py-1.5 text-left transition-colors', active ? 'border-accent/70 bg-accent/10' : 'border-border bg-elevated/40 hover:border-accent/40')}>
             <div className="flex items-center justify-between gap-2"><span className="text-xs font-medium">{item.name}</span><span className={cn('font-mono text-xs', tone(quote?.change_pct))}>{pct(quote?.change_pct)}</span></div>
             <div className="mt-0.5 font-mono text-sm">{quote?.last_price?.toFixed(2) ?? '—'}</div>
-            <div className="text-[9px] text-muted">{item.symbol}</div>
+            <div className="mt-0.5 flex items-center justify-between gap-1 text-[9px] text-muted"><span>量 {amount(volumeStats?.current)}</span><span className={tone(volumeStats?.change)}>均值 {pct(volumeStats?.change)}</span></div>
+            <div className="flex items-center justify-between gap-1 text-[9px] text-muted"><span>预测 {amount(volumeStats?.forecast)}</span><span>{item.symbol}</span></div>
           </button>
         })}
       </div>
 
-      <div className="grid min-h-0 flex-1 gap-3">
+      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-h-0 rounded border border-border bg-base/35 p-2">
           <div className="mb-1 flex items-center justify-between gap-2 text-xs">
             <b>{selected.name} · 分时走势</b>
@@ -171,11 +221,11 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
           </div>
         </div>
 
-        {false && <div className="min-h-0 max-h-full space-y-2 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+        <div className="min-h-0 max-h-full space-y-2 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
           <div className="grid grid-cols-2 gap-1.5">
             {marketStats.map(item => <div key={item.label} className="rounded border border-border bg-elevated/45 p-2"><div className="text-[10px] text-muted">{item.label}</div><div className="mt-0.5 font-mono text-sm font-semibold">{item.value}</div><div className="text-[9px] text-secondary">{item.sub}</div></div>)}
           </div>
-          {false && <div className="rounded border border-border bg-elevated/35 p-2">
+          <div className="rounded border border-border bg-elevated/35 p-2">
             <div className="mb-1 flex items-center justify-between"><b className="text-xs">预测中心</b><span className="text-[9px] text-muted">三种口径分开显示</span></div>
             <div className="mb-2 grid grid-cols-3 gap-1">
               {([['model', '量化模型', BarChart3], ['ai', '本地AI', Bot], ['public', '公共平台', Globe2] ] as const).map(([key, label, Icon]) => <button key={key} type="button" onClick={() => setForecastTab(key)} className={cn('inline-flex items-center justify-center gap-1 rounded border px-1.5 py-1 text-[10px]', forecastTab === key ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted')}><Icon className="h-3 w-3" />{label}</button>)}
@@ -199,8 +249,34 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
               <p className="text-[10px] text-muted">来源和延迟以数据源配置页为准。建议接入同花顺公共观点时单独增加provider、发布时间和原文链接字段。</p>
               <Link to="/settings?tab=data-sources" className="inline-flex items-center gap-1 text-[10px] text-accent hover:underline"><Info className="h-3 w-3" />查看数据源配置</Link>
             </div>}
-          </div>}
-        </div>}
+          </div>
+          <div className="rounded border border-border bg-elevated/35 p-2">
+            <div className="mb-1 flex items-center justify-between gap-2"><b className="text-xs">指数量能对比</b><span className="text-[9px] text-muted">分钟累计 / 近20日中位数</span></div>
+            <div className="space-y-1.5">
+              {indexVolumeStats.map(row => <button key={row.symbol} type="button" onClick={() => setSelectedSymbol(row.symbol)} className={cn('w-full rounded bg-base/70 p-1.5 text-left hover:bg-base', row.symbol === selectedSymbol && 'ring-1 ring-accent/60')}>
+                <div className="flex items-center justify-between gap-2 text-[10px]"><b>{row.name}</b><span className={cn('font-mono', tone(row.change))}>{row.change == null ? '暂无基准' : `较均值 ${pct(row.change)}`}</span></div>
+                <div className="mt-1 flex items-center gap-2 text-[9px] text-muted"><span>当前 {amount(row.current)}</span><span>外推 {amount(row.forecast)}</span><span>进度 {row.progress ? `${(row.progress * 100).toFixed(0)}%` : '—'}</span></div>
+                <div className="mt-1 h-1 overflow-hidden rounded bg-elevated"><div className={cn('h-full rounded', row.change != null && row.change >= 0 ? 'bg-bull' : 'bg-bear')} style={{ width: `${Math.min(100, Math.max(4, (row.progress || 0) * 100))}%` }} /></div>
+              </button>)}
+            </div>
+            <p className="mt-1 text-[9px] text-muted">外推仅按当前真实分钟成交额与时间进度计算；缺少分钟或历史基准时明确显示暂无。</p>
+          </div>
+          <div className="rounded border border-border bg-elevated/35 p-2">
+            <div className="mb-1 flex items-center justify-between gap-2"><b className="text-xs">涨跌家数与强势方向</b><span className="text-[9px] text-muted">{data.as_of ?? '最新'}</span></div>
+            <div className="grid grid-cols-3 gap-1 text-center text-[10px]"><span className="rounded bg-bull/10 p-1.5 text-bull"><b className="block font-mono text-sm">{data.breadth.up}</b>上涨</span><span className="rounded bg-elevated p-1.5 text-muted"><b className="block font-mono text-sm">{data.breadth.flat}</b>平盘</span><span className="rounded bg-bear/10 p-1.5 text-bear"><b className="block font-mono text-sm">{data.breadth.down}</b>下跌</span></div>
+            <div className="mt-2 grid grid-cols-2 gap-1 text-[10px]"><span>强势上涨<br /><b className="font-mono text-bull">{data.breadth.strong_up ?? '—'}</b></span><span>强势下跌<br /><b className="font-mono text-bear">{data.breadth.strong_down ?? '—'}</b></span><span>涨停 / 跌停<br /><b className="font-mono">{data.limit.limit_up} / {data.limit.limit_down}</b></span><span>新高 / 新低<br /><b className="font-mono">{data.trend.new_high} / {data.trend.new_low}</b></span></div>
+          </div>
+          <div className="rounded border border-border bg-elevated/35 p-2">
+            <div className="mb-1 flex items-center justify-between gap-2"><b className="text-xs">今日强势板块</b><Link to="/strong-sectors" className="text-[10px] text-accent hover:underline">查看全部</Link></div>
+            <div className="space-y-1">{strongSectors.length ? strongSectors.map(row => <div key={`${row.name}-${row.source_field ?? ''}`} className="flex items-center justify-between gap-2 rounded bg-base/70 px-1.5 py-1 text-[10px]"><span className="truncate">{row.name}</span><span className="shrink-0 text-muted">{row.up_count}/{row.count}上涨</span><b className={cn('font-mono', tone(row.avg_pct))}>{pct(row.avg_pct)}</b></div>) : <p className="text-[10px] text-muted">暂无板块排名数据</p>}</div>
+            <p className="mt-1 text-[9px] text-muted">按今日板块平均涨幅、上涨家数和成交额排序；只做候选观察，不自动推荐买入。</p>
+          </div>
+          <div className="rounded border border-border bg-elevated/35 p-2">
+            <div className="mb-1 flex items-center justify-between gap-2"><b className="text-xs">实时候选股滚动</b><span className="text-[9px] text-muted">涨幅 / 活跃 / 成交额交集</span></div>
+            {recommendationRows.length ? <div className="overflow-hidden rounded bg-base/70"><div className="flex min-w-max gap-2 py-1.5" style={{ animation: 'market-recommendation-ticker 30s linear infinite' }}>{[...recommendationRows, ...recommendationRows].map((row, index) => <Link key={`${row.symbol}-${index}`} to={`/stock-analysis?symbol=${encodeURIComponent(row.symbol)}`} className="w-32 shrink-0 rounded border border-border/70 px-1.5 py-1 text-[10px] hover:border-accent/60"><div className="truncate font-medium">{row.name || row.symbol}</div><div className="mt-0.5 flex items-center justify-between gap-1"><span className="font-mono text-muted">{row.symbol}</span><b className={cn('font-mono', tone(row.change_pct))}>{pct(row.change_pct)}</b></div><div className="mt-0.5 text-[9px] text-muted">成交额 {amount(row.amount)}</div></Link>)}</div></div> : <p className="text-[10px] text-muted">暂无可核验候选股数据</p>}
+            <p className="mt-1 text-[9px] text-muted">候选来自真实涨幅、活跃度和成交额榜单；AI复核会继续结合量价、板块与新闻，数据不足时不会编造。</p>
+          </div>
+        </div>
       </div>
 
       {expanded && chartRows.length > 0 && <div role="dialog" aria-modal="true" aria-label={`${selected.name}分时走势`} className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/75 p-4" onClick={() => setExpanded(false)}>
@@ -210,7 +286,8 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
         </div>
       </div>}
 
-      {false && <div className="mt-3"><BreadthTrend data={data} /></div>}
+      <style>{'@keyframes market-recommendation-ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }'}</style>
+      <div className="mt-3"><BreadthTrend data={data} /></div>
 
       {false && <div className="mt-3 rounded border border-border bg-base/35 p-2">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
