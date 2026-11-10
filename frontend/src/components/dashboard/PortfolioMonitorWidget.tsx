@@ -473,6 +473,27 @@ function HoldingsOverview({ items, minuteData, source, onSelect, aiText, aiBusy,
   </section>
 }
 
+function HoldingsSummary({ items, minuteData }: { items: Holding[]; minuteData: Record<string, Bar[]> }) {
+  const totals = items.reduce((out, item) => {
+    const quantity = Number(item.quantity ?? 0)
+    const current = Number(item.price ?? minuteData[item.symbol]?.at(-1)?.close ?? 0)
+    const pctValue = Number(item.change_pct ?? 0)
+    const previous = pctValue > -99 ? current / (1 + pctValue / 100) : current
+    out.value += current * quantity
+    out.day += (current - previous) * quantity
+    out.cost += Number(item.cost ?? 0) * quantity
+    return out
+  }, { value: 0, day: 0, cost: 0 })
+  const pnl = totals.cost > 0 ? totals.value - totals.cost : 0
+  const money = (value: number) => `¥${value.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`
+  return <div className="mb-2 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+    <div className="rounded border border-border bg-base/50 px-2 py-1"><div className="text-[10px] text-muted">当前持仓市值</div><b className="font-mono text-sm">{money(totals.value)}</b></div>
+    <div className="rounded border border-border bg-base/50 px-2 py-1"><div className="text-[10px] text-muted">今日估算盈亏</div><b className={`font-mono text-sm ${totals.day >= 0 ? 'text-bull' : 'text-bear'}`}>{money(totals.day)}</b></div>
+    <div className="rounded border border-border bg-base/50 px-2 py-1"><div className="text-[10px] text-muted">累计浮动盈亏</div><b className={`font-mono text-sm ${pnl >= 0 ? 'text-bull' : 'text-bear'}`}>{money(pnl)}</b></div>
+    <div className="rounded border border-border bg-base/50 px-2 py-1"><div className="text-[10px] text-muted">持仓记录</div><b className="font-mono text-sm">{items.filter(item => item.holding_source).length}/{items.length}</b></div>
+  </div>
+}
+
 function DecisionGuidePanel({ items, minuteData, source, aiText, aiBusy, onAiReview }: { items: Holding[]; minuteData: Record<string, Bar[]>; source?: string; aiText?: string; aiBusy: boolean; onAiReview: () => void }) {
   const guides = items.map(item => {
     const rows = minuteData[item.symbol] || []
@@ -738,10 +759,10 @@ export function PortfolioMonitorWidget({ compact = false }: { compact?: boolean 
   }
   if (compact) return <section className="relative h-full overflow-auto overscroll-contain rounded-card border border-border bg-surface p-2 text-foreground [scrollbar-gutter:stable]">
     <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 border-b border-border pb-1"><div><h2 className="text-sm font-semibold">持仓实时总览</h2><p className="text-[11px] text-muted">按交易日查看持仓分时走势 · {minute.data?.source || '分钟行情读取中'}</p></div><div className="flex items-center gap-2"><div className="flex gap-1"><button type="button" onClick={() => setLayoutMode('grid')} className={`rounded border border-border px-1.5 py-0.5 text-[10px] ${layoutMode === 'grid' ? 'bg-accent/20 text-accent' : 'text-muted'}`}>网格总览</button><button type="button" onClick={() => setLayoutMode('side')} className={`rounded border border-border px-1.5 py-0.5 text-[10px] ${layoutMode === 'side' ? 'bg-accent/20 text-accent' : 'text-muted'}`}>列表 + 个股</button></div><label className="inline-flex items-center gap-1 text-[10px] text-muted">交易日<input aria-label="持仓走势交易日" type="date" value={day} max={latestDay} onChange={event => setPickedDay(event.target.value)} className="rounded border border-border bg-base px-1 py-0.5 text-[10px] text-foreground" /></label><Link to="/myagent-quant" className="text-[10px] text-accent">管理持仓</Link></div></div>
-    {layoutMode === 'grid' ? <HoldingsOverview compact items={shown} minuteData={compactMinuteData} source={minute.data?.source} aiText={aiText} aiBusy={aiBusy} onAiReview={runAiReview} onSelect={symbol => { setSelected(symbol); setViewMode('detail') }} /> : <div className="grid min-h-0 gap-2 lg:grid-cols-[150px_minmax(0,1fr)]">
+    {layoutMode === 'grid' ? <HoldingsOverview compact items={shown} minuteData={compactMinuteData} source={minute.data?.source} aiText={aiText} aiBusy={aiBusy} onAiReview={runAiReview} onSelect={symbol => { setSelected(symbol); setViewMode('detail') }} /> : <><HoldingsSummary items={shown} minuteData={compactMinuteData} /><div className="grid min-h-0 gap-2 lg:grid-cols-[150px_minmax(0,1fr)]">
       <aside className="min-w-0 overflow-auto rounded border border-border bg-base/40">{shown.map(item => <button key={item.symbol} type="button" onClick={() => setSelected(item.symbol)} className={`block w-full border-b border-border/60 px-2 py-1.5 text-left text-xs ${active?.symbol === item.symbol ? 'bg-accent/15 text-accent' : 'hover:bg-elevated'}`}><b className="block truncate">{item.name}</b><span className="text-[10px] text-muted">{item.symbol} · {pct(item.change_pct)}</span></button>)}{!shown.length && <p className="p-2 text-xs text-muted">暂无持仓</p>}</aside>
       {active ? <div className="min-w-0 overflow-hidden"><Detail item={active} day={day} latestBars={compactMinuteData[active.symbol] || []} minuteSource={minute.data?.source} news={news.data?.items || []} visible={visible} trades={(tradeHistory.data?.trades || []).filter(trade => trade.symbol === active.symbol)} linkedBoardCode={linkedBoards[active.symbol] || ''} boardOptions={boardOptions} onLinkedBoardChange={code => setLinkedBoard(active.symbol, code)} /></div> : <p className="p-3 text-xs text-muted">暂无持仓</p>}
-    </div>}
+    </div></>}
   </section>
   return <section className="relative h-full overflow-auto overscroll-contain rounded-card border border-border bg-surface p-2 text-foreground [scrollbar-gutter:stable]"
     onContextMenu={event => { event.preventDefault(); setMenu({ x: Math.max(8, Math.min(event.clientX, innerWidth - 220)), y: Math.max(8, Math.min(event.clientY, innerHeight - 440)) }) }}>

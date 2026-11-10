@@ -23,10 +23,11 @@ import {
 import type { DashboardItem, WidgetType } from './layout'
 import { ExternalLinkWidget } from './ExternalLinkWidget'
 import { FundFlowPanel } from '@/components/FundFlowPanel'
-import { HoldingsWidget, SectorWatchWidget, MarketNewsWidget } from './MyAgentWidgets'
+import { HoldingsWidget, MarketNewsWidget } from './MyAgentWidgets'
 import { PortfolioMonitorWidget } from './PortfolioMonitorWidget'
 import { PageWidget } from './PageWidget'
 import { MarketOverviewWidget } from './MarketOverviewWidget'
+import { MonitorAlertWidget } from './MonitorAlertWidget'
 
 /** 渲染上下文: 数据切片与交互回调(由 Dashboard 页提供, 组件不自取数据) */
 export interface WidgetCtx {
@@ -316,8 +317,8 @@ export const WIDGET_DEFS: WidgetDef[] = [
     render: () => <PortfolioMonitorWidget compact />,
   },
   {
-    id: 'sector-watch', label: '关联板块异动', icon: BellRing, minW: 4, minH: 8, defW: 6, defH: 12,
-    render: () => <SectorWatchWidget />,
+    id: 'sector-watch', label: '分时监控提醒', icon: BellRing, minW: 4, minH: 8, defW: 6, defH: 12,
+    render: () => <MonitorAlertWidget />,
   },
   {
     id: 'market-news', label: '市场新闻', icon: BellRing, minW: 4, minH: 8, defW: 6, defH: 12,
