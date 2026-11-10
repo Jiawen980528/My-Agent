@@ -214,7 +214,7 @@ export const WIDGET_DEFS: WidgetDef[] = [
     render: ctx => <KpiWidget ctx={ctx} />,
   },
   {
-    id: 'market-overview', label: '大盘走势与量能', icon: LineChart, minW: 5, minH: 14, defW: 6, defH: 16,
+    id: 'market-overview', label: '大盘走势与量能', icon: LineChart, minW: 6, minH: 18, defW: 6, defH: 20,
     render: ctx => <MarketOverviewWidget data={ctx.data} tradeDate={ctx.data.as_of ?? undefined} />,
   },
   {
@@ -355,11 +355,11 @@ export function minSizeOf(t: WidgetType): { w: number; h: number } {
  * 导致「恢复默认」的 JSON 等值判断永不成立、每次都落 blob 而非 null。 */
 /** 简洁看盘：首屏只保留持仓相关的核心窗口。 */
 export const DEFAULT_LAYOUT: DashboardItem[] = [
-  { i: 'market-overview', t: 'market-overview', x: 0, y: 0, w: 6, h: 16 },
-  { i: 'portfolio-monitor', t: 'portfolio-monitor', x: 6, y: 0, w: 6, h: 16 },
-  { i: 'sector-watch', t: 'sector-watch', x: 0, y: 16, w: 4, h: 12 },
-  { i: 'fund-flow', t: 'fund-flow', x: 4, y: 16, w: 4, h: 12 },
-  { i: 'market-news', t: 'market-news', x: 8, y: 16, w: 4, h: 12 },
+  { i: 'market-overview', t: 'market-overview', x: 0, y: 0, w: 6, h: 20 },
+  { i: 'portfolio-monitor', t: 'portfolio-monitor', x: 6, y: 0, w: 6, h: 20 },
+  { i: 'sector-watch', t: 'sector-watch', x: 0, y: 20, w: 4, h: 12 },
+  { i: 'fund-flow', t: 'fund-flow', x: 4, y: 20, w: 4, h: 12 },
+  { i: 'market-news', t: 'market-news', x: 8, y: 20, w: 4, h: 12 },
 ]
 
 /** 功能版本：所有内置看板窗口，便于用户按需删减和重新布局。 */

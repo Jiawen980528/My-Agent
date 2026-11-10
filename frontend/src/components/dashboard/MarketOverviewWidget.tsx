@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { BarChart3, Bot, ExternalLink, Globe2, Info, LineChart, RefreshCw } from 'lucide-react'
@@ -16,6 +16,10 @@ const INDEXES = [
   { symbol: '399006.SZ', name: '创业板指' },
   { symbol: '000688.SH', name: '科创50' },
 ]
+
+const SIGNAL_LABELS: Record<string, string> = {
+  limit_up: '涨停', broken: '炸板', recovery: '翘板', limit_down: '跌停', new_high: '新高', new_low: '新低', volume_surge: '放量',
+}
 
 function amount(v: number | undefined | null): string {
   if (v == null || !Number.isFinite(v)) return '—'
@@ -59,44 +63,22 @@ function volumeProgress(rows: Array<{ datetime?: string }>): number {
   return Math.min(1, Math.max(0.05, (last - first) / (4 * 60 * 60 * 1000)))
 }
 
-type BreadthPoint = { time: string; up: number; flat: number; down: number }
+type DashboardNewsItem = { title: string; url: string; source?: string; published_at?: string; bias?: string; sector_names?: string[] }
+type DashboardNewsFeed = { items?: DashboardNewsItem[]; fetched_at?: string; source?: string; notice?: string }
+type BoardMinuteResponse = { board?: { name?: string | null; code?: string | null } | null; rows?: Array<{ datetime?: string; time?: string; close?: number; high?: number; low?: number; volume?: number; amount?: number | null }>; source?: string }
 
-function BreadthTrend({ data }: { data: OverviewMarket }) {
-  const [points, setPoints] = useState<BreadthPoint[]>([])
-  useEffect(() => {
-    const point = { time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }), up: data.breadth.up, flat: data.breadth.flat, down: data.breadth.down }
-    setPoints(current => {
-      const last = current.at(-1)
-      if (last && last.up === point.up && last.flat === point.flat && last.down === point.down) return current
-      return [...current, point].slice(-48)
-    })
-  }, [data.breadth.down, data.breadth.flat, data.breadth.up])
-  const max = Math.max(1, ...points.flatMap(point => [point.up, point.flat, point.down]))
-  const path = (key: 'up' | 'flat' | 'down') => points.map((point, index) => {
-    const x = points.length <= 1 ? 0 : index / (points.length - 1) * 100
-    const y = 100 - point[key] / max * 92 - 4
-    return `${index ? 'L' : 'M'} ${x.toFixed(2)} ${y.toFixed(2)}`
-  }).join(' ')
-  return <div className="rounded border border-border bg-base/35 p-2">
-    <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-      <b className="text-xs">市场涨跌动态</b>
-      <span className="text-[10px] text-muted">页面打开后每次刷新记录 · 最近 {points.length} 个观测点</span>
-    </div>
-    <div className="h-32 rounded bg-base/50 px-1 py-1">
-      {points.length > 1 ? <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full" role="img" aria-label="上涨平盘下跌家数动态曲线">
-        <path d={path('up')} fill="none" stroke="hsl(var(--bull))" strokeWidth="1.8" vectorEffect="non-scaling-stroke" />
-        <path d={path('flat')} fill="none" stroke="hsl(var(--fg-muted))" strokeWidth="1.4" vectorEffect="non-scaling-stroke" />
-        <path d={path('down')} fill="none" stroke="hsl(var(--bear))" strokeWidth="1.8" vectorEffect="non-scaling-stroke" />
-      </svg> : <div className="flex h-full items-center justify-center text-[10px] text-muted">等待下一次市场数据刷新后绘制曲线</div>}
-    </div>
-    <div className="mt-1 flex flex-wrap gap-3 text-[10px] text-muted"><span className="text-bull">● 上涨 {data.breadth.up}</span><span>● 平盘 {data.breadth.flat}</span><span className="text-bear">● 下跌 {data.breadth.down}</span></div>
-  </div>
+async function dashboardJson<T>(path: string): Promise<T> {
+  const response = await fetch(path, { credentials: 'include' })
+  const body = await response.json()
+  if (!response.ok) throw new Error(body.detail || `请求失败 ${response.status}`)
+  return body as T
 }
 
 export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket; tradeDate?: string }) {
   const [selectedSymbol, setSelectedSymbol] = useState(INDEXES[0].symbol)
   const [selectedDate, setSelectedDate] = useState(() => tradeDate ?? data.as_of?.slice(0, 10) ?? '')
   const [expanded, setExpanded] = useState(false)
+  const [focusStock, setFocusStock] = useState<{ symbol: string; name?: string | null } | null>(null)
   const [forecastTab, setForecastTab] = useState<'model' | 'ai' | 'public'>('model')
   const minute = useQuery({
     queryKey: ['dashboard-market-index-minute', selectedSymbol, selectedDate || 'latest'],
@@ -127,6 +109,32 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
     refetchInterval: 60_000,
     staleTime: 30_000,
   })
+  const abnormal = useQuery({
+    queryKey: ['dashboard-abnormal-intraday'],
+    queryFn: () => api.abnormalIntraday(60),
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  })
+  const news = useQuery({
+    queryKey: ['myagent-quant-news'],
+    queryFn: () => dashboardJson<DashboardNewsFeed>('/quant/api/myagent/quant/news'),
+    refetchInterval: 180_000,
+    staleTime: 60_000,
+  })
+  const focusMinute = useQuery({
+    queryKey: ['dashboard-focus-stock-minute', focusStock?.symbol, selectedDate || 'latest'],
+    queryFn: () => api.klineMinute(focusStock!.symbol, selectedDate || undefined, true),
+    enabled: !!focusStock?.symbol,
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  })
+  const focusBoard = useQuery({
+    queryKey: ['dashboard-focus-stock-board', focusStock?.symbol, selectedDate || 'latest'],
+    queryFn: () => dashboardJson<BoardMinuteResponse>(`/quant/api/myagent/quant/portfolio/board/${encodeURIComponent(focusStock!.symbol)}?trade_date=${encodeURIComponent(selectedDate || '')}`),
+    enabled: !!focusStock?.symbol,
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  })
   const review = useReviewState()
   const generating = isReviewGenerating()
   const selected = INDEXES.find(item => item.symbol === selectedSymbol) ?? INDEXES[0]
@@ -152,6 +160,17 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
   const recommendationRows = [...(data.top_gainers ?? []), ...(data.active_leaders ?? []), ...(data.turnover_leaders ?? [])]
     .filter((row, index, all) => row.symbol && all.findIndex(item => item.symbol === row.symbol) === index)
     .slice(0, 12)
+  const abnormalRows = (abnormal.data?.rows ?? []).slice(0, 12)
+  const newsRows = (news.data?.items ?? []).slice(0, 4)
+  const focusBoardRows = (focusBoard.data?.rows ?? []).map(row => ({
+    datetime: row.datetime ?? row.time ?? '',
+    open: Number(row.close ?? 0),
+    high: Number(row.high ?? row.close ?? 0),
+    low: Number(row.low ?? row.close ?? 0),
+    close: Number(row.close ?? 0),
+    volume: Number(row.volume ?? 0),
+    amount: row.amount == null ? null : Number(row.amount),
+  })).filter(row => row.datetime && Number.isFinite(row.close))
   const marketStats = useMemo(() => [
     { label: '当前成交额', value: fmtBigNum(data.amount.total), sub: '点击右侧预测' },
     { label: '上涨 / 下跌', value: `${data.breadth.up} / ${data.breadth.down}`, sub: `上涨率 ${data.breadth.up_pct.toFixed(1)}%` },
@@ -204,20 +223,19 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
           const active = item.symbol === selectedSymbol
           return <button key={item.symbol} type="button" onClick={() => setSelectedSymbol(item.symbol)} className={cn('rounded border px-2 py-1.5 text-left transition-colors', active ? 'border-accent/70 bg-accent/10' : 'border-border bg-elevated/40 hover:border-accent/40')}>
             <div className="flex items-center justify-between gap-2"><span className="text-xs font-medium">{item.name}</span><span className={cn('font-mono text-xs', tone(quote?.change_pct))}>{pct(quote?.change_pct)}</span></div>
-            <div className="mt-0.5 font-mono text-sm">{quote?.last_price?.toFixed(2) ?? '—'}</div>
-            <div className="mt-0.5 flex items-center justify-between gap-1 text-[9px] text-muted"><span>量 {amount(volumeStats?.current)}</span><span className={tone(volumeStats?.change)}>均值 {pct(volumeStats?.change)}</span></div>
-            <div className="flex items-center justify-between gap-1 text-[9px] text-muted"><span>预测 {amount(volumeStats?.forecast)}</span><span>{item.symbol}</span></div>
+            <div className="mt-0.5 flex items-baseline justify-between gap-2"><span className="font-mono text-sm font-semibold">{quote?.last_price?.toFixed(2) ?? '—'}</span><span className="text-[9px] text-muted">{item.symbol}</span></div>
+            <div className="mt-1 grid grid-cols-2 gap-1 text-[9px] text-muted"><span>量 <b className="font-mono text-secondary">{amount(volumeStats?.current)}</b></span><span className={tone(volumeStats?.change)}>均值 <b className="font-mono">{pct(volumeStats?.change)}</b></span><span>预测 <b className="font-mono text-secondary">{amount(volumeStats?.forecast)}</b></span><span>进度 <b className="font-mono text-secondary">{volumeStats?.progress ? `${(volumeStats.progress * 100).toFixed(0)}%` : '—'}</b></span></div>
           </button>
         })}
       </div>
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_248px]">
         <div className="min-h-0 rounded border border-border bg-base/35 p-2">
           <div className="mb-1 flex items-center justify-between gap-2 text-xs">
             <b>{selected.name} · 分时走势</b>
             <span className="flex items-center gap-2 text-[10px] text-muted">{chartRows.length ? `${chartRows.length}根分钟K · 可缩放` : minute.isLoading ? '读取中…' : '暂无分钟数据'}<button type="button" onClick={() => setExpanded(true)} disabled={!chartRows.length} className="rounded border border-accent/50 px-1.5 py-0.5 text-accent disabled:opacity-40">放大查看</button></span>
           </div>
-          {chartRows.length ? <EChartsIntraday data={chartRows} height={300} date={minute.data?.date ?? undefined} showLimitLines={false} showAvgLine={false} /> : <div className="flex h-[300px] items-center justify-center text-xs text-muted">{minute.isLoading ? <><RefreshCw className="mr-1 h-3 w-3 animate-spin" />正在读取分钟走势…</> : '当前没有可用的分钟数据，请检查分钟数据源和交易日期'}</div>}
+          {chartRows.length ? <EChartsIntraday data={chartRows} height={380} date={minute.data?.date ?? undefined} showLimitLines={false} showAvgLine={false} /> : <div className="flex h-[380px] items-center justify-center text-xs text-muted">{minute.isLoading ? <><RefreshCw className="mr-1 h-3 w-3 animate-spin" />正在读取分钟走势…</> : '当前没有可用的分钟数据，请检查分钟数据源和交易日期'}</div>}
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted">
             <span>当前来源：{sourceText}</span>
             <span>最后时间：{chartRows.at(-1)?.datetime ?? '—'}</span>
@@ -273,12 +291,22 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
           <div className="rounded border border-border bg-elevated/35 p-2">
             <div className="mb-1 flex items-center justify-between gap-2"><b className="text-xs">今日强势板块</b><Link to="/strong-sectors" className="text-[10px] text-accent hover:underline">查看全部</Link></div>
             <div className="space-y-1">{strongSectors.length ? strongSectors.map(row => <div key={`${row.name}-${row.source_field ?? ''}`} className="flex items-center justify-between gap-2 rounded bg-base/70 px-1.5 py-1 text-[10px]"><span className="truncate">{row.name}</span><span className="shrink-0 text-muted">{row.up_count}/{row.count}上涨</span><b className={cn('font-mono', tone(row.avg_pct))}>{pct(row.avg_pct)}</b></div>) : <p className="text-[10px] text-muted">暂无板块排名数据</p>}</div>
-            <p className="mt-1 text-[9px] text-muted">按今日板块平均涨幅、上涨家数和成交额排序；只做候选观察，不自动推荐买入。</p>
+            <p className="mt-1 text-[9px] text-muted">突然拉升的板块先看个股是否同步；已有底仓时才考虑正T，未有底仓不追涨。</p>
+          </div>
+          <div className="rounded border border-warning/35 bg-warning/5 p-2">
+            <div className="mb-1 flex items-center justify-between gap-2"><b className="text-xs text-warning">实时异动股票</b><span className="text-[9px] text-muted">约30秒刷新 · 点击看个股/板块</span></div>
+            {abnormalRows.length ? <div className="space-y-1">{abnormalRows.slice(0, 6).map(row => <button key={row.symbol} type="button" onClick={() => setFocusStock({ symbol: row.symbol, name: row.name })} className="w-full rounded bg-base/70 px-1.5 py-1 text-left hover:bg-elevated"><div className="flex items-center justify-between gap-2 text-[10px]"><span className="truncate font-medium">{row.name || row.symbol}<small className="ml-1 font-mono text-muted">{row.symbol}</small></span><b className={cn('font-mono', tone(row.change_pct))}>{pct(row.change_pct)}</b></div><div className="mt-0.5 flex items-center justify-between gap-2 text-[9px] text-muted"><span>{(row.signals ?? []).map(signal => SIGNAL_LABELS[signal] ?? signal).join(' · ') || '价格异动'}</span><span>量比 {row.vol_ratio_5d == null ? '—' : Number(row.vol_ratio_5d).toFixed(2)}</span></div></button>)}</div> : <p className="text-[10px] text-muted">当前没有可核验的盘中异动信号</p>}
+            <p className="mt-1 text-[9px] text-warning/80">正T提醒：仅当你已有该赛道底仓、个股与板块同步走强且回踩承接明确时观察“冲高减、回踩接”；没有底仓不追，不自动下单。</p>
           </div>
           <div className="rounded border border-border bg-elevated/35 p-2">
             <div className="mb-1 flex items-center justify-between gap-2"><b className="text-xs">实时候选股滚动</b><span className="text-[9px] text-muted">涨幅 / 活跃 / 成交额交集</span></div>
             {recommendationRows.length ? <div className="overflow-hidden rounded bg-base/70"><div className="flex min-w-max gap-2 py-1.5" style={{ animation: 'market-recommendation-ticker 30s linear infinite' }}>{[...recommendationRows, ...recommendationRows].map((row, index) => <Link key={`${row.symbol}-${index}`} to={`/stock-analysis?symbol=${encodeURIComponent(row.symbol)}`} className="w-32 shrink-0 rounded border border-border/70 px-1.5 py-1 text-[10px] hover:border-accent/60"><div className="truncate font-medium">{row.name || row.symbol}</div><div className="mt-0.5 flex items-center justify-between gap-1"><span className="font-mono text-muted">{row.symbol}</span><b className={cn('font-mono', tone(row.change_pct))}>{pct(row.change_pct)}</b></div><div className="mt-0.5 text-[9px] text-muted">成交额 {amount(row.amount)}</div></Link>)}</div></div> : <p className="text-[10px] text-muted">暂无可核验候选股数据</p>}
             <p className="mt-1 text-[9px] text-muted">候选来自真实涨幅、活跃度和成交额榜单；AI复核会继续结合量价、板块与新闻，数据不足时不会编造。</p>
+          </div>
+          <div className="rounded border border-border bg-elevated/35 p-2">
+            <div className="mb-1 flex items-center justify-between gap-2"><b className="text-xs">重要新闻推送</b><Link to="/market-news" className="text-[10px] text-accent hover:underline">打开新闻中心</Link></div>
+            {newsRows.length ? <div className="space-y-1">{newsRows.map((item, index) => <a key={`${item.url}-${index}`} href={item.url} target="_blank" rel="noopener noreferrer" className="block rounded bg-base/70 px-1.5 py-1 text-[10px] hover:bg-elevated"><div className="line-clamp-2 leading-relaxed">{item.title}</div><div className="mt-0.5 flex items-center justify-between gap-2 text-[9px] text-muted"><span>{item.bias ?? '待判断'} · {item.sector_names?.slice(0, 2).join('、') || '市场'}</span><span>{item.source ?? '公开源'}</span></div></a>)}</div> : <p className="text-[10px] text-muted">新闻源暂未返回内容</p>}
+            <p className="mt-1 text-[9px] text-muted">新闻只做事件线索，点击原文核对；AI策略会把新闻与量价、板块同步性一起复核。</p>
           </div>
         </div>
       </div>
@@ -290,9 +318,18 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
         </div>
       </div>}
 
-      <style>{'@keyframes market-recommendation-ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }'}</style>
-      <div className="mt-3"><BreadthTrend data={data} /></div>
+      {focusStock && <div role="dialog" aria-modal="true" aria-label={`${focusStock.name || focusStock.symbol}异动详情`} className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/75 p-4" onClick={() => setFocusStock(null)}>
+        <div className="max-h-[92vh] w-full max-w-6xl overflow-auto rounded-card border border-border bg-surface p-3 shadow-2xl" onClick={event => event.stopPropagation()}>
+          <div className="mb-2 flex items-center justify-between gap-2"><div><b>{focusStock.name || focusStock.symbol} · 异动详情</b><span className="ml-2 font-mono text-xs text-muted">{focusStock.symbol}</span></div><button type="button" onClick={() => setFocusStock(null)} className="rounded border border-border px-2 py-1 text-xs text-muted">关闭</button></div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <section className="rounded border border-border bg-base/40 p-2"><div className="mb-1 flex items-center justify-between text-xs"><b>个股分时</b><span className="text-muted">{focusMinute.data?.source ?? '读取中'}</span></div>{focusMinute.data?.rows?.length ? <EChartsIntraday data={focusMinute.data.rows} height={310} date={focusMinute.data.date ?? undefined} showLimitLines={false} showAvgLine={false} /> : <div className="flex h-[310px] items-center justify-center text-xs text-muted">{focusMinute.isLoading ? '正在读取个股分时…' : '暂无个股分时数据'}</div>}</section>
+            <section className="rounded border border-border bg-base/40 p-2"><div className="mb-1 flex items-center justify-between text-xs"><b>关联板块分时</b><span className="text-muted">{focusBoard.data?.board?.name ?? '板块待识别'}</span></div>{focusBoardRows.length ? <EChartsIntraday data={focusBoardRows} height={310} date={selectedDate || undefined} showLimitLines={false} showAvgLine={false} /> : <div className="flex h-[310px] items-center justify-center text-xs text-muted">{focusBoard.isLoading ? '正在读取关联板块…' : '暂未取得关联板块分时，请在个股详情中绑定板块'}</div>}</section>
+          </div>
+          <div className="mt-2 rounded border border-warning/35 bg-warning/5 p-2 text-[11px] leading-relaxed"><b className="text-warning">正T条件提醒：</b>只有你已有该赛道底仓，且个股与板块同步走强、冲高后出现明确回踩承接时，才把“冲高减仓、回踩接回”作为观察方案；没有底仓不追涨，数据不足时不生成策略。</div>
+        </div>
+      </div>}
 
+      <style>{'@keyframes market-recommendation-ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }'}</style>
       {false && <div className="mt-3 rounded border border-border bg-base/35 p-2">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div>
