@@ -139,9 +139,32 @@ def test_rotation_switch_direction_and_timeline(repo):
     assert timeline[-1]["rotation"] == 0.0
     assert timeline[-1]["leader"] == "B题材"
     assert timeline[-1]["leader_pct"] == pytest.approx(0.06, abs=1e-4)
+    assert timeline[-1]["concept_market_pct"] == pytest.approx(0.0375, abs=1e-4)
     # 早期桶领涨是 A, 且未发生换血
     assert timeline[0]["rotation"] == 0.0
     assert timeline[0]["leader"] == "A题材"
+
+
+def test_concept_equal_weight_deduplicates_members_and_excludes_unclassified_stock(repo):
+    data_dir = repo.store.data_dir
+    config = ExtConfigStore(data_dir).get("ext_gn")
+    assert config is not None
+    write_ext_parquet(pl.DataFrame({
+        "symbol": SYMS_A + SYMS_B + [SYMS_A[0]],
+        "所属概念": ["A题材", "A题材", "B题材", "B题材", "B题材"],
+    }), config, data_dir)
+    minute_path = data_dir / "kline_minute" / f"date={DAY}" / "part.parquet"
+    minute = pl.read_parquet(minute_path)
+    extra = pl.DataFrame({"symbol": ["999999.SZ"], "datetime": [datetime.fromisoformat(f"{DAY}T10:35:00")], "close": [130.0]})
+    pl.concat([minute, extra]).write_parquet(minute_path)
+    daily_path = data_dir / "kline_daily" / f"date={PREV}" / "part.parquet"
+    daily = pl.read_parquet(daily_path)
+    pl.concat([daily, pl.DataFrame({"symbol": ["999999.SZ"], "close": [100.0]})]).write_parquet(daily_path)
+    _reset_caches()
+
+    last = sector_rotation.build_sector_rotation(repo, kind="concept", bucket_minutes=5)["timeline"][-1]
+    assert last["concept_market_pct"] == pytest.approx(0.0375, abs=1e-4)
+    assert last["market_pct"] > last["concept_market_pct"]
 
 
 def test_rotation_index_with_wide_universe(tmp_path):

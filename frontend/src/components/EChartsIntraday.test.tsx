@@ -93,22 +93,26 @@ it('index uses provider average instead of amount divided by constituent volume'
   expect(host.textContent).toContain('3624.99')
 })
 
-it('index without provider average keeps the yellow line on the index point scale', async () => {
+it('plots concept equal-weight on a separate percent axis without flattening index prices', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
   const host = document.createElement('div')
   const root = createRoot(host)
   cleanup = async () => { await act(async () => root.unmount()) }
   await act(async () => root.render(<EChartsIntraday
-    assetType="index" showLimitLines={false} date="2026-11-10" prevClose={3680}
+    assetType="index" showLimitLines={false} showAvgLine={false} date="2026-11-10" prevClose={3680}
+    comparison={{ label: '题材股等权', points: [{ time: '09:30', pct: 0.006 }, { time: '09:31', pct: 0.008 }] }}
     data={[
       { datetime: '2026-11-10 09:30:00', open: 3682, high: 3684, low: 3680, close: 3682, volume: 100, amount: 100000 },
       { datetime: '2026-11-10 09:31:00', open: 3682, high: 3683, low: 3678, close: 3680, volume: 100, amount: 100000 },
     ]}
   />))
   expect(lastYAxis().min).toBeGreaterThan(3600)
-  expect(host.textContent).toContain('3681.00')
+  expect(host.textContent).toContain('题材股等权')
   const option = chart.setOption.mock.calls.at(-1)?.[0]
+  expect(option?.series?.find((series: any) => series.name === '题材股等权')?.yAxisIndex).toBe(3)
+  expect(option?.series?.find((series: any) => series.name === '题材股等权')?.data?.[0]).toBeCloseTo(0.6)
+  expect(option?.series?.find((series: any) => series.name === '均价')).toBeUndefined()
   expect(option?.series?.find((series: any) => series.name === '成交量')).toBeDefined()
 })
 

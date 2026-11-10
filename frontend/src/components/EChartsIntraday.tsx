@@ -20,6 +20,7 @@ const THEME = {
 interface Props {
   data: MinuteKlineRow[]
   assetType?: 'stock' | 'etf' | 'index'
+  comparison?: { label: string; points: { time: string; pct: number | null }[] }
   height?: number
   prevClose?: number
   date?: string
@@ -67,7 +68,7 @@ function getLimitPrices(prevClose: number, priceLimit?: PriceLimitInfo): {
   return { limitUp, limitDown, upPct, downPct }
 }
 
-function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgPrices: (number | null)[], lineColor: string, areaColor: string, yMode: YMode, ct: ChartTheme, priceLimit?: PriceLimitInfo, showLimitLines = true, showAvgLine = true, priceLines: Props['priceLines'] = []): EChartsOption {
+function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgPrices: (number | null)[], lineColor: string, areaColor: string, yMode: YMode, ct: ChartTheme, priceLimit?: PriceLimitInfo, showLimitLines = true, showAvgLine = true, priceLines: Props['priceLines'] = [], comparison?: Props['comparison']): EChartsOption {
   // 无涨跌幅标的 (注册制新股上市初期窗口, 后端 no_limit 标记): 不存在可信
   // 涨跌停带, 自适应/涨跌停两类模式都退化为纯数据对称范围, 也不画涨跌停虚线
   const limitLinesActive = showLimitLines && !priceLimit?.no_limit
@@ -78,6 +79,13 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
   const lows = new Array(FULL_DAY_TIMES.length).fill(null) as (number | null)[]
   const avgData = new Array(FULL_DAY_TIMES.length).fill(null) as (number | null)[]
   const volumes = new Array(FULL_DAY_TIMES.length).fill(null) as (any | null)[]
+  const comparisonValues = new Array(FULL_DAY_TIMES.length).fill(null) as (number | null)[]
+  if (comparison) {
+    for (const point of comparison.points) {
+      const idx = timeIndexMap.get(formatMinuteTime(point.time))
+      if (idx !== undefined && point.pct != null && Number.isFinite(point.pct)) comparisonValues[idx] = point.pct * 100
+    }
+  }
 
   const volNeutral = 'rgba(161,161,170,0.5)'
   // 量柱着色基准: 前一分钟 close; 第一根用昨收。
@@ -383,6 +391,10 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
           },
         },
       }] : []),
+      ...(comparison ? [{ type: 'value' as const, gridIndex: 0, position: 'right' as const,
+        scale: true, axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false },
+        axisLabel: { color: THEME.avgLine, fontSize: 9, formatter: (v: number) => `${v.toFixed(1)}%` },
+      }] : []),
     ],
     series: [
       {
@@ -407,6 +419,11 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
         lineStyle: { width: 1, color: THEME.avgLine },
         connectNulls: true,
       }] : []),
+      ...(comparison ? [{ name: comparison.label, type: 'line' as const, data: comparisonValues,
+        yAxisIndex: isValidPrice(prevClose) && yMin != null && yMax != null ? 3 : 2,
+        smooth: false, symbol: 'none', connectNulls: true,
+        lineStyle: { width: 1.4, color: THEME.avgLine },
+      }] : []),
       {
         name: '成交量',
         type: 'bar',
@@ -428,6 +445,7 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
 export function EChartsIntraday({
   data,
   assetType,
+  comparison,
   height = 320,
   prevClose,
   date,
@@ -554,12 +572,12 @@ export function EChartsIntraday({
       }
       fullDayToDataIdx.current = mapping
 
-      chart.setOption(buildOption(data, prevClose, avgPrices, lineColor, areaFill, yMode, ct, priceLimit, showLimitLines, showAvgLine, priceLines), true)
+      chart.setOption(buildOption(data, prevClose, avgPrices, lineColor, areaFill, yMode, ct, priceLimit, showLimitLines, showAvgLine, priceLines, comparison), true)
     } else {
       fullDayToDataIdx.current = new Map()
       chart.clear()
     }
-  }, [data, prevClose, chartHeight, lineColor, areaFill, yMode, ct, priceLimit, showLimitLines, showAvgLine, priceLines])
+  }, [data, prevClose, chartHeight, lineColor, areaFill, yMode, ct, priceLimit, showLimitLines, showAvgLine, priceLines, comparison])
 
   useEffect(() => {
     return () => {
@@ -648,6 +666,7 @@ export function EChartsIntraday({
                 <span style={{ display: 'inline-block', width: 14, height: 2, background: priceClr }} />
                 <span style={{ color: priceClr }}>{d.close.toFixed(2)}</span>
               </span>
+              {comparison && <span className="flex items-center gap-x-1 text-muted"><span style={{ display: 'inline-block', width: 14, height: 2, background: THEME.avgLine }} />{comparison.label}</span>}
               {showAvgLine && <span className="flex items-center gap-x-1">
                 <span style={{ display: 'inline-block', width: 14, height: 2, background: THEME.avgLine }} />
                 {assetType === 'index' && <span className="text-muted">点位均值</span>}

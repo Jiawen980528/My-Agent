@@ -2576,6 +2576,8 @@ export interface SectorRotationPoint {
   leader: string
   leader_pct: number | null
   market_pct: number | null
+  /** 所有概念成分股逐股去重后等权涨跌幅，小数制。 */
+  concept_market_pct?: number | null
   /** 该桶上穿 0 轴 (转强) 的板块数 */
   cross_up?: number
   /** 该桶下穿 0 轴 (转弱) 的板块数 */

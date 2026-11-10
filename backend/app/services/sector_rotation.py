@@ -361,7 +361,7 @@ def build_sector_rotation(
       status/date/basis/kind/flow_field/bucket_minutes/member_count/flow_available/
       default_exclude_sectors: 内置排除名单 (供前端编辑器预填) /
       max_auto_members: 自动活跃榜成员数上限 /
-      timeline: [{time, rotation, leader, leader_pct, market_pct,
+      timeline: [{time, rotation, leader, leader_pct, market_pct, concept_market_pct,
                   cross_up, cross_down}] /
       cross_events: [{time, name, dir: "up"|"down", pct}] 0 轴穿越事件
         (全市场板块, 最新在前, 封顶 120 条; dir=up 转强/down 转弱) /
@@ -457,6 +457,14 @@ def _compute(repo, data_dir: Path, kind: str, flow_field: str | None, top: int, 
     market = (
         buckets.group_by("_bucket").agg(pl.col("_pct").mean().alias("_mpct")).sort("_bucket")
     )
+    # 每只题材成分股只计一次；一只股票同时属于多个概念时不能被重复加权。
+    concept_market = (
+        buckets.join(member_df.select("_bare").unique(), on="_bare", how="inner")
+        .group_by(["_bucket", "_bare"])
+        .agg(pl.col("_pct").mean().alias("_sym_pct"))
+        .group_by("_bucket")
+        .agg(pl.col("_sym_pct").mean().alias("_concept_pct"))
+    ) if kind == "concept" else None
 
     # 每桶领涨板块 + top 集合 (供切换走势与排名对照) + 0 轴穿越统计 (涨跌切换:
     # 板块涨幅由负转正 = 转强/上穿, 由正转负 = 转弱/下穿; ≥0 计为多方)
@@ -490,6 +498,10 @@ def _compute(repo, data_dir: Path, kind: str, flow_field: str | None, top: int, 
         })
     per_bucket.sort(key=lambda item: item["bucket"])
     market_map = {row["_bucket"]: row["_mpct"] for row in market.iter_rows(named=True)}
+    concept_market_map = (
+        {row["_bucket"]: row["_concept_pct"] for row in concept_market.iter_rows(named=True)}
+        if concept_market is not None else {}
+    )
 
     # 对照窗口: 距当前桶约 _RANK_WINDOW_MIN 个交易分钟的最近历史桶 (午休不计,
     # 与活跃度窗口按桶数回看同口径; 按墙钟算时 13:00~13:59 会拿 11:30 桶作「1 小时前」)
@@ -525,6 +537,7 @@ def _compute(repo, data_dir: Path, kind: str, flow_field: str | None, top: int, 
             "leader": item["leader"],
             "leader_pct": _r4(item["leader_pct"]),
             "market_pct": _r4(market_map.get(item["bucket"])),
+            "concept_market_pct": _r4(concept_market_map.get(item["bucket"])),
             "cross_up": item["cross_up"],
             "cross_down": item["cross_down"],
         })
