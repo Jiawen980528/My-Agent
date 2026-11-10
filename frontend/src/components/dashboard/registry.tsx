@@ -354,11 +354,11 @@ export function minSizeOf(t: WidgetType): { w: number; h: number } {
  * 导致「恢复默认」的 JSON 等值判断永不成立、每次都落 blob 而非 null。 */
 /** 简洁看盘：首屏只保留持仓相关的核心窗口。 */
 export const DEFAULT_LAYOUT: DashboardItem[] = [
-  { i: 'market-overview', t: 'market-overview', x: 0, y: 0, w: 6, h: 16 },
-  { i: 'portfolio-monitor', t: 'portfolio-monitor', x: 6, y: 0, w: 6, h: 24 },
-  { i: 'sector-watch', t: 'sector-watch', x: 0, y: 24, w: 4, h: 12 },
-  { i: 'fund-flow', t: 'fund-flow', x: 4, y: 24, w: 4, h: 13 },
-  { i: 'market-news', t: 'market-news', x: 8, y: 24, w: 4, h: 12 },
+  { i: 'market-overview', t: 'market-overview', x: 0, y: 0, w: 6, h: 18 },
+  { i: 'portfolio-monitor', t: 'portfolio-monitor', x: 6, y: 0, w: 6, h: 18 },
+  { i: 'sector-watch', t: 'sector-watch', x: 0, y: 18, w: 4, h: 12 },
+  { i: 'fund-flow', t: 'fund-flow', x: 4, y: 18, w: 4, h: 12 },
+  { i: 'market-news', t: 'market-news', x: 8, y: 18, w: 4, h: 12 },
 ]
 
 /** 功能版本：所有内置看板窗口，便于用户按需删减和重新布局。 */
