@@ -20,6 +20,7 @@ const Factors = lazy(() => import('./pages/Factors').then(m => ({ default: m.Fac
 const Data = lazy(() => import('./pages/Data').then(m => ({ default: m.Data })))
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
 const PickModel = lazy(() => import('./pages/PickModel').then(m => ({ default: m.PickModel })))
+const StrongSectors = lazy(() => import('./pages/PickModel').then(m => ({ default: m.PickModel })))
 const MyAgentQuant = lazy(() => import('./pages/MyAgentQuant').then(m => ({ default: m.MyAgentQuant })))
 const FundFlow = lazy(() => import('./pages/FundFlow').then(m => ({ default: m.FundFlow })))
 const MarketNews = lazy(() => import('./pages/MarketNews').then(m => ({ default: m.MarketNews })))
@@ -56,6 +57,7 @@ const CORE_ROUTE_PATHS = new Set([
   '/settings/ai',
   '/settings/queries',
   '/pick-model',
+  '/strong-sectors',
   '/myagent-quant',
   '/fund-flow',
   '/market-news',
@@ -163,6 +165,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Dashboard /> },
       { path: 'pick-model', element: <PickModel /> },
+      { path: 'strong-sectors', element: <StrongSectors /> },
       { path: 'myagent-quant', element: <MyAgentQuant /> },
       { path: 'fund-flow', element: <FundFlow /> },
       { path: 'overview', element: <Navigate to="/" replace /> },

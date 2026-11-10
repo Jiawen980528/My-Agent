@@ -47,6 +47,7 @@ type Replay = { actual_vs_no_trade: string; realised_t_pnl: string; extra_positi
 type Panel = 'chart' | 'board' | 'flow' | 'news' | 'signal'
 type LayoutMode = 'side' | 'strip' | 'grid'
 type ChartPeriod = '1m' | '5m' | '15m' | '30m' | '60m' | '1d' | '1w'
+type DecisionGuide = { item: Holding; last: number | undefined; change: number | null; support: number | null; resistance: number | null; rangeWidth: number | null; trend: string; action: string; advice: string; pullbackPct: number | null; time?: string }
 const PANEL_LABEL: Record<Panel, string> = { chart: '个股分时', board: '关联板块', flow: '资金流向', news: '关联新闻', signal: '做T观察' }
 const defaults: Record<Panel, boolean> = { chart: true, board: true, flow: true, news: true, signal: true }
 
@@ -121,6 +122,37 @@ function weeklyRows(rows: { date: string; open: number; high: number; low: numbe
     }
   }
   return [...grouped.values()].sort((a, b) => a.datetime.localeCompare(b.datetime))
+}
+
+function buildDecisionGuide(item: Holding, rows: Bar[]): DecisionGuide {
+  const closes = rows.map(row => Number(row.close)).filter(Number.isFinite)
+  const last = closes.at(-1)
+  const first = closes[0]
+  const ma5 = closes.length >= 5 ? closes.slice(-5).reduce((sum, value) => sum + value, 0) / 5 : null
+  const ma20 = closes.length >= 20 ? closes.slice(-20).reduce((sum, value) => sum + value, 0) / 20 : null
+  const support = rows.length ? Math.min(...rows.slice(-20).map(row => Number(row.low))) : null
+  const resistance = rows.length ? Math.max(...rows.slice(-20).map(row => Number(row.high))) : null
+  const peak = rows.length ? Math.max(...rows.slice(-20).map(row => Number(row.high))) : null
+  const pullbackPct = peak && last ? (last / peak - 1) * 100 : null
+  const pullback = rows.length >= 5 && pullbackPct != null && pullbackPct <= -0.4 && last != null && ma5 != null && last < ma5
+  const change = first && last ? (last / first - 1) * 100 : null
+  const trend = last == null || ma5 == null ? '数据不足' : last >= ma5 && (ma20 == null || last >= ma20) ? '短线偏强' : last < ma5 && (ma20 == null || last < ma20) ? '短线偏弱' : '震荡观察'
+  const rangeWidth = support && resistance ? (resistance / support - 1) * 100 : null
+  const nearSupport = support != null && last != null && last <= support * 1.015
+  const nearResistance = resistance != null && last != null && last >= resistance * .985
+  const action = last == null ? '暂不可判断' : pullback ? '冲高回落·等待确认' : trend === '震荡观察' && nearSupport && (rangeWidth ?? 0) >= 0.8 ? '震荡靠近支撑·做T观察' : trend === '震荡观察' && nearResistance && (rangeWidth ?? 0) >= 0.8 ? '震荡靠近压力·做T观察' : support != null && last <= support * 1.01 ? '接近支撑·等待确认' : resistance != null && last >= resistance * .99 ? '接近压力·防追高' : trend === '短线偏强' ? '持有·观察回踩' : trend === '短线偏弱' ? '暂不操作' : '区间中部·等待边界'
+  const advice = pullback
+    ? `不追买；跌破支撑 ${price(support)} 且板块同步走弱才考虑减仓/反T，重新站回均价线并放量才考虑回补`
+    : trend === '震荡观察' && nearSupport && (rangeWidth ?? 0) >= 0.8
+      ? `有底仓且有可卖份额：等待支撑 ${price(support)} 止跌确认后再考虑轻仓正T；无底仓不在中间价追买`
+      : trend === '震荡观察' && nearResistance && (rangeWidth ?? 0) >= 0.8
+        ? `有底仓：靠近压力 ${price(resistance)} 且量能不足时才观察反T；突破并放量则不做反T`
+        : support != null && last != null && last <= support * 1.01
+          ? '只观察支撑是否企稳，未出现止跌确认前不加仓'
+          : resistance != null && last != null && last >= resistance * .99
+            ? '不在压力位追高，等待突破放量或回踩确认'
+            : '等待多周期和板块同步确认，暂无强制操作'
+  return { item, last, change, support, resistance, rangeWidth, trend, action, advice, pullbackPct, time: rows.at(-1)?.datetime }
 }
 
 function TimeChart({ rows, title, color, height, multiDay = false, previousCloses = {}, trades = [], compact = false }: {
@@ -420,9 +452,48 @@ function BoardDetail({ code, day, news, visible }: { code: string; day: string; 
   </div>
 }
 
-function HoldingsOverview({ items, minuteData, source, onSelect, aiText, aiBusy, onAiReview, compact = false }: {
-  items: Holding[]; minuteData: Record<string, Bar[]>; source?: string; onSelect: (symbol: string) => void
-  aiText?: string; aiBusy?: boolean; onAiReview?: () => void; compact?: boolean
+function HoldingStrategyLine({ item, rows, boardRows, boardName, aiText, aiBusy, onAiReview }: { item: Holding; rows: Bar[]; boardRows: Bar[]; boardName: string; aiText?: string; aiBusy?: boolean; onAiReview?: (symbol?: string) => void }) {
+  const guide = buildDecisionGuide(item, rows)
+  const stockLast = rows.at(-1), stockFirst = rows[0]
+  const boardLast = boardRows.at(-1), boardFirst = boardRows[0]
+  const boardMove = boardFirst && boardLast ? (boardLast.close / boardFirst.close - 1) * 100 : null
+  const relation = boardMove == null ? '板块走势暂无数据' : boardMove > 0.15 ? `板块走强 ${pct(boardMove)}` : boardMove < -0.15 ? `板块走弱 ${pct(boardMove)}` : '板块震荡'
+  const stockMove = stockFirst && stockLast ? (stockLast.close / stockFirst.close - 1) * 100 : null
+  const aiLine = (aiText || '').split(/[\n。；]/).map(value => value.trim()).find(value => value.includes(item.name) || value.includes(item.symbol))
+  return <div aria-label={`${item.name}策略指引`} className="rounded border border-accent/30 bg-accent/5 px-2 py-1 text-[11px] leading-relaxed">
+    <div><span className="font-semibold text-accent">策略（规则基线）：</span><b>{guide.action}</b><span className="mx-1 text-secondary">{guide.advice}</span><span className="text-muted">个股 {pct(stockMove)} · {boardName} {relation}</span></div>
+    <div className="mt-0.5 flex items-start gap-1 text-secondary"><span className="shrink-0 font-semibold text-accent">AI分析：</span><span>{aiLine ? aiLine.slice(0, 220) : aiText ? '已生成持仓复核，当前结果未能按标的拆分，请查看上方 AI 复核全文。' : '尚未生成；点击 AI 复核后才输出个股结论。'}</span>{onAiReview && <button type="button" onClick={event => { event.stopPropagation(); onAiReview(item.symbol) }} disabled={aiBusy} className="ml-auto shrink-0 rounded border border-accent/50 px-1 py-0.5 text-[10px] text-accent disabled:opacity-50">{aiBusy ? '分析中…' : 'AI复核'}</button>}</div>
+  </div>
+}
+
+function HoldingCard({ item, rows, day, compact, linkedBoardCode, aiText, aiBusy, onAiReview, onSelect }: { item: Holding; rows: Bar[]; day: string; compact: boolean; linkedBoardCode?: string; aiText?: string; aiBusy?: boolean; onAiReview?: (symbol?: string) => void; onSelect: (symbol: string) => void }) {
+  const board = useQuery({ queryKey: ['portfolio-holding-card-board', item.symbol, day], queryFn: () =>
+    json<Board>(`${API}/portfolio/board/${item.symbol}?trade_date=${day}`), staleTime: 30_000,
+    refetchInterval: () => tradingNow() ? 60_000 : false })
+  const linkedBoard = useQuery({ queryKey: ['portfolio-holding-card-linked-board', linkedBoardCode, day], queryFn: () =>
+    json<{ name: string; rows: { time: string; close: number; high: number; low: number; volume: number }[]; source: string }>(
+      `${PUBLIC_API}/fund-flow/sector-kline?sector=${encodeURIComponent(linkedBoardCode || '')}&period=1m`), enabled: !!linkedBoardCode, staleTime: 30_000,
+    refetchInterval: () => tradingNow() ? 60_000 : false })
+  const boardRows = useMemo<Bar[]>(() => linkedBoardCode
+    ? (linkedBoard.data?.rows || []).map(row => ({ datetime: row.time, close: Number(row.close), high: Number(row.high), low: Number(row.low), volume: Number(row.volume || 0) }))
+    : (board.data?.rows || []), [linkedBoardCode, linkedBoard.data?.rows, board.data?.rows])
+  const boardName = linkedBoard.data?.name || board.data?.board?.name || item.board?.name || '关联板块'
+  const chartHeight = compact ? 112 : 155
+  const clickableProps = { role: 'button' as const, tabIndex: 0, onClick: () => onSelect(item.symbol), onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => { if (event.key === 'Enter' || event.key === ' ') onSelect(item.symbol) } }
+  return <div {...clickableProps} className="min-w-0 cursor-pointer rounded border border-border bg-surface p-1.5 text-left hover:border-accent/70">
+    <div className="mb-1 flex items-center justify-between gap-2"><span className="truncate text-xs font-semibold">{item.name}</span><span className={Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}>{pct(item.change_pct)}</span></div>
+    <div className="mb-1 flex justify-between text-[10px] text-muted"><span>{item.symbol} · {item.quantity == null ? '数量未录入' : `${item.quantity.toLocaleString()}份`}</span><span>最新 {rows.at(-1) ? price(rows.at(-1)!.close) : price(item.price)}</span></div>
+    <div className="rounded border border-border/60 bg-base/40 p-1"><div className="mb-0.5 text-[10px] font-semibold text-secondary">个股走势</div>
+      {rows.length ? <TimeChart compact rows={rows} title={`${item.name} · 个股`} color={Number(item.change_pct) >= 0 ? '#24ba91' : '#5aaaff'} height={chartHeight} /> : <div style={{ height: chartHeight }} className="flex items-center justify-center text-[10px] text-muted">暂无真实分钟数据</div>}</div>
+    <div className="mt-1 rounded border border-border/60 bg-base/40 p-1"><div className="mb-0.5 flex items-center justify-between gap-1 text-[10px] font-semibold text-secondary"><span>板块走势 · {boardName}</span><span className="font-normal text-muted">{linkedBoard.data?.source || board.data?.source || '读取中'}</span></div>
+      {boardRows.length ? <TimeChart compact rows={boardRows} title={`${boardName} · 板块`} color="#e3a54d" height={compact ? 92 : 125} /> : <div style={{ height: compact ? 92 : 125 }} className="flex items-center justify-center text-[10px] text-muted">板块分钟数据暂无</div>}</div>
+    <div className="mt-1"><HoldingStrategyLine item={item} rows={rows} boardRows={boardRows} boardName={boardName} aiText={aiText} aiBusy={aiBusy} onAiReview={onAiReview} /></div>
+  </div>
+}
+
+function HoldingsOverview({ items, minuteData, source, onSelect, aiText, aiBusy, onAiReview, compact = false, day, linkedBoards = {} }: {
+  items: Holding[]; minuteData: Record<string, Bar[]>; source?: string; onSelect: (symbol: string) => void; day: string; linkedBoards?: Record<string, string>
+  aiText?: string; aiBusy?: boolean; onAiReview?: (symbol?: string) => void; compact?: boolean
 }) {
   const totals = items.reduce((out, item) => {
     const quantity = Number(item.quantity ?? 0)
@@ -455,25 +526,12 @@ function HoldingsOverview({ items, minuteData, source, onSelect, aiText, aiBusy,
       <div className="rounded border border-border bg-surface px-2 py-1"><div className="text-[10px] text-muted">最新价格覆盖</div><b className="font-mono text-sm">{items.filter(item => item.price != null || minuteData[item.symbol]?.length).length}/{items.length}</b></div>
     </div>
     <div className="rounded border border-border bg-surface p-2">
-      <div className="mb-1 flex items-center justify-between gap-2"><div><b className="text-xs">AI 预测盈亏走势</b><span className="ml-2 text-[10px] text-muted">基于当前持仓实时行情和短线趋势</span></div>{onAiReview && <button type="button" onClick={onAiReview} disabled={aiBusy} className="rounded border border-accent/50 px-1.5 py-0.5 text-[10px] text-accent disabled:opacity-50">{aiBusy ? 'AI分析中…' : 'AI复核'}</button>}</div>
+      <div className="mb-1 flex items-center justify-between gap-2"><div><b className="text-xs">AI 预测盈亏走势</b><span className="ml-2 text-[10px] text-muted">基于当前持仓实时行情和短线趋势</span></div>{onAiReview && <button type="button" onClick={() => onAiReview()} disabled={aiBusy} className="rounded border border-accent/50 px-1.5 py-0.5 text-[10px] text-accent disabled:opacity-50">{aiBusy ? 'AI分析中…' : 'AI复核'}</button>}</div>
       <div className="h-16 rounded bg-base/60 px-1"><svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full" role="img" aria-label="AI预测持仓盈亏走势"><path d={forecastPath} fill="none" stroke={totals.day >= 0 ? 'hsl(var(--bull))' : 'hsl(var(--bear))'} strokeWidth="2" vectorEffect="non-scaling-stroke" /></svg></div>
       <p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-secondary">{aiText || `规则基线：当前组合今日${totals.day >= 0 ? '偏正收益' : '偏负收益'}，预测线仅表示情景趋势，不代表保证收益。`}</p>
     </div>
     <div className={compact ? 'grid gap-1.5 sm:grid-cols-2' : 'grid gap-2 xl:grid-cols-2'}>
-      {items.map(item => {
-        const rows = minuteData[item.symbol] || []
-        const last = rows.at(-1)
-        if (compact) return <button key={item.symbol} type="button" onClick={() => onSelect(item.symbol)} className="grid min-w-0 grid-cols-[132px_minmax(0,1fr)] items-center gap-2 rounded border border-border bg-surface p-1.5 text-left hover:border-accent/70">
-          <span className="min-w-0"><span className="flex items-center justify-between gap-1 text-xs"><b className="truncate">{item.name}</b><span className={Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}>{pct(item.change_pct)}</span></span>
-          <span className="mt-1 block text-[10px] text-muted">{item.symbol}</span><span className="mt-0.5 block font-mono text-xs">{last ? price(last.close) : price(item.price)}</span><span className="mt-0.5 block text-[10px] text-muted">{item.quantity == null ? '数量未录入' : `${item.quantity.toLocaleString()}份`}</span></span>
-          <span className="h-[148px] min-w-0">{rows.length ? <TimeChart compact rows={rows} title={`${item.name} · 分时`} color={Number(item.change_pct) >= 0 ? '#24ba91' : '#5aaaff'} height={146} /> : <span className="flex h-full items-center justify-center rounded bg-base/50 text-[10px] text-muted">暂无真实分钟数据</span>}</span>
-        </button>
-        return <div key={item.symbol} role="button" tabIndex={0} onClick={() => onSelect(item.symbol)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') onSelect(item.symbol) }} className="min-w-0 cursor-pointer rounded border border-border bg-surface p-1.5 text-left hover:border-accent/70">
-          <div className="mb-1 flex items-center justify-between gap-2"><span className="truncate text-xs font-semibold">{item.name}</span><span className={Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}>{pct(item.change_pct)}</span></div>
-          <div className="mb-1 flex justify-between text-[10px] text-muted"><span>{item.symbol}</span><span>最新 {last ? price(last.close) : price(item.price)} · {last?.datetime || '暂无分钟数据'}</span></div>
-          <TimeChart rows={rows} title={item.name} color={Number(item.change_pct) >= 0 ? '#24ba91' : '#5aaaff'} height={155} />
-        </div>
-      })}
+      {items.map(item => <HoldingCard key={item.symbol} item={item} rows={minuteData[item.symbol] || []} day={day} compact={compact} linkedBoardCode={linkedBoards[item.symbol]} aiText={aiText} aiBusy={aiBusy} onAiReview={onAiReview} onSelect={onSelect} />)}
       {!items.length && <p className="p-3 text-xs text-muted">暂无持仓或监控标的</p>}
     </div>
   </section>
@@ -500,44 +558,14 @@ function HoldingsSummary({ items, minuteData }: { items: Holding[]; minuteData: 
   </div>
 }
 
-function DecisionGuidePanel({ items, minuteData, source, aiText, aiBusy, onAiReview }: { items: Holding[]; minuteData: Record<string, Bar[]>; source?: string; aiText?: string; aiBusy: boolean; onAiReview: () => void }) {
-  const guides = items.map(item => {
-    const rows = minuteData[item.symbol] || []
-    const closes = rows.map(row => Number(row.close)).filter(Number.isFinite)
-    const last = closes.at(-1)
-    const first = closes[0]
-    const ma5 = closes.length >= 5 ? closes.slice(-5).reduce((sum, value) => sum + value, 0) / 5 : null
-    const ma20 = closes.length >= 20 ? closes.slice(-20).reduce((sum, value) => sum + value, 0) / 20 : null
-    const support = rows.length ? Math.min(...rows.slice(-20).map(row => Number(row.low))) : null
-    const resistance = rows.length ? Math.max(...rows.slice(-20).map(row => Number(row.high))) : null
-    const peak = rows.length ? Math.max(...rows.slice(-20).map(row => Number(row.high))) : null
-    const pullbackPct = peak && last ? (last / peak - 1) * 100 : null
-    const pullback = rows.length >= 5 && pullbackPct != null && pullbackPct <= -0.4 && last != null && ma5 != null && last < ma5
-    const change = first && last ? (last / first - 1) * 100 : null
-    const trend = last == null || ma5 == null ? '数据不足' : last >= ma5 && (ma20 == null || last >= ma20) ? '短线偏强' : last < ma5 && (ma20 == null || last < ma20) ? '短线偏弱' : '震荡观察'
-    const rangeWidth = support && resistance ? (resistance / support - 1) * 100 : null
-    const nearSupport = support != null && last != null && last <= support * 1.015
-    const nearResistance = resistance != null && last != null && last >= resistance * .985
-    const action = last == null ? '暂不可判断' : pullback ? '冲高回落·等待确认' : trend === '震荡观察' && nearSupport && (rangeWidth ?? 0) >= 0.8 ? '震荡靠近支撑·做T观察' : trend === '震荡观察' && nearResistance && (rangeWidth ?? 0) >= 0.8 ? '震荡靠近压力·做T观察' : support != null && last <= support * 1.01 ? '接近支撑·等待确认' : resistance != null && last >= resistance * .99 ? '接近压力·防追高' : trend === '短线偏强' ? '持有·观察回踩' : trend === '短线偏弱' ? '暂不操作' : '区间中部·等待边界'
-    const advice = pullback
-      ? `不追买；跌破支撑 ${price(support)} 且板块同步走弱才考虑减仓/反T，重新站回均价线并放量才考虑回补`
-      : trend === '震荡观察' && nearSupport && (rangeWidth ?? 0) >= 0.8
-        ? `有底仓且有可卖份额：等待支撑 ${price(support)} 止跌确认后再考虑轻仓正T；无底仓不在中间价追买`
-        : trend === '震荡观察' && nearResistance && (rangeWidth ?? 0) >= 0.8
-          ? `有底仓：靠近压力 ${price(resistance)} 且量能不足时才观察反T；突破并放量则不做反T`
-      : support != null && last != null && last <= support * 1.01
-        ? '只观察支撑是否企稳，未出现止跌确认前不加仓'
-        : resistance != null && last != null && last >= resistance * .99
-          ? '不在压力位追高，等待突破放量或回踩确认'
-          : '等待多周期和板块同步确认，暂无强制操作'
-    return { item, last, change, support, resistance, rangeWidth, trend, action, advice, pullbackPct, time: rows.at(-1)?.datetime }
-  })
+function DecisionGuidePanel({ items, minuteData, source, aiText, aiBusy, onAiReview }: { items: Holding[]; minuteData: Record<string, Bar[]>; source?: string; aiText?: string; aiBusy: boolean; onAiReview: (symbol?: string) => void }) {
+  const guides = items.map(item => buildDecisionGuide(item, minuteData[item.symbol] || []))
   const activeGuide = guides.find(row => /做T|冲高回落|接近支撑|接近压力/.test(row.action))
   const reminder = activeGuide
     ? `${activeGuide.item.name}：${activeGuide.action}`
     : guides.length ? '当前没有触发操作条件，等待价格靠近支撑/压力或重新站回均价线' : '暂无分钟数据，无法生成实时提醒'
   return <aside className="min-w-0 rounded border border-border bg-base/50 p-2 text-xs">
-    <div className="flex items-center justify-between gap-2 border-b border-border pb-1"><b>实时操作建议</b><div className="flex items-center gap-2"><span className="text-[10px] text-muted">规则实时更新</span><button type="button" onClick={onAiReview} disabled={aiBusy} className="rounded border border-accent/50 px-1.5 py-0.5 text-[10px] text-accent disabled:opacity-50">{aiBusy ? 'AI分析中…' : 'AI复核'}</button></div></div>
+    <div className="flex items-center justify-between gap-2 border-b border-border pb-1"><b>实时操作建议</b><div className="flex items-center gap-2"><span className="text-[10px] text-muted">规则实时更新</span><button type="button" onClick={() => onAiReview()} disabled={aiBusy} className="rounded border border-accent/50 px-1.5 py-0.5 text-[10px] text-accent disabled:opacity-50">{aiBusy ? 'AI分析中…' : 'AI复核'}</button></div></div>
     <div className={`mt-1 rounded border px-1.5 py-1.5 ${activeGuide ? 'border-warning/50 bg-warning/10' : 'border-border bg-surface'}`}>
       <div className="flex items-center justify-between gap-2"><b className={activeGuide ? 'text-warning' : 'text-secondary'}>{activeGuide ? '实时提醒' : '当前判断'}</b><span className="text-[10px] text-muted">每15秒刷新</span></div>
       <div className="mt-0.5 leading-relaxed text-secondary">{reminder}</div>
@@ -677,16 +705,17 @@ export function PortfolioMonitorWidget({ compact = false }: { compact?: boolean 
     return merged
   }, [compactMinuteQueries, shown, usableMinuteData])
   const dataState = minute.isError ? '连接失败' : minute.isLoading ? '读取中' : badQuality ? `数据不完整${minute.data?.missing_symbols?.length ? `（缺 ${minute.data.missing_symbols.length} 只）` : ''}` : latestFreshness?.stale ? '已收盘/缓存' : latestFreshness?.market_time ? '行情可用' : '无时间戳'
-  const runAiReview = () => {
+  const runAiReview = (focusSymbol?: string) => {
     if (aiBusy) return
-    const context = shown.map(item => {
+    const reviewItems = focusSymbol ? shown.filter(item => item.symbol === focusSymbol) : shown
+    const context = reviewItems.map(item => {
       const rows = usableMinuteData[item.symbol] || []
       const last = rows.at(-1)?.close ?? item.price
       const peak = rows.length ? Math.max(...rows.slice(-20).map(row => Number(row.high))) : null
       const pullback = peak && last ? ((last / peak - 1) * 100).toFixed(2) : '—'
       return `${item.name}(${item.symbol}) 最新${last ?? '—'}，近20根高点回落${pullback}%`
     }).join('；')
-    void startReviewGeneration(undefined, `请基于真实行情和板块联动复核我的持仓实时操作建议。重点识别冲高回落：${context}。对每只标的明确说明现在是观察、持有、减仓、正T或反T观察，给出触发价格、数量依据、止损/失效条件和数据时间。没有足够数据就明确说无法判断，不要编造资金流或交易信号。`)
+    void startReviewGeneration(undefined, `请基于真实行情、板块联动和已提供的持仓上下文复核${focusSymbol ? '这只标的' : '每只标的'}：${context}。请严格以“标的｜结论｜依据｜触发条件｜失效条件｜数据时间”格式输出，结论只能是观察、持有、等待确认、减仓观察、正T观察或反T观察；不要编造资金流、盘口、新闻或交易信号，数据不足必须明确写数据不足。`)
   }
   const aiText = review.content.trim().replace(/[#*_`]/g, '').replace(/\s+/g, ' ').slice(0, 520)
   const chooseView = (mode: 'detail' | 'overview') => { setViewMode(mode); setUiPref('portfolio-terminal-view', JSON.stringify(mode)) }
@@ -769,7 +798,7 @@ export function PortfolioMonitorWidget({ compact = false }: { compact?: boolean 
       <span className="font-semibold text-warning">当前数据模式：</span>{snapshot.data.data_status?.semantics || snapshot.data.notice || '行情监控与 MyAgent 记录持仓'}
       <span className="ml-1 text-muted">已录入 {snapshot.data.recorded_count ?? items.filter(item => item.holding_source).length} 笔 · 监控 {snapshot.data.monitor_count ?? items.length} 个</span>
     </div>}
-    {layoutMode === 'grid' ? <HoldingsOverview compact items={shown} minuteData={compactMinuteData} source={minute.data?.source} aiText={aiText} aiBusy={aiBusy} onAiReview={runAiReview} onSelect={symbol => { setSelected(symbol); setViewMode('detail') }} /> : <><HoldingsSummary items={shown} minuteData={compactMinuteData} /><div className="grid min-h-0 gap-2 lg:grid-cols-[150px_minmax(0,1fr)]">
+    {layoutMode === 'grid' ? <HoldingsOverview compact day={day} linkedBoards={linkedBoards} items={shown} minuteData={compactMinuteData} source={minute.data?.source} aiText={aiText} aiBusy={aiBusy} onAiReview={runAiReview} onSelect={symbol => { setSelected(symbol); setViewMode('detail') }} /> : <><HoldingsSummary items={shown} minuteData={compactMinuteData} /><div className="grid min-h-0 gap-2 lg:grid-cols-[150px_minmax(0,1fr)]">
       <aside className="min-w-0 overflow-auto rounded border border-border bg-base/40">{shown.map(item => <button key={item.symbol} type="button" onClick={() => setSelected(item.symbol)} className={`block w-full border-b border-border/60 px-2 py-1.5 text-left text-xs ${active?.symbol === item.symbol ? 'bg-accent/15 text-accent' : 'hover:bg-elevated'}`}><b className="block truncate">{item.name}</b><span className="text-[10px] text-muted">{item.symbol} · {pct(item.change_pct)}</span></button>)}{!shown.length && <p className="p-2 text-xs text-muted">暂无持仓</p>}</aside>
       {active ? <div className="min-w-0 overflow-hidden"><Detail item={active} day={day} latestBars={compactMinuteData[active.symbol] || []} minuteSource={minute.data?.source} news={news.data?.items || []} visible={visible} trades={(tradeHistory.data?.trades || []).filter(trade => trade.symbol === active.symbol)} linkedBoardCode={linkedBoards[active.symbol] || ''} boardOptions={boardOptions} onLinkedBoardChange={code => setLinkedBoard(active.symbol, code)} /></div> : <p className="p-3 text-xs text-muted">暂无持仓</p>}
     </div></>}
@@ -792,13 +821,13 @@ export function PortfolioMonitorWidget({ compact = false }: { compact?: boolean 
       　现金 ¥{tradeHistory.data.account_snapshot.cash_available}　当日盈亏 ¥{tradeHistory.data.account_snapshot.day_pnl}
     </div>}
     {(snapshot.isError || minute.isError) && <p className="text-xs text-danger">行情读取失败：{String((snapshot.error || minute.error) instanceof Error ? (snapshot.error || minute.error)?.message : '请重试')}</p>}
-    {viewMode === 'overview' && <HoldingsOverview items={shown} minuteData={usableMinuteData} source={minute.data?.source} onSelect={symbol => { setSelected(symbol); chooseView('detail') }} />}
+    {viewMode === 'overview' && <HoldingsOverview day={day} linkedBoards={linkedBoards} items={shown} minuteData={usableMinuteData} source={minute.data?.source} onSelect={symbol => { setSelected(symbol); chooseView('detail') }} />}
     {viewMode === 'detail' && <>
     <div className="mb-1 flex flex-wrap items-center justify-between gap-2 rounded border border-border bg-base/40 px-2 py-1 text-[11px]">
       <span className="text-muted">详情布局</span><div className="flex gap-1"><button type="button" onClick={() => chooseLayout('side')} className={`rounded px-2 py-0.5 ${layoutMode === 'side' ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>左侧列表</button><button type="button" onClick={() => chooseLayout('strip')} className={`rounded px-2 py-0.5 ${layoutMode === 'strip' ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>横向长条</button><button type="button" onClick={() => chooseLayout('grid')} className={`rounded px-2 py-0.5 ${layoutMode === 'grid' ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>网格总览</button></div>
     </div>
     {layoutMode === 'grid' && <>
-      <HoldingsOverview items={shown} minuteData={usableMinuteData} source={minute.data?.source} onSelect={symbol => { setSelected(symbol); setSelectedBoard('') }} />
+      <HoldingsOverview day={day} linkedBoards={linkedBoards} items={shown} minuteData={usableMinuteData} source={minute.data?.source} onSelect={symbol => { setSelected(symbol); setSelectedBoard('') }} />
       {active && <Detail item={active} day={day} latestBars={usableMinuteData[active.symbol] || []} minuteSource={minute.data?.source} news={news.data?.items || []} visible={visible}
         trades={(tradeHistory.data?.trades || []).filter(trade => trade.symbol === active.symbol)} linkedBoardCode={linkedBoards[active.symbol] || ''} boardOptions={boardOptions} onLinkedBoardChange={code => setLinkedBoard(active.symbol, code)} />}
       <DecisionGuidePanel items={shown} minuteData={usableMinuteData} source={minute.data?.source} aiText={aiText} aiBusy={aiBusy} onAiReview={runAiReview} />

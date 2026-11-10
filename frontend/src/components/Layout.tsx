@@ -89,6 +89,7 @@ const nav = [
   { to: '/watchlist',        label: '自选',     icon: IconWatchlist },
   { to: '/screener',         label: '策略',     icon: IconStrategy },
   { to: '/pick-model',       label: '拾贝模型', icon: IconStrategy },
+  { to: '/strong-sectors',   label: '强势板块', icon: IconStrategy },
   { to: '/fund-flow',        label: '资金流向', icon: BarChart3 },
   { to: '/market-news',      label: '市场新闻', icon: Newspaper },
   { to: '/decision-guide',   label: '行情推演', icon: Sparkles },
