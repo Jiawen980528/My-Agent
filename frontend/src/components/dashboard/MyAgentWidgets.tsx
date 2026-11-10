@@ -105,6 +105,9 @@ export function HoldingsWidget() {
   const [cost, setCost] = useState('')
   const [sector, setSector] = useState('')
   const [saving, setSaving] = useState(false)
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const [bulkText, setBulkText] = useState('588080,科创板50,33200,1.471\n159558,半导体ETF,49200,1.063\n159246,创AI富国,9500,1.068\n510210,综指ETF,7800,0.994\n000938,紫光股份,200,39.694\n515880,通信ETF,10500,0.854\n600939,重庆建工,1000,2.745')
+  const [bulkSaving, setBulkSaving] = useState(false)
   const [error, setError] = useState('')
   const [sort, setSort] = useState<'manual' | 'pctAsc' | 'pctDesc' | 'profitAsc' | 'profitDesc'>('manual')
 
@@ -131,6 +134,19 @@ export function HoldingsWidget() {
       await holdings.refetch()
     } catch (err) { setError((err as Error).message) } finally { setSaving(false) }
   }
+  const saveBulk = async () => {
+    const rows = bulkText.split(/\r?\n/).map(line => line.split(',').map(value => value.trim())).filter(row => row.length >= 4 && row[0])
+    if (!rows.length || rows.some(row => !/^\d{6}$/.test(row[0]) || !row[1] || Number(row[2]) <= 0 || Number(row[3]) < 0)) { setError('批量格式应为：六位代码,名称,数量,成本价'); return }
+    setBulkSaving(true); setError('')
+    try {
+      for (const [code, itemName, qty, itemCost] of rows) {
+        const response = await fetch(`${API}/holdings/${code}`, { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: code, name: itemName, quantity: Number(qty), cost: Number(itemCost), sector: '', source: 'screenshot' }) })
+        const result = await response.json()
+        if (!response.ok) throw new Error(result.detail || `保存 ${code} 失败 ${response.status}`)
+      }
+      setBulkOpen(false); await holdings.refetch()
+    } catch (err) { setError((err as Error).message) } finally { setBulkSaving(false) }
+  }
 
   const rows = [...(holdings.data?.items || [])]
   if (sort === 'pctAsc') rows.sort((a, b) => Number(a.pct ?? 0) - Number(b.pct ?? 0))
@@ -148,7 +164,7 @@ export function HoldingsWidget() {
     <div className="flex items-center justify-between gap-2">
       <div><h2 className="text-xs font-semibold">持仓涨跌</h2><p className="mt-0.5 text-[10px] text-muted">MyAgent 手工记录 · 公开行情约 30 秒刷新</p></div>
       <div className="flex gap-1"><select aria-label="持仓排序" value={sort} onChange={e => setSort(e.target.value as typeof sort)} className="rounded-btn border border-border bg-base px-1 py-1 text-[10px]"><option value="manual">原顺序</option><option value="pctAsc">涨幅升序</option><option value="pctDesc">涨幅降序</option><option value="profitAsc">盈亏升序</option><option value="profitDesc">盈亏降序</option></select>
-      <button type="button" onClick={() => editing ? setEditing(false) : openForm()} className="shrink-0 rounded-btn border border-border px-2 py-1 text-[11px] text-accent">{editing ? '取消' : '录入持仓'}</button></div>
+      <button type="button" onClick={() => editing ? setEditing(false) : openForm()} className="shrink-0 rounded-btn border border-border px-2 py-1 text-[11px] text-accent">{editing ? '取消' : '录入持仓'}</button><button type="button" onClick={() => setBulkOpen(value => !value)} className="shrink-0 rounded-btn border border-border px-2 py-1 text-[11px] text-accent">批量录入</button></div>
     </div>
     {error && <p className="mt-2 text-xs text-danger">{error}</p>}
     {editing && <form onSubmit={save} className="mt-2 grid grid-cols-2 gap-1.5 border-y border-border py-2 text-xs">
@@ -159,6 +175,7 @@ export function HoldingsWidget() {
       <select aria-label="关联板块" value={sector} onChange={e => setSector(e.target.value)} className="min-w-0 rounded-btn border border-border bg-base px-2 py-1.5"><option value="">自动匹配板块</option>{(sectors.data?.items || []).map(x => <option key={x.sector} value={x.sector}>{x.sector}</option>)}</select>
       <button disabled={saving} className="rounded-btn bg-accent px-2 py-1.5 text-white disabled:opacity-50">{saving ? '保存中…' : '保存持仓'}</button>
     </form>}
+    {bulkOpen && <div className="mt-2 border-y border-border py-2"><p className="text-[10px] text-muted">每行：代码,名称,数量,成本价。已按你提供的持仓截图预填，请核对后保存。</p><textarea value={bulkText} onChange={event => setBulkText(event.target.value)} rows={7} className="mt-1 w-full rounded-btn border border-border bg-base px-2 py-1.5 font-mono text-[11px]" /><button type="button" onClick={() => void saveBulk()} disabled={bulkSaving} className="mt-1 rounded-btn bg-accent px-2 py-1.5 text-xs text-white disabled:opacity-50">{bulkSaving ? '批量保存中…' : '确认保存全部持仓'}</button></div>}
     {holdings.isLoading && <p className="mt-3 text-xs text-muted">加载持仓…</p>}
     {holdings.error && <p className="mt-3 text-xs text-danger">{(holdings.error as Error).message}</p>}
     {!rows.length && !holdings.isLoading && !holdings.error && <p className="mt-4 text-xs text-muted">暂无持仓记录。点击“录入持仓”后会显示价格、涨跌和浮盈亏。</p>}
