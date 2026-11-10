@@ -230,8 +230,8 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
         })}
       </div>
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_248px]">
-        <div className="min-h-0 rounded border border-border bg-base/35 p-2">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+        <div className="min-h-0 flex-none rounded border border-border bg-base/35 p-2">
           <div className="mb-1 flex items-center justify-between gap-2 text-xs">
             <b>{selected.name} · 分时走势</b>
             <span className="flex items-center gap-2 text-[10px] text-muted">{chartRows.length ? `${chartRows.length}根分钟K · 可缩放` : minute.isLoading ? '读取中…' : '暂无分钟数据'}<button type="button" onClick={() => setExpanded(true)} disabled={!chartRows.length} className="rounded border border-accent/50 px-1.5 py-0.5 text-accent disabled:opacity-40">放大查看</button></span>
@@ -244,7 +244,8 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
           </div>
         </div>
 
-        <div className="min-h-0 max-h-full space-y-2 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+        <div className="min-h-0 max-h-full overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
           <div className="grid grid-cols-2 gap-1.5">
             {marketStats.map(item => <div key={item.label} className="rounded border border-border bg-elevated/45 p-2"><div className="text-[10px] text-muted">{item.label}</div><div className="mt-0.5 font-mono text-sm font-semibold">{item.value}</div><div className="text-[9px] text-secondary">{item.sub}</div></div>)}
           </div>
@@ -308,6 +309,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
             <div className="mb-1 flex items-center justify-between gap-2"><b className="text-xs">重要新闻推送</b><Link to="/market-news" className="text-[10px] text-accent hover:underline">打开新闻中心</Link></div>
             {newsRows.length ? <div className="space-y-1">{newsRows.map((item, index) => <a key={`${item.url}-${index}`} href={item.url} target="_blank" rel="noopener noreferrer" className="block rounded bg-base/70 px-1.5 py-1 text-[10px] hover:bg-elevated"><div className="line-clamp-2 leading-relaxed">{item.title}</div><div className="mt-0.5 flex items-center justify-between gap-2 text-[9px] text-muted"><span>{item.bias ?? '待判断'} · {item.sector_names?.slice(0, 2).join('、') || '市场'}</span><span>{item.source ?? '公开源'}</span></div></a>)}</div> : <p className="text-[10px] text-muted">新闻源暂未返回内容</p>}
             <p className="mt-1 text-[9px] text-muted">新闻只做事件线索，点击原文核对；AI策略会把新闻与量价、板块同步性一起复核。</p>
+          </div>
           </div>
         </div>
       </div>
