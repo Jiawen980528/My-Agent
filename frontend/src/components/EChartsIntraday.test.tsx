@@ -93,6 +93,25 @@ it('index uses provider average instead of amount divided by constituent volume'
   expect(host.textContent).toContain('3624.99')
 })
 
+it('index without provider average keeps the yellow line on the index point scale', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  cleanup = async () => { await act(async () => root.unmount()) }
+  await act(async () => root.render(<EChartsIntraday
+    assetType="index" showLimitLines={false} date="2026-11-10" prevClose={3680}
+    data={[
+      { datetime: '2026-11-10 09:30:00', open: 3682, high: 3684, low: 3680, close: 3682, volume: 100, amount: 100000 },
+      { datetime: '2026-11-10 09:31:00', open: 3682, high: 3683, low: 3678, close: 3680, volume: 100, amount: 100000 },
+    ]}
+  />))
+  expect(lastYAxis().min).toBeGreaterThan(3600)
+  expect(host.textContent).toContain('3681.00')
+  const option = chart.setOption.mock.calls.at(-1)?.[0]
+  expect(option?.series?.find((series: any) => series.name === '成交量')).toBeDefined()
+})
+
 it('no_limit day: adaptive y-axis covers data far beyond the ±10% band', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })

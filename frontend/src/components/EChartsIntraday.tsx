@@ -19,6 +19,7 @@ const THEME = {
 
 interface Props {
   data: MinuteKlineRow[]
+  assetType?: 'stock' | 'etf' | 'index'
   height?: number
   prevClose?: number
   date?: string
@@ -426,6 +427,7 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
 
 export function EChartsIntraday({
   data,
+  assetType,
   height = 320,
   prevClose,
   date,
@@ -460,7 +462,7 @@ export function EChartsIntraday({
   const [expanded, setExpanded] = useState(false)
   const chartHeight = expanded ? Math.max(640, window.innerHeight - 170) : height
   const ct = useChartTheme()
-  const avgPrices = useMemo(() => averagePrices ?? computeIntradayAverage(data), [averagePrices, data])
+  const avgPrices = useMemo(() => averagePrices ?? computeIntradayAverage(data, assetType), [averagePrices, data, assetType])
   const summary = useMemo(() => summarizeMinutes(data), [data])
 
   // 分时线颜色：基于最新价 vs 昨收
@@ -648,6 +650,7 @@ export function EChartsIntraday({
               </span>
               {showAvgLine && <span className="flex items-center gap-x-1">
                 <span style={{ display: 'inline-block', width: 14, height: 2, background: THEME.avgLine }} />
+                {assetType === 'index' && <span className="text-muted">点位均值</span>}
                 <span style={{ color: THEME.avgLine }}>{avg != null ? avg.toFixed(2) : '—'}</span>
               </span>}
               <span className="text-muted">{hovered ? '量' : '累计量'}</span>

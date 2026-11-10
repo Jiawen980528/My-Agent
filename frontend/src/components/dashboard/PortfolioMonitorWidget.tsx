@@ -391,7 +391,7 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
           <button key={period} type="button" onClick={() => setChartPeriod(period)} className={`rounded px-1 py-0.5 ${chartPeriod === period ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>{period === '1d' ? '日K' : period === '1w' ? '周K' : period}</button>)}
           {chartPeriod === '1m' && <><span className="ml-1 text-muted">历史范围</span>{([1, 5, 10, 20] as const).map(n =>
             <button key={n} type="button" onClick={() => setRequestedDays(n)} className={`rounded px-1 py-0.5 ${requestedDays === n ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>{n}日</button>)}</>}</div></div>
-      <TimeChart rows={chartRows} title={`${item.name} · ${chartPeriod}`} color="#5aaaff" height={260} multiDay={chartPeriod === '1m' && historyRows.length > stockRows.length} previousCloses={previousCloses} trades={chartPeriod === '1m' ? trades : []} />
+      <TimeChart rows={chartRows} title={`${item.name} · ${chartPeriod}`} color="#5aaaff" height={chartRows.length ? 260 : 96} multiDay={chartPeriod === '1m' && historyRows.length > stockRows.length} previousCloses={previousCloses} trades={chartPeriod === '1m' ? trades : []} />
       <p className="px-1 text-[11px] text-muted">滚轮缩放 · 拖动下方时间条浏览 · 鼠标悬停看具体信息 · {chartPeriod === '1m' ? `已有 ${new Set(historyRows.map(row => dateOf(row.datetime))).size} 个交易日 · 选中日 ${stockRows.length} 根` : `${chartRows.length} 根真实${chartPeriod === '1d' ? '日K' : chartPeriod === '1w' ? '周K' : chartPeriod}数据`} · {chartRows.at(-1)?.datetime || '暂无时间'} · {chartPeriod === '1d' || chartPeriod === '1w' ? (dailyHistory.data?.source || '来源未标注') : (isLatest ? (minuteSource || selectedMinute.data?.source || '来源未标注') : (selectedMinute.data?.source || minuteSource || '读取中'))}</p>
       {(chartPeriod === '1d' || chartPeriod === '1w') && dailyHistory.isError && <p className="px-1 text-[11px] text-warning">日K/周K读取失败，请检查当前数据源权限。</p>}
       {history.isError && <p className="px-1 text-[11px] text-warning">跨日缓存读取失败；仍可按日期查看单日。</p>}
@@ -400,7 +400,7 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
     </section>}
     {visible.board && <section className="rounded border border-border bg-base/50 p-1.5">
       <div className="flex flex-wrap items-center justify-between gap-1 px-1 text-xs"><b>{boardName} · {chartPeriod === '1d' || chartPeriod === '1w' ? '板块K线' : '板块分时'}</b><span className="text-muted">{linkedBoard.data?.source || board.data?.source || '数据源待确认'}</span></div>
-      <TimeChart rows={boardRows} title={boardName} color="#e3a54d" height={150} />
+      <TimeChart rows={boardRows} title={boardName} color="#e3a54d" height={boardRows.length ? 150 : 72} />
       <p className="px-1 text-[11px] text-muted">区间涨跌 {pct(boardMove)} · {linkedBoard.data?.latest_time || board.data?.last_market_time || '暂无时间'}；{linkedBoardCode ? `自选板块 ${linkedBoardCode}` : inferredBoard ? `按持仓名称自动关联 ${inferredBoard.name}` : autoBoardName ? '自动关联行业板块' : '请先选择真实行业/指数板块'}</p>
     </section>}
     <div className="grid gap-1.5 lg:grid-cols-2">

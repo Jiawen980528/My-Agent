@@ -26,8 +26,17 @@ export function formatMinuteTime(datetime: string): string {
 }
 
 export function computeIntradayAverage(data: MinuteKlineRow[], assetType?: 'stock' | 'etf' | 'index'): (number | null)[] {
-  // 指数成交额 / 成交股数是成分股价格口径，不能作为指数点位均线。
-  if (assetType === 'index') return data.map(() => null)
+  // 指数成交额 / 成交股数不是指数点位。优先使用同量纲的供应商均线，
+  // 缺失时用已收到的收盘点位累计均值，避免错误均线拉坏纵轴。
+  if (assetType === 'index') {
+    let total = 0
+    return data.map((row, index) => {
+      total += row.close
+      const vendor = row.avg_price
+      return typeof vendor === 'number' && Number.isFinite(vendor) && Math.abs(vendor / row.close - 1) < 0.1
+        ? vendor : total / (index + 1)
+    })
+  }
   const result: (number | null)[] = []
   let amount = 0
   let volume = 0

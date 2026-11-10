@@ -236,7 +236,7 @@ export function MarketOverviewWidget({ data, tradeDate, showContext = true }: { 
             <b>{selected.name} · 分时走势</b>
             <span className="flex items-center gap-2 text-[10px] text-muted">{chartRows.length ? `${chartRows.length}根分钟K · 可缩放` : minute.isLoading ? '读取中…' : '暂无分钟数据'}<button type="button" onClick={() => setExpanded(true)} disabled={!chartRows.length} className="rounded border border-accent/50 px-1.5 py-0.5 text-accent disabled:opacity-40">放大查看</button></span>
           </div>
-          {chartRows.length ? <EChartsIntraday data={chartRows} height={380} date={minute.data?.date ?? undefined} showLimitLines={false} showAvgLine /> : <div className="flex h-[380px] items-center justify-center text-xs text-muted">{minute.isLoading ? <><RefreshCw className="mr-1 h-3 w-3 animate-spin" />正在读取分钟走势…</> : '当前没有可用的分钟数据，请检查分钟数据源和交易日期'}</div>}
+          {chartRows.length ? <EChartsIntraday data={chartRows} assetType="index" height={380} date={minute.data?.date ?? undefined} showLimitLines={false} showAvgLine /> : <div className="flex h-[380px] items-center justify-center text-xs text-muted">{minute.isLoading ? <><RefreshCw className="mr-1 h-3 w-3 animate-spin" />正在读取分钟走势…</> : '当前没有可用的分钟数据，请检查分钟数据源和交易日期'}</div>}
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted">
             <span>当前来源：{sourceText}</span>
             <span>最后时间：{chartRows.at(-1)?.datetime ?? '—'}</span>
@@ -317,7 +317,7 @@ export function MarketOverviewWidget({ data, tradeDate, showContext = true }: { 
       {expanded && chartRows.length > 0 && <div role="dialog" aria-modal="true" aria-label={`${selected.name}分时走势`} className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/75 p-4" onClick={() => setExpanded(false)}>
         <div className="w-full max-w-6xl rounded-card border border-border bg-surface p-3 shadow-2xl" onClick={event => event.stopPropagation()}>
           <div className="mb-2 flex items-center justify-between"><b>{selected.name} · {minute.data?.date ?? selectedDate} · 分时走势</b><button type="button" onClick={() => setExpanded(false)} className="rounded border border-border px-2 py-1 text-xs text-muted">关闭</button></div>
-          <EChartsIntraday data={chartRows} height={560} date={minute.data?.date ?? undefined} showLimitLines={false} showAvgLine />
+          <EChartsIntraday data={chartRows} assetType="index" height={560} date={minute.data?.date ?? undefined} showLimitLines={false} showAvgLine />
         </div>
       </div>}
 
