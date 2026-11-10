@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQueries, useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import * as echarts from 'echarts'
@@ -628,6 +628,19 @@ export function PortfolioMonitorWidget({ compact = false }: { compact?: boolean 
   const qualityRows = Object.values(minute.data?.quality || {})
   const badQuality = qualityRows.some(row => row.valid === false) || minute.data?.complete === false
   const usableMinuteData = badQuality ? {} : (minute.data?.data || {})
+  const compactMinuteQueries = useQueries({ queries: compact ? shown.map(item => ({
+    queryKey: ['portfolio-compact-minute', item.symbol, day],
+    queryFn: () => json<{ rows: Bar[]; source?: string }>(`${API}/portfolio/minute/${item.symbol}?trade_date=${day}`),
+    staleTime: 60_000,
+  })) : [] })
+  const compactMinuteData = useMemo(() => {
+    const merged = { ...usableMinuteData }
+    shown.forEach((item, index) => {
+      const rows = compactMinuteQueries[index]?.data?.rows
+      if (rows?.length) merged[item.symbol] = rows
+    })
+    return merged
+  }, [compactMinuteQueries, shown, usableMinuteData])
   const dataState = minute.isError ? '连接失败' : minute.isLoading ? '读取中' : badQuality ? `数据不完整${minute.data?.missing_symbols?.length ? `（缺 ${minute.data.missing_symbols.length} 只）` : ''}` : latestFreshness?.stale ? '已收盘/缓存' : latestFreshness?.market_time ? '行情可用' : '无时间戳'
   const runAiReview = () => {
     if (aiBusy) return
@@ -717,7 +730,7 @@ export function PortfolioMonitorWidget({ compact = false }: { compact?: boolean 
   }
   if (compact) return <section className="relative h-full overflow-auto overscroll-contain rounded-card border border-border bg-surface p-2 text-foreground [scrollbar-gutter:stable]">
     <div className="mb-1.5 flex items-center justify-between gap-2 border-b border-border pb-1"><div><h2 className="text-sm font-semibold">持仓实时总览</h2><p className="text-[11px] text-muted">按交易日查看持仓分时走势 · {minute.data?.source || '分钟行情读取中'}</p></div><label className="inline-flex items-center gap-1 text-[10px] text-muted">交易日<input aria-label="持仓走势交易日" type="date" value={day} max={latestDay} onChange={event => setPickedDay(event.target.value)} className="rounded border border-border bg-base px-1 py-0.5 text-[10px] text-foreground" /></label></div>
-    <HoldingsOverview compact items={shown} minuteData={usableMinuteData} source={minute.data?.source} aiText={aiText} aiBusy={aiBusy} onAiReview={runAiReview} onSelect={symbol => { setSelected(symbol); setViewMode('detail') }} />
+    <HoldingsOverview compact items={shown} minuteData={compactMinuteData} source={minute.data?.source} aiText={aiText} aiBusy={aiBusy} onAiReview={runAiReview} onSelect={symbol => { setSelected(symbol); setViewMode('detail') }} />
   </section>
   return <section className="relative h-full overflow-auto overscroll-contain rounded-card border border-border bg-surface p-2 text-foreground [scrollbar-gutter:stable]"
     onContextMenu={event => { event.preventDefault(); setMenu({ x: Math.max(8, Math.min(event.clientX, innerWidth - 220)), y: Math.max(8, Math.min(event.clientY, innerHeight - 440)) }) }}>
