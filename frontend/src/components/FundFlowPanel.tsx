@@ -161,6 +161,17 @@ export function FundFlowPanel({ compact = false }: { compact?: boolean }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [revision, setRevision] = useState(0)
+  const [trackedSectors, setTrackedSectors] = useState<{ code: string; name: string }[]>(() => {
+    try { return JSON.parse(localStorage.getItem('fund-flow-tracked-sectors') || '[]') }
+    catch { return [] }
+  })
+  const toggleTracked = (item: RankedSector) => {
+    const next = trackedSectors.some(row => row.code === item.code)
+      ? trackedSectors.filter(row => row.code !== item.code)
+      : [...trackedSectors, { code: item.code, name: item.name }].slice(-6)
+    setTrackedSectors(next)
+    localStorage.setItem('fund-flow-tracked-sectors', JSON.stringify(next))
+  }
 
   useEffect(() => {
     let active = true
@@ -235,12 +246,12 @@ export function FundFlowPanel({ compact = false }: { compact?: boolean }) {
   const latest = activeData?.rows[activeData.rows.length - 1]
   const rank = (items: RankedSector[], title: string) => <div className="min-w-0 rounded-card border border-border bg-base/40 p-3">
     <h3 className="mb-2 text-xs font-semibold">{title} <span className="font-normal text-muted">{items.length} 个板块</span></h3>
-    <div className={compact ? '' : 'max-h-[420px] overflow-y-auto'}>{items.length ? items.slice(0, compact ? 3 : undefined).map(x => <button key={x.code} type="button" onClick={() => { setSector(x.code); setSectorName(x.name) }}
-      className={`flex w-full items-center gap-2 border-t border-border py-1.5 text-left text-xs hover:text-accent ${sector === x.code ? 'text-accent' : ''}`}>
-      <span className="min-w-0 flex-1 truncate">{x.name}</span>
+    <div className={compact ? 'max-h-[170px] overflow-y-auto overscroll-contain pr-1' : 'max-h-[420px] overflow-y-auto'}>{items.length ? items.slice(0, compact ? 8 : undefined).map(x => <div key={x.code} className={`flex items-center gap-1 border-t border-border py-1.5 text-xs ${sector === x.code ? 'text-accent' : ''}`}>
+      <button type="button" onClick={() => { setSector(x.code); setSectorName(x.name) }} className="min-w-0 flex-1 truncate text-left hover:text-accent">{x.name}</button>
       <span className={x.pct == null ? 'text-muted' : Number(x.pct) >= 0 ? 'text-danger' : 'text-success'}>{x.pct == null ? '—' : `${Number(x.pct) > 0 ? '+' : ''}${Number(x.pct).toFixed(2)}%`}</span>
       <span className={x.net_yi >= 0 ? 'text-danger' : 'text-success'}>{formatYi(x.net_yi)}</span>
-    </button>) : <p className="text-xs text-muted">暂无板块排行</p>}</div>
+      <button type="button" aria-label={`${trackedSectors.some(row => row.code === x.code) ? '移除' : '添加'}${x.name}曲线`} onClick={() => toggleTracked(x)} className="w-5 rounded border border-border text-accent hover:bg-elevated">{trackedSectors.some(row => row.code === x.code) ? '−' : '+'}</button>
+    </div>) : <p className="text-xs text-muted">暂无板块排行</p>}</div>
   </div>
 
   return <section className={`${compact ? 'h-full overflow-auto' : 'mb-3'} rounded-card border border-border bg-surface p-3`}>
@@ -287,6 +298,7 @@ export function FundFlowPanel({ compact = false }: { compact?: boolean }) {
         {!selectedDate && <p className="py-6 text-center text-xs text-muted">选择交易日后查看真实分钟资金曲线。</p>}
       </div>}
     </> : <div className="flex h-56 items-center justify-center text-xs text-muted">{view === 'history' ? historyLoading ? '正在读取历史资金流…' : historyError || '暂无历史资金流' : loading ? '正在加载资金流向…' : '暂无可用资金流数据'}</div>}
-    {sector && <SectorKline key={sector} sector={sector} compact={compact} />}
+    {trackedSectors.length > 0 && <div className="mt-3 max-h-[360px] overflow-y-auto overscroll-contain rounded-card border border-border bg-base/30 p-2"><div className="mb-1 text-xs font-semibold">自选资金曲线</div>{trackedSectors.map(item => <SectorKline key={item.code} sector={item.code} compact={compact} />)}</div>}
+    {sector && !trackedSectors.some(item => item.code === sector) && <SectorKline key={sector} sector={sector} compact={compact} />}
   </section>
 }
