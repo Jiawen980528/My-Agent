@@ -9,6 +9,7 @@ vi.mock('echarts', () => ({ init: () => ({ setOption: vi.fn(), getOption: () => 
 vi.mock('@/lib/api', () => ({ api: { klineMinuteRange: vi.fn() } }))
 
 vi.mock('@tanstack/react-query', () => ({
+  useQueries: ({ queries }: { queries: unknown[] }) => queries.map(() => ({ data: undefined })),
   useQuery: ({ queryKey }: { queryKey: string[] }) => {
     if (queryKey[0] === 'portfolio-instrument-search') return { data: { results: [{ symbol: '600939.SH', name: '重庆建工', code: '600939', asset_type: 'stock' }] } }
     if (queryKey[0] === 'portfolio-widget-snapshot') return { data: {

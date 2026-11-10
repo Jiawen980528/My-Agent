@@ -641,7 +641,12 @@ def quant_holdings():
         profit = (price - cost) * quantity if price and cost else 0
         items.append({**item, **quote, "market_value": round(price * quantity, 2),
                       "profit": round(profit, 2), "profit_pct": round((price / cost - 1) * 100, 2) if price and cost else 0})
-    return {"items": items, "qmt_connected": False, "notice": "当前持仓由截图或手工记录；接入QMT后可自动同步。"}
+    return {
+        "items": items,
+        "qmt_connected": False,
+        "broker_connected": False,
+        "notice": "当前持仓由 MyAgent 的手工/截图记录；尚未接入券商账户，不代表实时账户仓位。",
+    }
 
 
 _INITIAL_MONITOR = (
@@ -698,12 +703,33 @@ def quant_portfolio_snapshot():
             "board": portfolio_monitor.board_meta(symbol),
         })
     valued = [row for row in items if row["market_value"] is not None]
-    return {"source": market_data.get("source"), "items": items,
-            "account": {"source": "未连接券商账户", "total_assets": None, "cash_available": None,
-                        "position_ratio": None, "market_value_recorded": round(sum(row["market_value"] for row in valued), 2) if valued else None,
-                        "today_pnl_estimate": round(sum(row["today_pnl_estimate"] or 0 for row in valued), 2) if valued else None,
-                        "total_pnl_estimate": round(sum(row["unrealized_pnl_estimate"] or 0 for row in valued), 2) if valued else None},
-            "notice": "七只是初始监控标的，并非已验证持仓；持仓库按录入/导入动态显示。未接入国金账户时不显示实时账户资产。"}
+    account = {
+        "source": "未连接券商账户",
+        "total_assets": None,
+        "cash_available": None,
+        "position_ratio": None,
+        "market_value_recorded": round(sum(row["market_value"] for row in valued), 2) if valued else None,
+        "today_pnl_estimate": round(sum(row["today_pnl_estimate"] or 0 for row in valued), 2) if valued else None,
+        "total_pnl_estimate": round(sum(row["unrealized_pnl_estimate"] or 0 for row in valued), 2) if valued else None,
+    }
+    recorded_items = [row for row in items if row["holding_source"]]
+    return {
+        "source": market_data.get("source"),
+        "items": items,
+        "holding_items": recorded_items,
+        "recorded_count": len(recorded_items),
+        "monitor_count": len(items),
+        "account": account,
+        # Keep these fields at the top level for the existing frontend contract.
+        "account_source": account["source"],
+        "account_verified": False,
+        "data_status": {
+            "broker_connected": False,
+            "holdings_source": "myagent_recorded",
+            "semantics": "行情可刷新；数量、成本和盈亏只对 MyAgent 已录入持仓计算，不代表券商实时账户。",
+        },
+        "notice": "默认七只仅作为监控标的；只有已录入到 MyAgent 持仓库的标的才会计算数量、成本和浮盈亏。未接入国金账户时不显示实时账户资产。",
+    }
 
 
 @app.get("/api/quant/terminal/history", dependencies=[Depends(require_auth)])

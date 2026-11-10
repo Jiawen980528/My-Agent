@@ -31,7 +31,13 @@ type History = { trades: Trade[]; account_snapshot: { total_assets: string; posi
     items: { symbol: string; buy_quantity: number; sell_quantity: number; net_quantity: number; matched_quantity: number;
       unmatched_buy_quantity: number; unmatched_sell_quantity: number; realised_t_pnl: string; total_fees: string }[] };
   notice: string }
-type PortfolioSnapshot = { items: Holding[]; source: string; account_source?: string | null; account_verified?: boolean }
+type PortfolioSnapshot = {
+  items: Holding[]; holding_items?: Holding[]; source: string; notice?: string;
+  recorded_count?: number; monitor_count?: number;
+  account_source?: string | null; account_verified?: boolean;
+  account?: { source?: string | null; market_value_recorded?: number | null; today_pnl_estimate?: number | null; total_pnl_estimate?: number | null };
+  data_status?: { broker_connected?: boolean; holdings_source?: string; semantics?: string }
+}
 type Replay = { actual_vs_no_trade: string; realised_t_pnl: string; extra_position_effect: string;
   max_drawdown_yuan: string; max_drawdown_pct_of_snapshot_assets: string | null; hindsight_optimal_pnl: string;
   hindsight_quantity: number | null;
@@ -759,6 +765,10 @@ export function PortfolioMonitorWidget({ compact = false }: { compact?: boolean 
   }
   if (compact) return <section className="relative h-full overflow-auto overscroll-contain rounded-card border border-border bg-surface p-2 text-foreground [scrollbar-gutter:stable]">
     <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 border-b border-border pb-1"><div><h2 className="text-sm font-semibold">持仓实时总览</h2><p className="text-[11px] text-muted">按交易日查看持仓分时走势 · {minute.data?.source || '分钟行情读取中'}</p></div><div className="flex items-center gap-2"><div className="flex gap-1"><button type="button" onClick={() => setLayoutMode('grid')} className={`rounded border border-border px-1.5 py-0.5 text-[10px] ${layoutMode === 'grid' ? 'bg-accent/20 text-accent' : 'text-muted'}`}>网格总览</button><button type="button" onClick={() => setLayoutMode('side')} className={`rounded border border-border px-1.5 py-0.5 text-[10px] ${layoutMode === 'side' ? 'bg-accent/20 text-accent' : 'text-muted'}`}>列表 + 个股</button></div><label className="inline-flex items-center gap-1 text-[10px] text-muted">交易日<input aria-label="持仓走势交易日" type="date" value={day} max={latestDay} onChange={event => setPickedDay(event.target.value)} className="rounded border border-border bg-base px-1 py-0.5 text-[10px] text-foreground" /></label><Link to="/myagent-quant" className="text-[10px] text-accent">管理持仓</Link></div></div>
+    {snapshot.data && <div className="mb-2 rounded border border-warning/40 bg-warning/5 px-2 py-1.5 text-[10px] leading-relaxed text-secondary">
+      <span className="font-semibold text-warning">当前数据模式：</span>{snapshot.data.data_status?.semantics || snapshot.data.notice || '行情监控与 MyAgent 记录持仓'}
+      <span className="ml-1 text-muted">已录入 {snapshot.data.recorded_count ?? items.filter(item => item.holding_source).length} 笔 · 监控 {snapshot.data.monitor_count ?? items.length} 个</span>
+    </div>}
     {layoutMode === 'grid' ? <HoldingsOverview compact items={shown} minuteData={compactMinuteData} source={minute.data?.source} aiText={aiText} aiBusy={aiBusy} onAiReview={runAiReview} onSelect={symbol => { setSelected(symbol); setViewMode('detail') }} /> : <><HoldingsSummary items={shown} minuteData={compactMinuteData} /><div className="grid min-h-0 gap-2 lg:grid-cols-[150px_minmax(0,1fr)]">
       <aside className="min-w-0 overflow-auto rounded border border-border bg-base/40">{shown.map(item => <button key={item.symbol} type="button" onClick={() => setSelected(item.symbol)} className={`block w-full border-b border-border/60 px-2 py-1.5 text-left text-xs ${active?.symbol === item.symbol ? 'bg-accent/15 text-accent' : 'hover:bg-elevated'}`}><b className="block truncate">{item.name}</b><span className="text-[10px] text-muted">{item.symbol} · {pct(item.change_pct)}</span></button>)}{!shown.length && <p className="p-2 text-xs text-muted">暂无持仓</p>}</aside>
       {active ? <div className="min-w-0 overflow-hidden"><Detail item={active} day={day} latestBars={compactMinuteData[active.symbol] || []} minuteSource={minute.data?.source} news={news.data?.items || []} visible={visible} trades={(tradeHistory.data?.trades || []).filter(trade => trade.symbol === active.symbol)} linkedBoardCode={linkedBoards[active.symbol] || ''} boardOptions={boardOptions} onLinkedBoardChange={code => setLinkedBoard(active.symbol, code)} /></div> : <p className="p-3 text-xs text-muted">暂无持仓</p>}
@@ -775,7 +785,7 @@ export function PortfolioMonitorWidget({ compact = false }: { compact?: boolean 
         <Link to="/myagent-quant" className="text-accent">管理持仓</Link></div>
     </div>
     {snapshot.data && <div className="mb-1.5 rounded border border-border bg-base/40 px-2 py-1 text-[11px]">
-      <span className="text-muted">监控标的来源：</span><b>{snapshot.data.source || '未标注'}</b> · <span className="text-muted">已录入持仓 {items.filter(item => item.holding_source).length}/{items.length}</span> · {snapshot.data.account_verified ? <span className="text-bull">券商实时账户已核验（{snapshot.data.account_source || 'broker'}）</span> : <span className="text-warning">券商账户未核验，数量/成本不代表实时账户同步</span>}
+      <span className="text-muted">监控标的来源：</span><b>{snapshot.data.source || '未标注'}</b> · <span className="text-muted">已录入持仓 {snapshot.data.recorded_count ?? items.filter(item => item.holding_source).length}/{snapshot.data.monitor_count ?? items.length}</span> · {snapshot.data.account_verified ? <span className="text-bull">券商实时账户已核验（{snapshot.data.account_source || 'broker'}）</span> : <span className="text-warning">券商账户未核验，数量/成本不代表实时账户同步</span>}
     </div>}
     {tradeHistory.data?.account_snapshot && <div className="mb-1.5 rounded border border-warning/50 bg-warning/5 px-2 py-1 text-[11px]">
       <b>{day} 历史账户截图 · 待与券商核对</b>　总资产 ¥{tradeHistory.data.account_snapshot.total_assets}　持仓 ¥{tradeHistory.data.account_snapshot.position_value}
