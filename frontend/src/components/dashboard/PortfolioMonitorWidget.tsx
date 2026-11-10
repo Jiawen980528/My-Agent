@@ -595,8 +595,8 @@ export function PortfolioMonitorWidget({ compact = false }: { compact?: boolean 
   const [pickedDay, setPickedDay] = useState('')
   const day = pickedDay || latestDay
   const [hindsightQuantity, setHindsightQuantity] = useState(20000)
-  const minute = useQuery({ queryKey: ['portfolio-widget-minute', latestDay],
-    queryFn: () => json<{ data: Record<string, Bar[]>; source: string; freshness?: Record<string, { market_time?: string | null; received_at?: string | null; age_seconds?: number | null; stale?: boolean }>; quality?: Record<string, MinuteQuality>; missing_symbols?: string[]; complete?: boolean }>(`${API}/portfolio/minute-batch?trade_date=${latestDay}`),
+  const minute = useQuery({ queryKey: ['portfolio-widget-minute', day],
+    queryFn: () => json<{ data: Record<string, Bar[]>; source: string; freshness?: Record<string, { market_time?: string | null; received_at?: string | null; age_seconds?: number | null; stale?: boolean }>; quality?: Record<string, MinuteQuality>; missing_symbols?: string[]; complete?: boolean }>(`${API}/portfolio/minute-batch?trade_date=${day}`),
     enabled: !!items.length,
     refetchInterval: () => tradingNow() ? 15_000 : false,
     refetchOnWindowFocus: true })
@@ -715,7 +715,10 @@ export function PortfolioMonitorWidget({ compact = false }: { compact?: boolean 
     }
     setSelectedBoard(code); setBoardInput(''); setBoardError(''); setMenu(null)
   }
-  if (compact) return <section className="relative h-full overflow-auto overscroll-contain rounded-card border border-border bg-surface p-2 text-foreground [scrollbar-gutter:stable]"><HoldingsOverview compact items={shown} minuteData={usableMinuteData} source={minute.data?.source} aiText={aiText} aiBusy={aiBusy} onAiReview={runAiReview} onSelect={symbol => { setSelected(symbol); setViewMode('detail') }} /></section>
+  if (compact) return <section className="relative h-full overflow-auto overscroll-contain rounded-card border border-border bg-surface p-2 text-foreground [scrollbar-gutter:stable]">
+    <div className="mb-1.5 flex items-center justify-between gap-2 border-b border-border pb-1"><div><h2 className="text-sm font-semibold">持仓实时总览</h2><p className="text-[11px] text-muted">按交易日查看持仓分时走势 · {minute.data?.source || '分钟行情读取中'}</p></div><label className="inline-flex items-center gap-1 text-[10px] text-muted">交易日<input aria-label="持仓走势交易日" type="date" value={day} max={latestDay} onChange={event => setPickedDay(event.target.value)} className="rounded border border-border bg-base px-1 py-0.5 text-[10px] text-foreground" /></label></div>
+    <HoldingsOverview compact items={shown} minuteData={usableMinuteData} source={minute.data?.source} aiText={aiText} aiBusy={aiBusy} onAiReview={runAiReview} onSelect={symbol => { setSelected(symbol); setViewMode('detail') }} />
+  </section>
   return <section className="relative h-full overflow-auto overscroll-contain rounded-card border border-border bg-surface p-2 text-foreground [scrollbar-gutter:stable]"
     onContextMenu={event => { event.preventDefault(); setMenu({ x: Math.max(8, Math.min(event.clientX, innerWidth - 220)), y: Math.max(8, Math.min(event.clientY, innerHeight - 440)) }) }}>
     <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 border-b border-border pb-1">
