@@ -236,7 +236,7 @@ export function MarketOverviewWidget({ data, tradeDate, showContext = true }: { 
             <b>{selected.name} · 分时走势</b>
             <span className="flex items-center gap-2 text-[10px] text-muted">{chartRows.length ? `${chartRows.length}根分钟K · 可缩放` : minute.isLoading ? '读取中…' : '暂无分钟数据'}<button type="button" onClick={() => setExpanded(true)} disabled={!chartRows.length} className="rounded border border-accent/50 px-1.5 py-0.5 text-accent disabled:opacity-40">放大查看</button></span>
           </div>
-          {chartRows.length ? <EChartsIntraday data={chartRows} height={330} date={minute.data?.date ?? undefined} showLimitLines={false} showAvgLine={false} /> : <div className="flex h-[330px] items-center justify-center text-xs text-muted">{minute.isLoading ? <><RefreshCw className="mr-1 h-3 w-3 animate-spin" />正在读取分钟走势…</> : '当前没有可用的分钟数据，请检查分钟数据源和交易日期'}</div>}
+          {chartRows.length ? <EChartsIntraday data={chartRows} height={380} date={minute.data?.date ?? undefined} showLimitLines={false} showAvgLine /> : <div className="flex h-[380px] items-center justify-center text-xs text-muted">{minute.isLoading ? <><RefreshCw className="mr-1 h-3 w-3 animate-spin" />正在读取分钟走势…</> : '当前没有可用的分钟数据，请检查分钟数据源和交易日期'}</div>}
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted">
             <span>当前来源：{sourceText}</span>
             <span>最后时间：{chartRows.at(-1)?.datetime ?? '—'}</span>
@@ -317,7 +317,7 @@ export function MarketOverviewWidget({ data, tradeDate, showContext = true }: { 
       {expanded && chartRows.length > 0 && <div role="dialog" aria-modal="true" aria-label={`${selected.name}分时走势`} className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/75 p-4" onClick={() => setExpanded(false)}>
         <div className="w-full max-w-6xl rounded-card border border-border bg-surface p-3 shadow-2xl" onClick={event => event.stopPropagation()}>
           <div className="mb-2 flex items-center justify-between"><b>{selected.name} · {minute.data?.date ?? selectedDate} · 分时走势</b><button type="button" onClick={() => setExpanded(false)} className="rounded border border-border px-2 py-1 text-xs text-muted">关闭</button></div>
-          <EChartsIntraday data={chartRows} height={560} date={minute.data?.date ?? undefined} showLimitLines={false} showAvgLine={false} />
+          <EChartsIntraday data={chartRows} height={560} date={minute.data?.date ?? undefined} showLimitLines={false} showAvgLine />
         </div>
       </div>}
 
@@ -325,8 +325,8 @@ export function MarketOverviewWidget({ data, tradeDate, showContext = true }: { 
         <div className="max-h-[92vh] w-full max-w-6xl overflow-auto rounded-card border border-border bg-surface p-3 shadow-2xl" onClick={event => event.stopPropagation()}>
           <div className="mb-2 flex items-center justify-between gap-2"><div><b>{focusStock.name || focusStock.symbol} · 异动详情</b><span className="ml-2 font-mono text-xs text-muted">{focusStock.symbol}</span></div><button type="button" onClick={() => setFocusStock(null)} className="rounded border border-border px-2 py-1 text-xs text-muted">关闭</button></div>
           <div className="grid gap-3 lg:grid-cols-2">
-            <section className="rounded border border-border bg-base/40 p-2"><div className="mb-1 flex items-center justify-between text-xs"><b>个股分时</b><span className="text-muted">{focusMinute.data?.source ?? '读取中'}</span></div>{focusMinute.data?.rows?.length ? <EChartsIntraday data={focusMinute.data.rows} height={310} date={focusMinute.data.date ?? undefined} showLimitLines={false} showAvgLine={false} /> : <div className="flex h-[310px] items-center justify-center text-xs text-muted">{focusMinute.isLoading ? '正在读取个股分时…' : '暂无个股分时数据'}</div>}</section>
-            <section className="rounded border border-border bg-base/40 p-2"><div className="mb-1 flex items-center justify-between text-xs"><b>关联板块分时</b><span className="text-muted">{focusBoard.data?.board?.name ?? '板块待识别'}</span></div>{focusBoardRows.length ? <EChartsIntraday data={focusBoardRows} height={310} date={selectedDate || undefined} showLimitLines={false} showAvgLine={false} /> : <div className="flex h-[310px] items-center justify-center text-xs text-muted">{focusBoard.isLoading ? '正在读取关联板块…' : '暂未取得关联板块分时，请在个股详情中绑定板块'}</div>}</section>
+            <section className="rounded border border-border bg-base/40 p-2"><div className="mb-1 flex items-center justify-between text-xs"><b>个股分时</b><span className="text-muted">{focusMinute.data?.source ?? '读取中'}</span></div>{focusMinute.data?.rows?.length ? <EChartsIntraday data={focusMinute.data.rows} height={310} date={focusMinute.data.date ?? undefined} showLimitLines={false} showAvgLine /> : <div className="flex h-[310px] items-center justify-center text-xs text-muted">{focusMinute.isLoading ? '正在读取个股分时…' : '暂无个股分时数据'}</div>}</section>
+            <section className="rounded border border-border bg-base/40 p-2"><div className="mb-1 flex items-center justify-between text-xs"><b>关联板块分时</b><span className="text-muted">{focusBoard.data?.board?.name ?? '板块待识别'}</span></div>{focusBoardRows.length ? <EChartsIntraday data={focusBoardRows} height={310} date={selectedDate || undefined} showLimitLines={false} showAvgLine /> : <div className="flex h-[310px] items-center justify-center text-xs text-muted">{focusBoard.isLoading ? '正在读取关联板块…' : '暂未取得关联板块分时，请在个股详情中绑定板块'}</div>}</section>
           </div>
           <div className="mt-2 rounded border border-warning/35 bg-warning/5 p-2 text-[11px] leading-relaxed"><b className="text-warning">正T条件提醒：</b>只有你已有该赛道底仓，且个股与板块同步走强、冲高后出现明确回踩承接时，才把“冲高减仓、回踩接回”作为观察方案；没有底仓不追涨，数据不足时不生成策略。</div>
         </div>

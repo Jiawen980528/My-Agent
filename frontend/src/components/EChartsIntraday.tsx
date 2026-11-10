@@ -258,9 +258,10 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
     axisPointer: {
       link: [{ xAxisIndex: 'all' }],
     },
+    // 给价格曲线和成交量各自保留可读空间，避免压缩后只剩一条价格线。
     grid: [
-      { left: 60, right: 55, top: 24, bottom: '34%' },
-      { left: 60, right: 55, top: '69%', bottom: 20 },
+      { left: 60, right: 55, top: 24, bottom: '40%' },
+      { left: 60, right: 55, top: '64%', bottom: 20 },
     ],
     xAxis: [
       {
@@ -412,6 +413,8 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
         xAxisIndex: 1,
         yAxisIndex: 1,
         cursor: 'crosshair',
+        barMaxWidth: 4,
+        barMinHeight: 1,
       },
     ],
     dataZoom: [
