@@ -10,11 +10,12 @@ import time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from app.config import settings
 from app.services import fund_flow_archive
 from app.services import ptrade_replay
+from app.services import research_pool
 from app.services.decision_engine import build_decision
 from app.services.kline_sync import fetch_minute_single, selected_minute_source
 from app.services.volume_forecast import forecast_amount
@@ -22,6 +23,20 @@ from app.services.market_volume_forecast import forecast_market_amount
 from app.tickflow.capabilities import Cap
 
 router = APIRouter(prefix="/api/myagent", tags=["myagent-bridge"])
+
+
+@router.get("/research-pool")
+def get_research_pool(request: Request):
+    return research_pool.load(request.app.state.repo.store.data_dir)
+
+
+@router.post("/research-pool/import")
+def import_research_pool(request: Request, file: UploadFile = File(...)):
+    raw = file.file.read(research_pool.MAX_UPLOAD_BYTES + 1)
+    try:
+        return research_pool.import_workbook(request.app.state.repo.store.data_dir, raw, file.filename or "")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 _FLOW_URL = "https://push2delay.eastmoney.com/api/qt/stock/fflow/kline/get"
 _FLOW_HISTORY_URL = "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get"

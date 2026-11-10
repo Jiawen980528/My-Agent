@@ -565,6 +565,23 @@ export interface OverviewMarket {
   industry_rank: { leading: OverviewDimensionRankItem[]; lagging: OverviewDimensionRankItem[] }
 }
 
+export interface MyAgentResearchPoolItem {
+  symbol: string | null
+  name: string
+  theme: string
+  segment: string
+  role: string
+  rationale: string
+  source: string
+  source_date: string
+  source_file: string
+}
+
+export interface MyAgentResearchPool {
+  items: MyAgentResearchPoolItem[]
+  sources: string[]
+}
+
 /** 全市场成交额预测。预测只能建立在真实分钟成交额和可比历史交易日之上。 */
 export interface MarketVolumeForecast {
   status: 'ok' | 'unavailable'
@@ -3692,6 +3709,14 @@ export const api = {
   marketSnapshot: () =>
     request<{ as_of: string | null; rows: MarketSnapshotRow[] }>('/api/screener/market-snapshot'),
   overviewMarket: (asOf?: string) => request<OverviewMarket>(`/api/overview/market${asOf ? `?as_of=${asOf}` : ''}`),
+  myagentResearchPool: () => request<MyAgentResearchPool>('/api/myagent/research-pool'),
+  myagentResearchPoolImport: (file: File) => {
+    const body = new FormData()
+    body.append('file', file)
+    return request<{ count: number; imported: number; unresolved: number; sources: string[] }>(
+      '/api/myagent/research-pool/import', { method: 'POST', body, timeoutMs: 120_000 },
+    )
+  },
   marketVolumeForecast: (tradeDate?: string) =>
     request<MarketVolumeForecast>(`/api/myagent/market-volume-forecast${tradeDate ? `?trade_date=${encodeURIComponent(tradeDate)}` : ''}`),
   portfolioSnapshot: () =>

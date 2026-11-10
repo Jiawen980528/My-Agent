@@ -88,7 +88,7 @@ export function MarketOverviewWidget({ data, tradeDate, showContext = true }: { 
     staleTime: 30_000,
   })
   const conceptMinute = useQuery({
-    queryKey: ['dashboard-concept-equal-weight-minute'],
+    queryKey: QK.sectorRotation('concept', undefined, 1),
     queryFn: () => api.sectorRotation({ kind: 'concept', bucket: 1 }),
     refetchInterval: 30_000,
     staleTime: 20_000,
@@ -316,7 +316,7 @@ export function MarketOverviewWidget({ data, tradeDate, showContext = true }: { 
             <p className="mt-1 text-[9px] text-warning/80">正T提醒：仅当你已有该赛道底仓、个股与板块同步走强且回踩承接明确时观察“冲高减、回踩接”；没有底仓不追，不自动下单。</p>
           </div>
           <div className="rounded border border-border bg-elevated/35 p-2">
-            <div className="mb-1 flex items-center justify-between gap-2"><b className="text-xs">实时候选股滚动</b><span className="text-[9px] text-muted">涨幅 / 活跃 / 成交额交集</span></div>
+            <div className="mb-1 flex items-center justify-between gap-2"><b className="text-xs">实时候选股滚动</b><Link to="/pick-model" className="text-[10px] text-accent">资料 × 拾贝复核</Link></div>
             {recommendationRows.length ? <div className="overflow-hidden rounded bg-base/70"><div className="flex min-w-max gap-2 py-1.5" style={{ animation: 'market-recommendation-ticker 30s linear infinite' }}>{[...recommendationRows, ...recommendationRows].map((row, index) => <Link key={`${row.symbol}-${index}`} to={`/stock-analysis?symbol=${encodeURIComponent(row.symbol)}`} className="w-32 shrink-0 rounded border border-border/70 px-1.5 py-1 text-[10px] hover:border-accent/60"><div className="truncate font-medium">{row.name || row.symbol}</div><div className="mt-0.5 flex items-center justify-between gap-1"><span className="font-mono text-muted">{row.symbol}</span><b className={cn('font-mono', tone(row.change_pct))}>{pct(row.change_pct)}</b></div><div className="mt-0.5 text-[9px] text-muted">成交额 {amount(row.amount)}</div></Link>)}</div></div> : <p className="text-[10px] text-muted">暂无可核验候选股数据</p>}
             <p className="mt-1 text-[9px] text-muted">候选来自真实涨幅、活跃度和成交额榜单；AI复核会继续结合量价、板块与新闻，数据不足时不会编造。</p>
           </div>

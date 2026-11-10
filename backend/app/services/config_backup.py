@@ -186,7 +186,7 @@ def _classify(rel: PurePosixPath, data_dir: Path) -> tuple[str, Path] | None:
             return "auth", data_dir / "user_data" / "auth.json"
         if name in ("watchlist.parquet", "watchlist_groups.json"):
             return "watchlist", data_dir / "user_data" / name
-        if name == "research_candidates.json":
+        if name in ("research_candidates.json", "myagent_research_pool.json"):
             return "research_candidates", data_dir / "user_data" / name
         if name in ("alerts.jsonl", "assistant_sessions.json"):
             return "history", data_dir / "user_data" / name
@@ -247,7 +247,7 @@ def _collect_backup_files(data_dir: Path) -> list[Path]:
     _glob(data_dir / "user_data" / "lots", "lot_*.json")
     for name in (
         "watchlist.parquet", "watchlist_groups.json", "preferences.json",
-        "research_candidates.json", "alerts.jsonl", "assistant_sessions.json", "auth.json",
+        "research_candidates.json", "myagent_research_pool.json", "alerts.jsonl", "assistant_sessions.json", "auth.json",
     ):
         p = data_dir / "user_data" / name
         if p.is_file():

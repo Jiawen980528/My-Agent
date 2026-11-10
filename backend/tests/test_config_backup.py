@@ -180,6 +180,15 @@ def test_export_contains_all_categories_and_manifest(src_env):
     assert "auth" not in counts and "secrets" not in counts
 
 
+def test_research_pool_is_included_in_private_candidate_backup(tmp_path, monkeypatch):
+    from app.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "data_dir", tmp_path)
+    _write(tmp_path / "user_data" / "myagent_research_pool.json", '{"items": [], "sources": []}')
+    data, _ = config_backup.build_backup(categories={"research_candidates"})
+    assert "user_data/myagent_research_pool.json" in _zip_entries(data)
+
+
 def test_export_sanitizes_secrets_by_default(src_env):
     entries = _zip_entries(config_backup.build_backup()[0])
     prefs = json.loads(entries["user_data/preferences.json"])

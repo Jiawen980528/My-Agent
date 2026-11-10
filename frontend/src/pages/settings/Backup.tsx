@@ -24,7 +24,7 @@ export const CATEGORY_OPTIONS: { key: string; label: string; desc: string; sensi
   { key: 'watchlist',          label: '自选股与分组',   desc: '自选列表与分组定义' },
   { key: 'lots',               label: '批量持仓',       desc: '批量交易持仓记录' },
   { key: 'paper',              label: '模拟盘账户',     desc: '账户 / 持仓 / 成交台账' },
-  { key: 'research_candidates', label: '挖掘候选',      desc: '挖掘入选清单' },
+  { key: 'research_candidates', label: '研究候选',      desc: '挖掘入选清单与资料股票池' },
   { key: 'data_sources',       label: '自定义数据源',   desc: '连接配置；API Key 需另选“密钥”' },
   { key: 'analysis_menus',     label: '分析菜单',       desc: '自定义分析入口' },
   { key: 'ext_pages',          label: '独立页面插件',   desc: '单独导入的页面产物；不含完整包的配套页面' },

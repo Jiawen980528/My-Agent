@@ -2119,7 +2119,9 @@ function AccountPanel({ acc, name, onDeleted }: { acc: string; name?: string; on
   const [showAllOrders, setShowAllOrders] = useState(false)
   const [showAllTrades, setShowAllTrades] = useState(false)
 
-  const overviewQ = useQuery({ queryKey: QK.paperOverview(acc), queryFn: () => api.paperOverview(acc) })
+  const { data: accountQuoteStatus } = useQuoteStatus()
+  const overviewQ = useQuery({ queryKey: QK.paperOverview(acc), queryFn: () => api.paperOverview(acc),
+    refetchInterval: accountQuoteStatus?.is_trading_hours === false ? 60_000 : 5_000 })
   const ordersQ = useQuery({ queryKey: QK.paperOrders(acc), queryFn: () => api.paperOrders(undefined, acc) })
   const tradesQ = useQuery({ queryKey: QK.paperTrades(acc), queryFn: () => api.paperTrades(acc) })
   const navQ = useQuery({ queryKey: QK.paperNav(acc), queryFn: () => api.paperNav(acc) })
