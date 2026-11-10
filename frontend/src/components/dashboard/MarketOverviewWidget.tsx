@@ -75,10 +75,12 @@ function BreadthTrend({ data }: { data: OverviewMarket }) {
 
 export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket; tradeDate?: string }) {
   const [selectedSymbol, setSelectedSymbol] = useState(INDEXES[0].symbol)
+  const [selectedDate, setSelectedDate] = useState(() => tradeDate ?? data.as_of?.slice(0, 10) ?? '')
+  const [expanded, setExpanded] = useState(false)
   const [forecastTab, setForecastTab] = useState<'model' | 'ai' | 'public'>('model')
   const minute = useQuery({
-    queryKey: ['dashboard-market-index-minute', selectedSymbol, tradeDate ?? 'latest'],
-    queryFn: () => api.indexMinute(selectedSymbol, tradeDate),
+    queryKey: ['dashboard-market-index-minute', selectedSymbol, selectedDate || 'latest'],
+    queryFn: () => api.indexMinute(selectedSymbol, selectedDate || undefined),
     refetchInterval: 60_000,
     staleTime: 30_000,
   })
@@ -136,6 +138,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
           </div>
         </div>
         <div className="flex items-center gap-2 text-[10px] text-muted">
+          <label className="inline-flex items-center gap-1">交易日<input aria-label="大盘走势交易日" type="date" value={selectedDate} max={new Date().toISOString().slice(0, 10)} onChange={event => setSelectedDate(event.target.value)} className="rounded border border-border bg-base px-1 py-0.5 text-[10px] text-foreground" /></label>
           <span>{minute.data?.date ?? data.as_of ?? '最新交易日'}</span>
           <span>{sourceText}</span>
           <Link to="/indices" className="inline-flex items-center gap-1 text-accent hover:underline"><ExternalLink className="h-3 w-3" />详细指数</Link>
@@ -158,7 +161,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
         <div className="min-h-0 rounded border border-border bg-base/35 p-2">
           <div className="mb-1 flex items-center justify-between gap-2 text-xs">
             <b>{selected.name} · 分时走势</b>
-            <span className="text-[10px] text-muted">{chartRows.length ? `${chartRows.length}根分钟K · 可缩放` : minute.isLoading ? '读取中…' : '暂无分钟数据'}</span>
+            <span className="flex items-center gap-2 text-[10px] text-muted">{chartRows.length ? `${chartRows.length}根分钟K · 可缩放` : minute.isLoading ? '读取中…' : '暂无分钟数据'}<button type="button" onClick={() => setExpanded(true)} disabled={!chartRows.length} className="rounded border border-accent/50 px-1.5 py-0.5 text-accent disabled:opacity-40">放大查看</button></span>
           </div>
           {chartRows.length ? <EChartsIntraday data={chartRows} height={300} date={minute.data?.date ?? undefined} showLimitLines={false} showAvgLine={false} /> : <div className="flex h-[300px] items-center justify-center text-xs text-muted">{minute.isLoading ? <><RefreshCw className="mr-1 h-3 w-3 animate-spin" />正在读取分钟走势…</> : '当前没有可用的分钟数据，请检查分钟数据源和交易日期'}</div>}
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted">
@@ -199,6 +202,13 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
           </div>}
         </div>}
       </div>
+
+      {expanded && chartRows.length > 0 && <div role="dialog" aria-modal="true" aria-label={`${selected.name}分时走势`} className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/75 p-4" onClick={() => setExpanded(false)}>
+        <div className="w-full max-w-6xl rounded-card border border-border bg-surface p-3 shadow-2xl" onClick={event => event.stopPropagation()}>
+          <div className="mb-2 flex items-center justify-between"><b>{selected.name} · {minute.data?.date ?? selectedDate} · 分时走势</b><button type="button" onClick={() => setExpanded(false)} className="rounded border border-border px-2 py-1 text-xs text-muted">关闭</button></div>
+          <EChartsIntraday data={chartRows} height={560} date={minute.data?.date ?? undefined} showLimitLines={false} showAvgLine={false} />
+        </div>
+      </div>}
 
       {false && <div className="mt-3"><BreadthTrend data={data} /></div>}
 
