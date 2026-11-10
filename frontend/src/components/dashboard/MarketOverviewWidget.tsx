@@ -79,6 +79,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
   const [selectedDate, setSelectedDate] = useState(() => tradeDate ?? data.as_of?.slice(0, 10) ?? '')
   const [expanded, setExpanded] = useState(false)
   const [focusStock, setFocusStock] = useState<{ symbol: string; name?: string | null } | null>(null)
+  const [abnormalRefreshSec, setAbnormalRefreshSec] = useState(5)
   const [forecastTab, setForecastTab] = useState<'model' | 'ai' | 'public'>('model')
   const minute = useQuery({
     queryKey: ['dashboard-market-index-minute', selectedSymbol, selectedDate || 'latest'],
@@ -112,8 +113,8 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
   const abnormal = useQuery({
     queryKey: ['dashboard-abnormal-intraday'],
     queryFn: () => api.abnormalIntraday(60),
-    refetchInterval: 5_000,
-    staleTime: 4_000,
+    refetchInterval: abnormalRefreshSec * 1000,
+    staleTime: Math.max(1_000, abnormalRefreshSec * 1000 - 1_000),
   })
   const news = useQuery({
     queryKey: ['myagent-quant-news'],
@@ -125,15 +126,15 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
     queryKey: ['dashboard-focus-stock-minute', focusStock?.symbol, selectedDate || 'latest'],
     queryFn: () => api.klineMinute(focusStock!.symbol, selectedDate || undefined, true),
     enabled: !!focusStock?.symbol,
-    refetchInterval: 5_000,
-    staleTime: 4_000,
+    refetchInterval: abnormalRefreshSec * 1000,
+    staleTime: Math.max(1_000, abnormalRefreshSec * 1000 - 1_000),
   })
   const focusBoard = useQuery({
     queryKey: ['dashboard-focus-stock-board', focusStock?.symbol, selectedDate || 'latest'],
     queryFn: () => dashboardJson<BoardMinuteResponse>(`/quant/api/myagent/quant/portfolio/board/${encodeURIComponent(focusStock!.symbol)}?trade_date=${encodeURIComponent(selectedDate || '')}`),
     enabled: !!focusStock?.symbol,
-    refetchInterval: 5_000,
-    staleTime: 4_000,
+    refetchInterval: abnormalRefreshSec * 1000,
+    staleTime: Math.max(1_000, abnormalRefreshSec * 1000 - 1_000),
   })
   const review = useReviewState()
   const generating = isReviewGenerating()
@@ -294,7 +295,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
             <p className="mt-1 text-[9px] text-muted">突然拉升的板块先看个股是否同步；已有底仓时才考虑正T，未有底仓不追涨。</p>
           </div>
           <div className="rounded border border-warning/35 bg-warning/5 p-2">
-            <div className="mb-1 flex items-center justify-between gap-2"><b className="text-xs text-warning">实时异动股票</b><span className="text-[9px] text-muted">约5秒刷新 · 点击看个股/板块</span></div>
+            <div className="mb-1 flex flex-wrap items-center justify-between gap-2"><b className="text-xs text-warning">实时异动股票</b><div className="flex items-center gap-1 text-[9px] text-muted"><span>刷新</span><select aria-label="异动刷新频率" value={abnormalRefreshSec} onChange={event => setAbnormalRefreshSec(Number(event.target.value))} className="rounded border border-warning/40 bg-base px-1 py-0.5 text-[9px] text-foreground"><option value={3}>3秒</option><option value={5}>5秒</option><option value={10}>10秒</option><option value={30}>30秒</option><option value={60}>60秒</option></select><span>· 点击看个股/板块</span></div></div>
             {abnormalRows.length ? <div className="space-y-1">{abnormalRows.slice(0, 6).map(row => <button key={row.symbol} type="button" onClick={() => setFocusStock({ symbol: row.symbol, name: row.name })} className="w-full rounded bg-base/70 px-1.5 py-1 text-left hover:bg-elevated"><div className="flex items-center justify-between gap-2 text-[10px]"><span className="truncate font-medium">{row.name || row.symbol}<small className="ml-1 font-mono text-muted">{row.symbol}</small></span><b className={cn('font-mono', tone(row.change_pct))}>{pct(row.change_pct)}</b></div><div className="mt-0.5 flex items-center justify-between gap-2 text-[9px] text-muted"><span>{(row.signals ?? []).map(signal => SIGNAL_LABELS[signal] ?? signal).join(' · ') || '价格异动'}</span><span>量比 {row.vol_ratio_5d == null ? '—' : Number(row.vol_ratio_5d).toFixed(2)}</span></div></button>)}</div> : <p className="text-[10px] text-muted">当前没有可核验的盘中异动信号</p>}
             <p className="mt-1 text-[9px] text-warning/80">正T提醒：仅当你已有该赛道底仓、个股与板块同步走强且回踩承接明确时观察“冲高减、回踩接”；没有底仓不追，不自动下单。</p>
           </div>
