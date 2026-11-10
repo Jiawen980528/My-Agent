@@ -117,9 +117,9 @@ function weeklyRows(rows: { date: string; open: number; high: number; low: numbe
   return [...grouped.values()].sort((a, b) => a.datetime.localeCompare(b.datetime))
 }
 
-function TimeChart({ rows, title, color, height, multiDay = false, previousCloses = {}, trades = [] }: {
+function TimeChart({ rows, title, color, height, multiDay = false, previousCloses = {}, trades = [], compact = false }: {
   rows: Bar[]; title: string; color: string; height: number; multiDay?: boolean;
-  previousCloses?: Record<string, number | null>; trades?: Trade[]
+  previousCloses?: Record<string, number | null>; trades?: Trade[]; compact?: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const zoomRef = useRef<{ start: number; end: number } | null>(null)
@@ -180,13 +180,13 @@ function TimeChart({ rows, title, color, height, multiDay = false, previousClose
     return () => { resize.disconnect(); chart.dispose() }
   }, [rows, color, effectiveHeight, multiDay, previousCloses, trades])
   if (!rows.length) return <div style={{ height }} className="flex items-center justify-center text-xs text-muted">{title}暂无该日真实分钟数据</div>
-  return <div className={expanded ? 'fixed inset-4 z-[1000] rounded-lg border border-border bg-base p-3 shadow-2xl' : 'relative w-full'}>
-    <div className="mb-1 flex items-center justify-between text-[11px] text-muted">
+  return <div className={expanded ? 'fixed inset-4 z-[1000] overflow-hidden rounded-lg border border-border bg-base p-3 shadow-2xl' : 'relative w-full min-w-0 overflow-hidden'}>
+    {!compact && <div className="mb-1 flex items-center justify-between text-[11px] text-muted">
       <span>{title} · 鼠标滚轮缩放，拖动底部滑块浏览</span>
       <button type="button" onClick={() => setExpanded(value => !value)} className="rounded border border-border px-2 py-0.5 text-accent hover:bg-elevated">
         {expanded ? '退出放大' : '放大查看'}
       </button>
-    </div>
+    </div>}
     <div ref={ref} role="img" aria-label={`${title}可缩放分时图`} style={{ height: effectiveHeight }} className="w-full" />
   </div>
 }
@@ -452,7 +452,7 @@ function HoldingsOverview({ items, minuteData, source, onSelect, aiText, aiBusy,
         if (compact) return <button key={item.symbol} type="button" onClick={() => onSelect(item.symbol)} className="grid min-w-0 grid-cols-[132px_minmax(0,1fr)] items-center gap-2 rounded border border-border bg-surface p-1.5 text-left hover:border-accent/70">
           <span className="min-w-0"><span className="flex items-center justify-between gap-1 text-xs"><b className="truncate">{item.name}</b><span className={Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}>{pct(item.change_pct)}</span></span>
           <span className="mt-1 block text-[10px] text-muted">{item.symbol}</span><span className="mt-0.5 block font-mono text-xs">{last ? price(last.close) : price(item.price)}</span><span className="mt-0.5 block text-[10px] text-muted">{item.quantity == null ? '数量未录入' : `${item.quantity.toLocaleString()}份`}</span></span>
-          <span className="h-[106px] min-w-0">{rows.length ? <TimeChart rows={rows} title={`${item.name} · 分时`} color={Number(item.change_pct) >= 0 ? '#24ba91' : '#5aaaff'} height={104} /> : <span className="flex h-full items-center justify-center rounded bg-base/50 text-[10px] text-muted">暂无真实分钟数据</span>}</span>
+          <span className="h-[106px] min-w-0">{rows.length ? <TimeChart compact rows={rows} title={`${item.name} · 分时`} color={Number(item.change_pct) >= 0 ? '#24ba91' : '#5aaaff'} height={104} /> : <span className="flex h-full items-center justify-center rounded bg-base/50 text-[10px] text-muted">暂无真实分钟数据</span>}</span>
         </button>
         return <div key={item.symbol} role="button" tabIndex={0} onClick={() => onSelect(item.symbol)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') onSelect(item.symbol) }} className="min-w-0 cursor-pointer rounded border border-border bg-surface p-1.5 text-left hover:border-accent/70">
           <div className="mb-1 flex items-center justify-between gap-2"><span className="truncate text-xs font-semibold">{item.name}</span><span className={Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}>{pct(item.change_pct)}</span></div>
