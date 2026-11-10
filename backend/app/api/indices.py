@@ -129,6 +129,8 @@ def get_index_minute(
         "date": str(day),
         "rows": df.to_dicts(),
         "source": "live" if not df.is_empty() else "none",
+        "provider": kline_sync.selected_minute_source(),
+        "provider_configured": kline_sync._selected_minute_provider_name(),
     }
 
 
