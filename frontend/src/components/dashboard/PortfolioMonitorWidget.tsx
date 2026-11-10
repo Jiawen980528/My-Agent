@@ -129,8 +129,16 @@ function TimeChart({ rows, title, color, height, multiDay = false, previousClose
   useEffect(() => {
     if (!ref.current || !rows.length) return
     const chart = echarts.init(ref.current)
-    const labels = rows.map(row => row.datetime.slice(0, 16))
-    const prices = rows.map(row => Number(row.close))
+    const sessionLabels = (date: string) => {
+      const out: string[] = []
+      for (let minute = 9 * 60 + 30; minute <= 11 * 60 + 30; minute += 1) out.push(`${date} ${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`)
+      for (let minute = 13 * 60; minute <= 15 * 60; minute += 1) out.push(`${date} ${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`)
+      return out
+    }
+    const labels = compact && !multiDay ? sessionLabels(dateOf(rows[0].datetime)) : rows.map(row => row.datetime.slice(0, 16))
+    const byLabel = new Map(rows.map(row => [row.datetime.slice(0, 16), row]))
+    const plotRows = labels.map(label => byLabel.get(label) ?? null)
+    const prices = plotRows.map(row => row ? Number(row.close) : null)
     chart.setOption({
       animation: false, backgroundColor: 'transparent',
       grid: [{ left: 55, right: 18, top: 12, bottom: 65 }, { left: 55, right: 18, top: effectiveHeight - 42, bottom: 28 }],
@@ -140,9 +148,9 @@ function TimeChart({ rows, title, color, height, multiDay = false, previousClose
         formatter: (params: unknown) => {
           const first = Array.isArray(params) ? params[0] as { dataIndex?: number } : null
           const i = first?.dataIndex
-          const row = i == null ? null : rows[i]
+          const row = i == null ? null : plotRows[i]
           if (!row) return ''
-          const reference = previousCloses[dateOf(row.datetime)] ?? rows.slice(0, i).reverse()
+          const reference = previousCloses[dateOf(row.datetime)] ?? plotRows.slice(0, i).filter((value): value is Bar => Boolean(value)).reverse()
             .find(previous => dateOf(previous.datetime) !== dateOf(row.datetime))?.close
           const delta = reference ? row.close - reference : null
           const change = reference ? delta! / reference * 100 : null
@@ -169,7 +177,7 @@ function TimeChart({ rows, title, color, height, multiDay = false, previousClose
             label: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
             tooltip: { formatter: `${trade.trade_time} ${trade.side === 'buy' ? '买入' : '卖出'} ${trade.quantity} @${trade.price} · 手续费 ${trade.commission} · ${trade.verified ? '已核验' : '用户记录待核对'}` },
           })) } },
-        { name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: rows.map(row => row.volume || 0), itemStyle: { color: '#4b647d' }, barMaxWidth: 3 }],
+        { name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: plotRows.map(row => row?.volume || 0), itemStyle: { color: '#4b647d' }, barMaxWidth: 3 }],
     })
     chart.on('datazoom', () => {
       const zoom = (chart.getOption() as { dataZoom?: { start?: number; end?: number }[] }).dataZoom?.[0]
