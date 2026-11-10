@@ -1,6 +1,9 @@
 name: Deploy Tencent Static Frontend
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 permissions:
   contents: read
 concurrency:
