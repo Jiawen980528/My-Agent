@@ -23,9 +23,9 @@ export function useDashboardLayout(): {
 } {
   const { data: prefs } = usePreferences()
   const saved = useMemo(() => {
-    // 看盘窗口升级为走势图优先布局时强制套用一次新布局，避免旧的拥挤尺寸覆盖页面升级。
-    if (typeof window !== 'undefined' && !window.localStorage.getItem('dashboard-layout-holdings-v11')) {
-      window.localStorage.setItem('dashboard-layout-holdings-v11', '1')
+    // 看盘窗口升级为“走势图 + 独立横向信息带”时强制套用一次新布局，避免旧布局覆盖页面升级。
+    if (typeof window !== 'undefined' && !window.localStorage.getItem('dashboard-layout-holdings-v12')) {
+      window.localStorage.setItem('dashboard-layout-holdings-v12', '1')
       return cloneItems(DEFAULT_LAYOUT)
     }
     const normalized = normalizeDashboardLayout(prefs?.dashboard_layout ?? undefined)

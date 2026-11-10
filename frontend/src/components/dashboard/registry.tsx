@@ -26,7 +26,7 @@ import { FundFlowPanel } from '@/components/FundFlowPanel'
 import { HoldingsWidget, MarketNewsWidget } from './MyAgentWidgets'
 import { PortfolioMonitorWidget } from './PortfolioMonitorWidget'
 import { PageWidget } from './PageWidget'
-import { MarketOverviewWidget } from './MarketOverviewWidget'
+import { MarketContextStrip, MarketOverviewWidget } from './MarketOverviewWidget'
 import { MonitorAlertWidget } from './MonitorAlertWidget'
 
 /** 渲染上下文: 数据切片与交互回调(由 Dashboard 页提供, 组件不自取数据) */
@@ -215,7 +215,7 @@ export const WIDGET_DEFS: WidgetDef[] = [
   },
   {
     id: 'market-overview', label: '大盘走势与量能', icon: LineChart, minW: 6, minH: 18, defW: 6, defH: 20,
-    render: ctx => <MarketOverviewWidget data={ctx.data} tradeDate={ctx.data.as_of ?? undefined} />,
+    render: ctx => <MarketOverviewWidget data={ctx.data} tradeDate={ctx.data.as_of ?? undefined} showContext={false} />,
   },
   {
     id: 'distribution', label: '涨跌分布 / 广度', icon: BarChart3, minW: 3, minH: 6, defW: 4, defH: 8,
@@ -317,6 +317,10 @@ export const WIDGET_DEFS: WidgetDef[] = [
     render: () => <PortfolioMonitorWidget compact />,
   },
   {
+    id: 'market-context-strip', label: '市场横向信息带', icon: BarChart3, minW: 8, minH: 5, defW: 12, defH: 8,
+    render: ctx => <MarketContextStrip data={ctx.data} tradeDate={ctx.data.as_of ?? undefined} />,
+  },
+  {
     id: 'sector-watch', label: '分时监控提醒', icon: BellRing, minW: 2, minH: 8, defW: 6, defH: 12,
     render: () => <MonitorAlertWidget />,
   },
@@ -357,9 +361,10 @@ export function minSizeOf(t: WidgetType): { w: number; h: number } {
 export const DEFAULT_LAYOUT: DashboardItem[] = [
   { i: 'market-overview', t: 'market-overview', x: 0, y: 0, w: 6, h: 20 },
   { i: 'portfolio-monitor', t: 'portfolio-monitor', x: 6, y: 0, w: 6, h: 20 },
-  { i: 'sector-watch', t: 'sector-watch', x: 0, y: 20, w: 4, h: 12 },
-  { i: 'fund-flow', t: 'fund-flow', x: 4, y: 20, w: 4, h: 12 },
-  { i: 'market-news', t: 'market-news', x: 8, y: 20, w: 4, h: 12 },
+  { i: 'market-context-strip', t: 'market-context-strip', x: 0, y: 20, w: 12, h: 8 },
+  { i: 'sector-watch', t: 'sector-watch', x: 0, y: 28, w: 4, h: 12 },
+  { i: 'fund-flow', t: 'fund-flow', x: 4, y: 28, w: 4, h: 12 },
+  { i: 'market-news', t: 'market-news', x: 8, y: 28, w: 4, h: 12 },
 ]
 
 /** 功能版本：所有内置看板窗口，便于用户按需删减和重新布局。 */

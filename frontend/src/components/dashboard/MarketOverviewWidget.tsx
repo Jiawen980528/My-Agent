@@ -74,7 +74,7 @@ async function dashboardJson<T>(path: string): Promise<T> {
   return body as T
 }
 
-export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket; tradeDate?: string }) {
+export function MarketOverviewWidget({ data, tradeDate, showContext = true }: { data: OverviewMarket; tradeDate?: string; showContext?: boolean }) {
   const [selectedSymbol, setSelectedSymbol] = useState(INDEXES[0].symbol)
   const [selectedDate, setSelectedDate] = useState(() => tradeDate ?? data.as_of?.slice(0, 10) ?? '')
   const [expanded, setExpanded] = useState(false)
@@ -244,7 +244,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+        {showContext && <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
           <div className="grid grid-cols-2 gap-1.5">
             {marketStats.map(item => <div key={item.label} className="rounded border border-border bg-elevated/45 p-2"><div className="text-[10px] text-muted">{item.label}</div><div className="mt-0.5 font-mono text-sm font-semibold">{item.value}</div><div className="text-[9px] text-secondary">{item.sub}</div></div>)}
@@ -311,7 +311,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
             <p className="mt-1 text-[9px] text-muted">新闻只做事件线索，点击原文核对；AI策略会把新闻与量价、板块同步性一起复核。</p>
           </div>
           </div>
-        </div>
+        </div>}
       </div>
 
       {expanded && chartRows.length > 0 && <div role="dialog" aria-modal="true" aria-label={`${selected.name}分时走势`} className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/75 p-4" onClick={() => setExpanded(false)}>
@@ -374,5 +374,81 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
       </div>}
     </section>
   )
+}
+
+export function MarketContextStrip({ data, tradeDate }: { data: OverviewMarket; tradeDate?: string }) {
+  const [refreshSec, setRefreshSec] = useState(5)
+  const abnormal = useQuery({
+    queryKey: ['dashboard-abnormal-strip'],
+    queryFn: () => api.abnormalIntraday(60),
+    refetchInterval: refreshSec * 1000,
+    staleTime: Math.max(1_000, refreshSec * 1000 - 1_000),
+  })
+  const volume = useQuery({
+    queryKey: QK.marketVolumeForecast(tradeDate),
+    queryFn: () => api.marketVolumeForecast(tradeDate),
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  })
+  const news = useQuery({
+    queryKey: ['myagent-quant-news-strip'],
+    queryFn: () => dashboardJson<DashboardNewsFeed>('/quant/api/myagent/quant/news'),
+    refetchInterval: 180_000,
+    staleTime: 60_000,
+  })
+  const review = useReviewState()
+  const generating = isReviewGenerating()
+  const strongSectors = [...(data.concept_rank?.leading ?? []), ...(data.industry_rank?.leading ?? [])]
+    .sort((a, b) => (b.avg_pct ?? 0) - (a.avg_pct ?? 0)).slice(0, 4)
+  const abnormalRows = (abnormal.data?.rows ?? []).slice(0, 5)
+  const newsRows = (news.data?.items ?? []).slice(0, 3)
+  const recentAI = review.content.trim().replace(/[#*_`]/g, '').replace(/\s+/g, ' ').slice(0, 210)
+  const runAI = () => {
+    if (generating) return
+    const prompt = [
+      '只基于真实市场摘要生成条件化观察，不编造缺失数据，不自动下单。',
+      `市场成交额${fmtBigNum(data.amount.total)}；上涨${data.breadth.up}、平盘${data.breadth.flat}、下跌${data.breadth.down}；情绪${data.emotion.label}(${data.emotion.score})。`,
+      `强势板块：${strongSectors.map(row => `${row.name}${pct(row.avg_pct)}`).join('、') || '暂无'}。`,
+      '输出：市场状态、量能证据、强势方向、风险条件、已有底仓时的正T观察条件。',
+    ].join('\n')
+    void startReviewGeneration(undefined, prompt)
+  }
+  return <section className="rounded-card border border-border bg-surface/90 p-2 shadow-[0_1px_2px_hsl(var(--border)/0.4)]">
+    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+      <div><b className="text-sm">市场信息横向总览</b><span className="ml-2 text-[10px] text-muted">走势图下方独立信息带 · 点击异动查看个股与板块联动</span></div>
+      <div className="flex items-center gap-2 text-[10px] text-muted"><span>异动刷新</span><select aria-label="横向信息异动刷新频率" value={refreshSec} onChange={event => setRefreshSec(Number(event.target.value))} className="rounded border border-border bg-base px-1 py-0.5 text-[10px] text-foreground"><option value={1}>1秒</option><option value={3}>3秒</option><option value={5}>5秒</option><option value={10}>10秒</option><option value={30}>30秒</option></select><Link to="/review" className="text-accent hover:underline">完整AI复盘 ↗</Link></div>
+    </div>
+    <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin]">
+      <div className="min-w-[300px] flex-1 rounded border border-border bg-elevated/35 p-2">
+        <div className="mb-1 text-xs font-semibold">四大指数</div>
+        <div className="grid grid-cols-4 gap-1">
+          {INDEXES.map(index => { const quote = data.indices.find(row => row.symbol === index.symbol); return <div key={index.symbol} className="rounded bg-base/70 px-1.5 py-1"><div className="truncate text-[10px] text-muted">{index.name}</div><b className="font-mono text-xs">{quote?.last_price?.toFixed(2) ?? '—'}</b><div className={cn('font-mono text-[10px]', tone(quote?.change_pct))}>{pct(quote?.change_pct)}</div><div className="text-[9px] text-muted">量 {amount(quote?.amount)}</div></div> })}
+        </div>
+      </div>
+      <div className="min-w-[230px] flex-1 rounded border border-border bg-elevated/35 p-2">
+        <div className="mb-1 flex items-center justify-between"><b className="text-xs">市场广度与量能</b><span className="text-[9px] text-muted">真实行情</span></div>
+        <div className="grid grid-cols-4 gap-1 text-center text-[10px]"><span className="rounded bg-bull/10 p-1 text-bull"><b className="block font-mono text-sm">{data.breadth.up}</b>上涨</span><span className="rounded bg-base p-1 text-muted"><b className="block font-mono text-sm">{data.breadth.flat}</b>平盘</span><span className="rounded bg-bear/10 p-1 text-bear"><b className="block font-mono text-sm">{data.breadth.down}</b>下跌</span><span className="rounded bg-base p-1"><b className="block font-mono text-sm">{data.limit.limit_up}/{data.limit.limit_down}</b>涨停/跌停</span></div>
+        <div className="mt-1 flex items-center justify-between text-[10px]"><span>成交额 <b className="font-mono">{fmtBigNum(data.amount.total)}</b></span><span>情绪 <b>{data.emotion.label} {data.emotion.score}</b></span></div>
+      </div>
+      <div className="min-w-[230px] flex-1 rounded border border-border bg-elevated/35 p-2">
+        <div className="mb-1 flex items-center justify-between"><b className="text-xs">量能预测</b><span className="text-[9px] text-muted">全天区间</span></div>
+        {volume.data?.status === 'ok' ? <div className="grid grid-cols-3 gap-1 text-[10px]"><span>当前<br /><b>{amount(volume.data.current_cumulative_amount)}</b></span><span>预测<br /><b>{amount(volume.data.forecast_amount)}</b></span><span>区间<br /><b>{amount(volume.data.forecast_low)}–{amount(volume.data.forecast_high)}</b></span></div> : <p className="text-[10px] text-muted">{volume.isLoading ? '读取量能中…' : '量能预测暂不可用'}</p>}
+        <button type="button" onClick={runAI} disabled={generating} className="mt-2 rounded border border-accent/60 px-2 py-1 text-[10px] text-accent disabled:opacity-50">{generating ? 'AI生成中…' : '生成AI策略'}</button>{recentAI && <p className="mt-1 line-clamp-2 text-[9px] text-secondary">{recentAI}</p>}
+      </div>
+      <div className="min-w-[250px] flex-1 rounded border border-border bg-elevated/35 p-2">
+        <div className="mb-1 flex items-center justify-between"><b className="text-xs">强势板块</b><Link to="/strong-sectors" className="text-[10px] text-accent">查看全部</Link></div>
+        <div className="flex flex-wrap gap-1">{strongSectors.length ? strongSectors.map(row => <span key={`${row.name}-${row.source_field ?? ''}`} className="rounded bg-base/70 px-1.5 py-1 text-[10px]"><b>{row.name}</b> <span className={tone(row.avg_pct)}>{pct(row.avg_pct)}</span></span>) : <span className="text-[10px] text-muted">暂无板块排名</span>}</div>
+        <p className="mt-2 text-[9px] text-muted">已有底仓且个股与板块同步走强，才观察正T；没有底仓不追涨。</p>
+      </div>
+      <div className="min-w-[280px] flex-1 rounded border border-warning/35 bg-warning/5 p-2">
+        <div className="mb-1 flex items-center justify-between"><b className="text-xs text-warning">实时异动</b><span className="text-[9px] text-muted">约{refreshSec}秒</span></div>
+        <div className="flex gap-1 overflow-hidden">{abnormalRows.length ? abnormalRows.map(row => <Link key={row.symbol} to={`/stock-analysis?symbol=${encodeURIComponent(row.symbol)}`} className="min-w-[115px] rounded bg-base/70 px-1.5 py-1 text-[10px] hover:bg-elevated"><div className="truncate font-medium">{row.name || row.symbol}</div><b className={cn('font-mono', tone(row.change_pct))}>{pct(row.change_pct)}</b><div className="truncate text-[9px] text-muted">{(row.signals ?? []).map(signal => SIGNAL_LABELS[signal] ?? signal).join(' · ') || '价格异动'}</div></Link>) : <span className="text-[10px] text-muted">当前没有可核验异动</span>}</div>
+      </div>
+      <div className="min-w-[260px] flex-1 rounded border border-border bg-elevated/35 p-2">
+        <div className="mb-1 flex items-center justify-between"><b className="text-xs">重要新闻</b><Link to="/market-news" className="text-[10px] text-accent">新闻中心</Link></div>
+        {newsRows.length ? newsRows.map((item, index) => <a key={`${item.url}-${index}`} href={item.url} target="_blank" rel="noopener noreferrer" className="block truncate text-[10px] leading-relaxed text-secondary hover:text-accent">{item.bias ?? '待判断'} · {item.title}</a>) : <span className="text-[10px] text-muted">新闻源暂未返回内容</span>}
+      </div>
+    </div>
+  </section>
 }
 
