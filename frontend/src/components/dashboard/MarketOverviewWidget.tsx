@@ -164,10 +164,14 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
     const holdingsContext = (portfolio.data?.items ?? []).slice(0, 30).map(item =>
       `${item.name || item.symbol}(${item.symbol}) 涨跌${item.change_pct == null ? '未知' : `${item.change_pct.toFixed(2)}%`} 板块${item.board?.name || '未关联'}`,
     ).join('；')
+    const candidateContext = recommendationRows.slice(0, 12).map(item =>
+      `${item.name || item.symbol}(${item.symbol}) 涨跌${item.change_pct == null ? '未知' : `${item.change_pct.toFixed(2)}%`} 成交额${amount(item.amount)}`,
+    ).join('；')
     const focus = [
       '只基于给定的真实行情、量能、涨跌家数和板块数据分析，不允许编造缺失数据。重点分析大盘走势、成交额、量能变化、科技成长与防守风格，并给出上行/震荡/下行条件。',
       `当前选中指数：${selected.name}；四个指数量能摘要：${indexVolumeStats.map(row => `${row.name}成交额${amount(row.current)}、较近20日中位数${pct(row.change)}、全天外推${amount(row.forecast)}`).join('；')}`,
       `市场涨跌家数：上涨${data.breadth.up}、平盘${data.breadth.flat}、下跌${data.breadth.down}；强势板块：${strongSectors.map(row => `${row.name} ${pct(row.avg_pct)}`).join('、') || '暂无'}`,
+      candidateContext ? `仅把以下真实榜单标的作为候选观察，不要把它们直接写成买入建议：${candidateContext}` : '当前没有可核验候选股榜单，明确写出数据不足。',
       holdingsContext ? `必须结合我的持仓逐只分析与市场和所属板块的同步/背离：${holdingsContext}` : '当前没有已核验持仓时，明确说明无法做持仓关联分析。',
       '请严格按“市场结论｜量能证据｜指数分化｜强势板块与候选股观察｜上行条件｜下行条件｜策略”输出；策略只能是条件化观察，不给出自动下单指令。',
     ].join('\n')
@@ -226,7 +230,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
             {marketStats.map(item => <div key={item.label} className="rounded border border-border bg-elevated/45 p-2"><div className="text-[10px] text-muted">{item.label}</div><div className="mt-0.5 font-mono text-sm font-semibold">{item.value}</div><div className="text-[9px] text-secondary">{item.sub}</div></div>)}
           </div>
           <div className="rounded border border-border bg-elevated/35 p-2">
-            <div className="mb-1 flex items-center justify-between"><b className="text-xs">预测中心</b><span className="text-[9px] text-muted">三种口径分开显示</span></div>
+            <div className="mb-1 flex items-center justify-between gap-2"><b className="text-xs">预测中心</b><div className="flex items-center gap-2"><span className="text-[9px] text-muted">三种口径分开显示</span><button type="button" onClick={runAI} disabled={generating} className="inline-flex items-center gap-1 rounded border border-accent/60 px-1.5 py-0.5 text-[10px] text-accent disabled:opacity-50"><Bot className="h-3 w-3" />{generating ? '生成中…' : 'AI策略'}</button></div></div>
             <div className="mb-2 grid grid-cols-3 gap-1">
               {([['model', '量化模型', BarChart3], ['ai', '本地AI', Bot], ['public', '公共平台', Globe2] ] as const).map(([key, label, Icon]) => <button key={key} type="button" onClick={() => setForecastTab(key)} className={cn('inline-flex items-center justify-center gap-1 rounded border px-1.5 py-1 text-[10px]', forecastTab === key ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted')}><Icon className="h-3 w-3" />{label}</button>)}
             </div>
