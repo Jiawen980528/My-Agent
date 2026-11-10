@@ -406,9 +406,9 @@ function BoardDetail({ code, day, news, visible }: { code: string; day: string; 
   </div>
 }
 
-function HoldingsOverview({ items, minuteData, source, onSelect, aiText, aiBusy, onAiReview }: {
+function HoldingsOverview({ items, minuteData, source, onSelect, aiText, aiBusy, onAiReview, compact = false }: {
   items: Holding[]; minuteData: Record<string, Bar[]>; source?: string; onSelect: (symbol: string) => void
-  aiText?: string; aiBusy?: boolean; onAiReview?: () => void
+  aiText?: string; aiBusy?: boolean; onAiReview?: () => void; compact?: boolean
 }) {
   const totals = items.reduce((out, item) => {
     const quantity = Number(item.quantity ?? 0)
@@ -445,10 +445,14 @@ function HoldingsOverview({ items, minuteData, source, onSelect, aiText, aiBusy,
       <div className="h-16 rounded bg-base/60 px-1"><svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full" role="img" aria-label="AI预测持仓盈亏走势"><path d={forecastPath} fill="none" stroke={totals.day >= 0 ? 'hsl(var(--bull))' : 'hsl(var(--bear))'} strokeWidth="2" vectorEffect="non-scaling-stroke" /></svg></div>
       <p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-secondary">{aiText || `规则基线：当前组合今日${totals.day >= 0 ? '偏正收益' : '偏负收益'}，预测线仅表示情景趋势，不代表保证收益。`}</p>
     </div>
-    <div className="grid gap-2 xl:grid-cols-2">
+    <div className={compact ? 'grid gap-1.5 sm:grid-cols-2' : 'grid gap-2 xl:grid-cols-2'}>
       {items.map(item => {
         const rows = minuteData[item.symbol] || []
         const last = rows.at(-1)
+        if (compact) return <button key={item.symbol} type="button" onClick={() => onSelect(item.symbol)} className="min-w-0 rounded border border-border bg-surface px-2 py-1.5 text-left hover:border-accent/70">
+          <span className="flex items-center justify-between gap-2 text-xs"><b className="truncate">{item.name}</b><span className={Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}>{pct(item.change_pct)}</span></span>
+          <span className="mt-0.5 flex justify-between text-[10px] text-muted"><span>{item.symbol}</span><span>{last ? price(last.close) : price(item.price)} · {item.quantity == null ? '数量未录入' : `${item.quantity.toLocaleString()}份`}</span></span>
+        </button>
         return <div key={item.symbol} role="button" tabIndex={0} onClick={() => onSelect(item.symbol)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') onSelect(item.symbol) }} className="min-w-0 cursor-pointer rounded border border-border bg-surface p-1.5 text-left hover:border-accent/70">
           <div className="mb-1 flex items-center justify-between gap-2"><span className="truncate text-xs font-semibold">{item.name}</span><span className={Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}>{pct(item.change_pct)}</span></div>
           <div className="mb-1 flex justify-between text-[10px] text-muted"><span>{item.symbol}</span><span>最新 {last ? price(last.close) : price(item.price)} · {last?.datetime || '暂无分钟数据'}</span></div>
@@ -710,7 +714,7 @@ export function PortfolioMonitorWidget({ compact = false }: { compact?: boolean 
     }
     setSelectedBoard(code); setBoardInput(''); setBoardError(''); setMenu(null)
   }
-  if (compact) return <section className="relative h-full overflow-auto overscroll-contain rounded-card border border-border bg-surface p-2 text-foreground [scrollbar-gutter:stable]"><HoldingsOverview items={shown} minuteData={usableMinuteData} source={minute.data?.source} aiText={aiText} aiBusy={aiBusy} onAiReview={runAiReview} onSelect={symbol => { setSelected(symbol); setViewMode('detail') }} /></section>
+  if (compact) return <section className="relative h-full overflow-auto overscroll-contain rounded-card border border-border bg-surface p-2 text-foreground [scrollbar-gutter:stable]"><HoldingsOverview compact items={shown} minuteData={usableMinuteData} source={minute.data?.source} aiText={aiText} aiBusy={aiBusy} onAiReview={runAiReview} onSelect={symbol => { setSelected(symbol); setViewMode('detail') }} /></section>
   return <section className="relative h-full overflow-auto overscroll-contain rounded-card border border-border bg-surface p-2 text-foreground [scrollbar-gutter:stable]"
     onContextMenu={event => { event.preventDefault(); setMenu({ x: Math.max(8, Math.min(event.clientX, innerWidth - 220)), y: Math.max(8, Math.min(event.clientY, innerHeight - 440)) }) }}>
     <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 border-b border-border pb-1">
