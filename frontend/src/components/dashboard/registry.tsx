@@ -317,7 +317,7 @@ export const WIDGET_DEFS: WidgetDef[] = [
     render: () => <PortfolioMonitorWidget compact />,
   },
   {
-    id: 'sector-watch', label: '分时监控提醒', icon: BellRing, minW: 4, minH: 8, defW: 6, defH: 12,
+    id: 'sector-watch', label: '分时监控提醒', icon: BellRing, minW: 2, minH: 8, defW: 6, defH: 12,
     render: () => <MonitorAlertWidget />,
   },
   {
