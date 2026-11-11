@@ -133,6 +133,7 @@ export const QK = {
                          ['instrument-names', [...new Set(symbols)].sort().join(',')] as const,
   klineLatest:          (symbol: string) => ['kline-latest', symbol] as const,
   stockLevels:          (symbol: string, days?: number) => ['stock-levels', symbol, days ?? 120] as const,
+  stockResearchContext: (symbol: string) => ['stock-research-context', symbol] as const,
   klineMinute:          (symbol: string, date: string) =>
                              ['kline-minute', symbol, date] as const,
   klineMinuteRange:     (symbol: string, days: number) =>

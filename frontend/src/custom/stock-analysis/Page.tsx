@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Sparkles, LineChart, History as HistoryIcon, Loader2, ExternalLink, Bell, AlertTriangle } from 'lucide-react'
+import { Sparkles, LineChart, History as HistoryIcon, Loader2, ExternalLink, Bell, AlertTriangle, Activity, BookOpen, Newspaper } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
 import { EmptyState } from '@/components/EmptyState'
 import { StockFinancialSearch } from '@/components/financials/StockFinancialSearch'
@@ -9,7 +9,9 @@ import { StockPreviewDialog } from '@/components/StockPreviewDialog'
 import { LastStockChip } from '@/components/LastStockChip'
 import { AnalysisKChart, type PriceLevel, type LevelType } from '@/components/stock-analysis/AnalysisKChart'
 import { PriceAlertDialog } from '@/components/stock-analysis/PriceAlertDialog'
-import { api } from '@/lib/api'
+import { EChartsIntraday } from '@/components/EChartsIntraday'
+import { MarkdownRenderer } from '@/components/financials/MarkdownRenderer'
+import { api, type MyAgentQuantCandidate, type MyAgentQuantNews, type MyAgentQuantQuote, type MyAgentResearchPoolItem, type OverviewMarket } from '@/lib/api'
 import { useLastStock } from '@/lib/useLastStock'
 import { QK } from '@/lib/queryKeys'
 import { toast } from '@/components/Toast'
@@ -141,7 +143,7 @@ export function StockAnalysis() {
         </div>
 
         {/* 主体:左侧当前个股看板 + 右侧常驻历史报告 */}
-        <div className="grid grid-cols-[1fr_288px] gap-6 items-start">
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_288px] gap-6 items-start">
           <div className="min-w-0">
             {!symbol ? (
               <EmptyState
@@ -150,7 +152,7 @@ export function StockAnalysis() {
                 hint="搜索代码或名称,查看日 K 与关键价位,并可让 AI 进行技术面 / 基本面 / 财务面 / 消息面四维综合分析。"
               />
             ) : (
-              <StockAnalysisBoard symbol={symbol} />
+              <StockAnalysisBoard symbol={symbol} name={name} />
             )}
           </div>
           <HistorySidebar />
@@ -187,8 +189,66 @@ export function StockAnalysis() {
   )
 }
 
-// ===== 分析看板:日 K + 关键价位 =====
-function StockAnalysisBoard({ symbol }: { symbol: string }) {
+type StockResearchContext = {
+  poolRows: MyAgentResearchPoolItem[]
+  candidate: MyAgentQuantCandidate | null
+  quote: MyAgentQuantQuote | null
+  quoteSource: string
+  news: MyAgentQuantNews[]
+  market: OverviewMarket | null
+  scanGeneratedAt: string
+  unavailable: string[]
+}
+
+const stockCode = (symbol: string) => symbol.replace(/\..*$/, '')
+
+async function loadStockResearchContext(symbol: string): Promise<StockResearchContext> {
+  const [poolResult, scanResult, quoteResult, newsResult, marketResult] = await Promise.allSettled([
+    api.myagentResearchPool(),
+    api.myagentQuantLatestScan(),
+    api.myagentQuantQuotes([symbol]),
+    api.myagentQuantNews(),
+    api.overviewMarket(),
+  ])
+  const code = stockCode(symbol)
+  const poolRows = poolResult.status === 'fulfilled'
+    ? poolResult.value.items.filter(row => row.symbol && stockCode(row.symbol) === code)
+    : []
+  const scan = scanResult.status === 'fulfilled' ? scanResult.value : null
+  const candidate = scan?.items.find(row => stockCode(row.symbol) === code) ?? null
+  const quote = quoteResult.status === 'fulfilled'
+    ? quoteResult.value.items.find(row => stockCode(row.symbol) === code) ?? null
+    : null
+  const themes = new Set(poolRows.flatMap(row => [row.theme, row.segment]).filter(Boolean))
+  if (candidate?.sector) themes.add(candidate.sector)
+  const allNews = newsResult.status === 'fulfilled' ? newsResult.value.items : []
+  const news = allNews.filter(item => item.sector_names?.some(sector =>
+    [...themes].some(theme => sector.includes(theme) || theme.includes(sector)),
+  )).slice(0, 6)
+  const unavailable: string[] = []
+  if (poolResult.status === 'rejected') unavailable.push('资料池')
+  if (scanResult.status === 'rejected') unavailable.push('拾贝扫描')
+  if (quoteResult.status === 'rejected') unavailable.push('公开行情')
+  if (newsResult.status === 'rejected') unavailable.push('新闻')
+  if (marketResult.status === 'rejected') unavailable.push('大盘')
+  return {
+    poolRows,
+    candidate,
+    quote,
+    quoteSource: quoteResult.status === 'fulfilled' ? quoteResult.value.source ?? '' : '',
+    news,
+    market: marketResult.status === 'fulfilled' ? marketResult.value : null,
+    scanGeneratedAt: scan?.generated_at ?? '',
+    unavailable,
+  }
+}
+
+// ===== 分析看板:资料研判 + 分时/日 K + 关键价位 =====
+function StockAnalysisBoard({ symbol, name }: { symbol: string; name: string }) {
+  const [aiReply, setAiReply] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  const { reports } = useHistoryReports()
+  const latestReport = reports.find(report => report.symbol === symbol) ?? null
   const kline = useQuery({
     // QK 集中键 (start/end 空串 = 滚动最近窗口, 无日期边界)。收益: 键进集中
     // 管理, 且 useQuoteStream 的焦点股增量合并对无边界键生效 — 此前私拼 3 元
@@ -209,63 +269,245 @@ function StockAnalysisBoard({ symbol }: { symbol: string }) {
     staleTime: 60_000,
   })
 
-  if (kline.isLoading) {
-    return <div className="flex items-center justify-center py-20"><Loader2 className="h-5 w-5 animate-spin text-muted" /></div>
-  }
+  const minuteQ = useQuery({
+    queryKey: QK.pickModelMinute(symbol),
+    queryFn: () => api.klineMinute(symbol, undefined, true),
+    enabled: !!symbol,
+    staleTime: 3_000,
+    refetchInterval: 5_000,
+    retry: false,
+  })
 
-  if (kline.isError) {
-    return (
-      <EmptyState
-        icon={AlertTriangle}
-        title="日 K 数据加载失败"
-        hint="请检查网络或数据源配置后重试。"
-      />
-    )
+  const researchQ = useQuery({
+    queryKey: QK.stockResearchContext(symbol),
+    queryFn: () => loadStockResearchContext(symbol),
+    enabled: !!symbol,
+    staleTime: 30_000,
+    retry: false,
+  })
+
+  useEffect(() => { setAiReply('') }, [symbol])
+
+  const runQuantReview = async () => {
+    const context = researchQ.data
+    if (!context || aiLoading) return
+    if (context.quote?.price == null) {
+      setAiReply('结论：继续观察\n\n尚未取得可核验的公开行情快照，当前不能生成有效的盘中量化复核。')
+      return
+    }
+    setAiLoading(true)
+    try {
+      const result = await api.myagentQuantAi({
+        symbol: stockCode(symbol),
+        name: name || context.quote.name || context.poolRows[0]?.name || symbol,
+        question: '请结合资料股票池、最新拾贝扫描、当前公开行情、大盘和相关新闻做量化复核。第一行必须且只能写“结论：继续观察”、“结论：等待买点”或“结论：可考虑模拟买入”之一；随后分为已验证证据、缺失数据、触发条件和失效条件。没有实时数据或证据不足时只能继续观察。不要给真实账户下单指令。',
+        context: {
+          full_symbol: symbol,
+          model: '拾贝模型',
+          research_pool: context.poolRows,
+          latest_scan: context.candidate,
+          scan_generated_at: context.scanGeneratedAt,
+          public_quote: context.quote,
+          quote_source: context.quoteSource,
+          market: context.market ? {
+            as_of: context.market.as_of,
+            breadth: context.market.breadth,
+            amount: context.market.amount,
+            emotion: context.market.emotion,
+            indices: context.market.indices,
+          } : null,
+          related_news: context.news,
+        },
+      })
+      setAiReply(result.reply)
+    } catch (error) {
+      setAiReply(error instanceof Error ? `AI 量化复核失败：${error.message}` : 'AI 量化复核失败，请稍后重试。')
+    } finally {
+      setAiLoading(false)
+    }
   }
 
   const rows = kline.data?.rows ?? []
-  if (rows.length === 0) {
-    return <EmptyState icon={LineChart} title="暂无日 K 数据" hint="该标的尚未同步日 K,请先在数据页或自选页同步。" />
-  }
-
+  const minuteRows = minuteQ.data?.rows ?? []
   const levels = (levelsQ.data?.levels ?? {}) as Record<LevelType, PriceLevel[]>
-
-  // 涨跌色:最后一根 K 线收 vs 前一根收(无前日则按开收判断)
   const last = rows[rows.length - 1]
   const prev = rows[rows.length - 2]
   const curClose = levelsQ.data?.close
-  const isUp = prev ? (last.close >= prev.close) : (last.close >= last.open)
+  const minuteLast = minuteRows[minuteRows.length - 1]
+  const shownPrice = researchQ.data?.quote?.price ?? curClose ?? minuteLast?.close ?? null
+  const isUp = researchQ.data?.quote?.pct != null
+    ? Number(researchQ.data.quote.pct) >= 0
+    : last ? (prev ? last.close >= prev.close : last.close >= last.open) : true
 
   return (
-    <div className="rounded-card border border-border/60 bg-surface/40 overflow-hidden">
-      <div className="px-4 py-3 border-b border-border/40">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <LineChart className="h-4 w-4 text-sky-400 shrink-0" />
-            <span className="text-sm font-medium text-foreground">关键价位分析</span>
+    <div className="space-y-4">
+      <ResearchEvidencePanel
+        symbol={symbol}
+        context={researchQ.data}
+        loading={researchQ.isLoading}
+        aiReply={aiReply}
+        aiLoading={aiLoading}
+        onAnalyze={runQuantReview}
+      />
+
+      {minuteRows.length > 0 && (
+        <div className="rounded-card border border-border/60 bg-surface/40 overflow-hidden">
+          <div className="px-4 py-3 border-b border-border/40 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2"><Activity className="h-4 w-4 text-sky-400" /><span className="text-sm font-medium">当日分时与量能</span></div>
+            <div className="text-[10px] text-muted">{minuteQ.data?.date ?? '最新交易日'} · {minuteQ.data?.source ?? '行情源'} · {minuteRows.length} 根</div>
           </div>
-          <div className="flex items-baseline gap-2 shrink-0">
-            <span className="text-[10px] text-muted">{rows.length} 个交易日</span>
-            <span className="text-[10px] text-muted/60">·</span>
-            <span className="text-[10px] text-muted">当前价</span>
-            <span className={`text-[16px] leading-6 font-mono font-bold ${isUp ? 'text-bull' : 'text-bear'}`}>
-              {curClose?.toFixed(2) ?? '—'}
-            </span>
+          <div className="p-3">
+            <EChartsIntraday
+              data={minuteRows}
+              assetType={minuteQ.data?.asset_type}
+              height={390}
+              prevClose={minuteQ.data?.prev_close ?? undefined}
+              date={minuteQ.data?.date ?? undefined}
+              priceLimit={minuteQ.data?.price_limit ?? undefined}
+              currentPrice={minuteLast?.close}
+            />
           </div>
         </div>
+      )}
+
+      <div className="rounded-card border border-border/60 bg-surface/40 overflow-hidden">
+        <div className="px-4 py-3 border-b border-border/40">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <LineChart className="h-4 w-4 text-sky-400 shrink-0" />
+              <span className="text-sm font-medium text-foreground">日 K 与关键价位</span>
+            </div>
+            <div className="flex items-baseline gap-2 shrink-0">
+              <span className="text-[10px] text-muted">{rows.length ? `${rows.length} 个交易日` : '日 K 尚未同步'}</span>
+              <span className="text-[10px] text-muted/60">·</span>
+              <span className="text-[10px] text-muted">当前价</span>
+              <span className={`text-[16px] leading-6 font-mono font-bold ${isUp ? 'text-bull' : 'text-bear'}`}>
+                {shownPrice?.toFixed(2) ?? '—'}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="p-3">
+          {kline.isLoading ? (
+            <div className="flex items-center justify-center py-20"><Loader2 className="h-5 w-5 animate-spin text-muted" /></div>
+          ) : rows.length > 0 ? (
+            <AnalysisKChart
+              rows={rows}
+              levels={levels}
+              series={levelsQ.data?.series}
+              seriesDates={levelsQ.data?.dates}
+              defaultLevelTypes={['sr', 'pivot', 'keltner_s']}
+              height={480}
+            />
+          ) : (
+            <div className="flex items-start gap-3 rounded-lg border border-amber-400/20 bg-amber-400/[0.06] p-4 text-xs text-secondary">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+              <div><p className="font-medium text-foreground">日 K 暂不可用，资料研判与分时行情仍可查看</p><p className="mt-1 text-muted">同步日 K 后会在这里补充均线、支撑、压力和密集成交区。</p></div>
+            </div>
+          )}
+        </div>
       </div>
-      <div className="p-3">
-        <AnalysisKChart
-          rows={rows}
-          levels={levels}
-          series={levelsQ.data?.series}
-          seriesDates={levelsQ.data?.dates}
-          defaultLevelTypes={['sr', 'pivot', 'keltner_s']}
-          height={480}
-        />
-      </div>
+
+      {latestReport && (
+        <div className="rounded-card border border-sky-400/20 bg-sky-400/[0.04] overflow-hidden">
+          <div className="px-4 py-3 border-b border-sky-400/15 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-sky-400" /><span className="text-sm font-medium">最近一次 AI 四维报告</span></div>
+            <span className="text-[10px] text-muted">{fmtRelative(latestReport.created_at)}</span>
+          </div>
+          <div className="p-4"><MarkdownRenderer content={latestReport.content} /></div>
+        </div>
+      )}
     </div>
   )
+}
+
+function ResearchEvidencePanel({ symbol, context, loading, aiReply, aiLoading, onAnalyze }: {
+  symbol: string
+  context?: StockResearchContext
+  loading: boolean
+  aiReply: string
+  aiLoading: boolean
+  onAnalyze: () => void
+}) {
+  if (loading) return <div className="rounded-card border border-border/60 bg-surface/40 py-12 flex items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted" /></div>
+  const quote = context?.quote
+  const candidate = context?.candidate
+  const poolRows = context?.poolRows ?? []
+  const pct = quote?.pct ?? candidate?.pct
+  const themes = [...new Set(poolRows.map(row => row.theme).filter(Boolean))]
+  const segments = [...new Set(poolRows.map(row => row.segment).filter(Boolean))]
+  return (
+    <div className="rounded-card border border-border/60 bg-surface/40 overflow-hidden">
+      <div className="px-4 py-3 border-b border-border/40 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2"><BookOpen className="h-4 w-4 text-amber-400" /><span className="text-sm font-medium">资料池 × 拾贝扫描 × 实时证据</span></div>
+          <p className="mt-1 text-[10px] text-muted">只展示已取得的数据；未通过交集核验时不会生成买入结论。</p>
+        </div>
+        <button onClick={onAnalyze} disabled={aiLoading || !context}
+          className="inline-flex items-center gap-1.5 rounded-btn border border-sky-400/30 bg-sky-400/[0.08] px-3 py-1.5 text-xs text-sky-300 hover:bg-sky-400/[0.14] disabled:opacity-40">
+          {aiLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          AI 量化复核
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-px bg-border/40">
+        <EvidenceCard label="当前行情" value={quote?.price != null ? quote.price.toFixed(2) : '待取得'}
+          detail={pct != null ? `涨跌 ${fmtPct(pct)} · 换手 ${fmtPct(quote?.turnover)} · 量比 ${fmtNumber(quote?.volume_ratio)}` : context?.quoteSource || '公开行情暂无快照'}
+          tone={pct == null ? 'muted' : Number(pct) >= 0 ? 'up' : 'down'} />
+        <EvidenceCard label="资料池定位" value={poolRows.length ? themes.join(' / ') || `${poolRows.length} 条资料` : '未收录'}
+          detail={poolRows.length ? [segments.join(' / '), ...poolRows.map(row => row.role).filter(Boolean)].filter(Boolean).join(' · ') : `已导入资料池中没有匹配 ${symbol}`} />
+        <EvidenceCard label="拾贝扫描" value={candidate ? `${candidate.score ?? '—'} 分 · ${candidate.priority ?? '—'}级` : '本轮未入选'}
+          detail={candidate ? `${candidate.entry_status ?? '待观察'} · ${candidate.pattern ?? '形态待确认'} · 量能 ${fmtNumber(candidate.volume_multiple)}x` : '这表示最新一轮条件未形成交集，不代表资料丢失'} />
+        <EvidenceCard label="市场环境" value={context?.market?.emotion?.label ?? '待取得'}
+          detail={context?.market ? `上涨 ${context.market.breadth.up} / 下跌 ${context.market.breadth.down} · 成交 ${fmtAmount(context.market.amount.total)}` : '大盘快照暂不可用'} />
+      </div>
+
+      {poolRows.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 border-t border-border/40 p-4">
+          {poolRows.slice(0, 4).map((row, index) => (
+            <div key={`${row.source_file}-${index}`} className="rounded-lg border border-border/40 bg-base/30 p-3">
+              <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                <span className="rounded bg-amber-400/10 px-1.5 py-0.5 text-amber-300">{row.theme || '未分类'}</span>
+                {row.segment && <span className="text-muted">{row.segment}</span>}
+                {row.source_date && <span className="ml-auto text-muted">资料日期 {row.source_date}</span>}
+              </div>
+              <p className="mt-2 text-xs leading-5 text-secondary">{row.rationale || row.role || '原始资料未填写逻辑说明'}</p>
+              <p className="mt-1 text-[10px] text-muted">来源：{row.source || row.source_file || '用户导入资料'}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="border-t border-border/40 p-4">
+        <div className="mb-2 flex items-center gap-2"><Newspaper className="h-3.5 w-3.5 text-sky-400" /><span className="text-xs font-medium">关联新闻证据</span></div>
+        {context?.news.length ? (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+            {context.news.map((item, index) => <a key={`${item.url}-${index}`} href={item.url} target="_blank" rel="noreferrer" className="rounded-lg border border-border/40 bg-base/20 px-3 py-2 text-xs text-secondary hover:border-sky-400/30 hover:text-sky-300"><span className="line-clamp-1">{item.title}</span><span className="mt-1 block text-[10px] text-muted">{item.source}</span></a>)}
+          </div>
+        ) : <p className="text-xs text-muted">当前新闻流没有匹配到该股资料主题；不会用无关新闻补齐。</p>}
+      </div>
+
+      {!!context?.unavailable.length && <div className="border-t border-border/40 px-4 py-2 text-[10px] text-amber-300">暂不可用：{context.unavailable.join('、')}</div>}
+      {aiReply && <div className="border-t border-sky-400/15 bg-sky-400/[0.04] p-4"><MarkdownRenderer content={aiReply} /></div>}
+    </div>
+  )
+}
+
+function EvidenceCard({ label, value, detail, tone = 'muted' }: { label: string; value: string; detail: string; tone?: 'up' | 'down' | 'muted' }) {
+  return <div className="bg-surface p-4 min-w-0"><p className="text-[10px] text-muted">{label}</p><p className={`mt-1 truncate text-base font-semibold ${tone === 'up' ? 'text-bull' : tone === 'down' ? 'text-bear' : 'text-foreground'}`}>{value}</p><p className="mt-1 text-[10px] leading-4 text-muted">{detail}</p></div>
+}
+
+function fmtNumber(value: number | null | undefined): string {
+  return value == null || !Number.isFinite(Number(value)) ? '—' : Number(value).toFixed(2)
+}
+
+function fmtPct(value: number | null | undefined): string {
+  return value == null || !Number.isFinite(Number(value)) ? '—' : `${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(2)}%`
+}
+
+function fmtAmount(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—'
+  return value >= 1e8 ? `${(value / 1e8).toFixed(0)}亿` : `${(value / 1e4).toFixed(0)}万`
 }
 
 // ===== 左侧常驻:历史报告侧栏(所有股票,按时间倒序平铺) =====

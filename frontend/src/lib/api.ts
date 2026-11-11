@@ -582,6 +582,50 @@ export interface MyAgentResearchPool {
   sources: string[]
 }
 
+export interface MyAgentQuantCandidate {
+  symbol: string
+  name: string
+  sector?: string
+  price?: number
+  pct?: number
+  score?: number
+  priority?: string
+  entry_status?: string
+  pattern?: string
+  max_turnover?: number
+  volume_multiple?: number
+  pre_market_cap_yi?: number
+  ma_distance_pct?: number
+  latest_date?: string
+}
+
+export interface MyAgentQuantScanResult {
+  items: MyAgentQuantCandidate[]
+  count: number
+  universe_count?: number
+  data_source?: string
+  generated_at?: string
+}
+
+export interface MyAgentQuantQuote {
+  symbol: string
+  name?: string
+  price?: number
+  previous_close?: number
+  pct?: number
+  turnover?: number
+  volume_ratio?: number
+  timestamp?: string
+}
+
+export interface MyAgentQuantNews {
+  title: string
+  url: string
+  source: string
+  sector_names?: string[]
+  bias?: string
+}
+
 /** 全市场成交额预测。预测只能建立在真实分钟成交额和可比历史交易日之上。 */
 export interface MarketVolumeForecast {
   status: 'ok' | 'unavailable'
@@ -3710,6 +3754,21 @@ export const api = {
     request<{ as_of: string | null; rows: MarketSnapshotRow[] }>('/api/screener/market-snapshot'),
   overviewMarket: (asOf?: string) => request<OverviewMarket>(`/api/overview/market${asOf ? `?as_of=${asOf}` : ''}`),
   myagentResearchPool: () => request<MyAgentResearchPool>('/api/myagent/research-pool'),
+  myagentQuantLatestScan: async () => {
+    const list = await request<{ items: { id: number }[] }>('/api/myagent/quant/history?limit=1', { quiet: true })
+    if (!list.items?.length) return null
+    const detail = await request<{ result: MyAgentQuantScanResult }>(`/api/myagent/quant/history/${list.items[0].id}`, { quiet: true })
+    return detail.result ?? null
+  },
+  myagentQuantQuotes: (symbols: string[]) => request<{ items: MyAgentQuantQuote[]; source?: string }>(
+    `/api/myagent/quant/quotes?symbols=${encodeURIComponent(symbols.map(symbol => symbol.replace(/\..*$/, '')).join(','))}`,
+    { quiet: true },
+  ),
+  myagentQuantNews: () => request<{ items: MyAgentQuantNews[] }>('/api/myagent/quant/news', { quiet: true }),
+  myagentQuantAi: (payload: { symbol: string; name: string; question: string; context: Record<string, unknown> }) =>
+    request<{ reply: string }>('/api/myagent/quant/ai', {
+      method: 'POST', body: JSON.stringify(payload), quiet: true, timeoutMs: 120_000,
+    }),
   myagentResearchPoolImport: (file: File) => {
     const body = new FormData()
     body.append('file', file)
