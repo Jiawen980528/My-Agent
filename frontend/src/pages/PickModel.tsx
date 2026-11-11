@@ -128,11 +128,13 @@ export function PickModel() {
     } else if (scanJob.data?.status === 'complete') {
       setItems(scanJob.data.result?.items ?? [])
       setMeta(scanJob.data.result ?? null)
+      setPoolMessage(current => current.replace('正在运行拾贝扫描', '拾贝扫描已完成'))
       queryClient.setQueryData(QK.pickModelHistory, scanJob.data.result ?? null)
       setHasScanResult(true)
       setLoading(false); setScanJobId('')
     } else if (scanJob.data?.status === 'failed') {
       setError(scanJob.data.error || '扫描失败')
+      setPoolMessage(current => current.replace('正在运行拾贝扫描', '拾贝扫描失败'))
       setLoading(false); setScanJobId('')
     }
   }, [queryClient, scanJob.data, scanJob.error, scanJob.isError, scanJobId])
