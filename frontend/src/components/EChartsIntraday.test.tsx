@@ -116,6 +116,27 @@ it('plots concept equal-weight on a separate percent axis without flattening ind
   expect(option?.series?.find((series: any) => series.name === '成交量')).toBeDefined()
 })
 
+it('keeps index price readable before previous close has loaded', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  cleanup = async () => { await act(async () => root.unmount()) }
+  await act(async () => root.render(<EChartsIntraday
+    assetType="index" showLimitLines={false} showAvgLine={false} date="2026-11-10"
+    comparison={{ label: '题材股等权', points: [{ time: '09:30', pct: 0.006 }, { time: '09:31', pct: 0.008 }] }}
+    data={[
+      { datetime: '2026-11-10 09:30:00', open: 3682, high: 3684, low: 3680, close: 3682, volume: 100, amount: 100000 },
+      { datetime: '2026-11-10 09:31:00', open: 3682, high: 3683, low: 3678, close: 3680, volume: 100, amount: 100000 },
+    ]}
+  />))
+  expect(lastYAxis().min).toBeGreaterThan(3600)
+  expect(lastYAxis().max).toBeLessThan(3800)
+  const option = chart.setOption.mock.calls.at(-1)?.[0]
+  expect(option?.series?.find((series: any) => series.name === '题材股等权')?.yAxisIndex).toBe(2)
+  expect(option?.series?.find((series: any) => series.name === '成交量')).toBeDefined()
+})
+
 it('no_limit day: adaptive y-axis covers data far beyond the ±10% band', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
@@ -158,7 +179,7 @@ it('regular stock: adaptive y-axis still clamps to the limit band', async () => 
   expect(axis.max).toBeCloseTo(22, 6)
 })
 
-it('listing day without prevClose anchors y-axis with scale, not zero', async () => {
+it('listing day without prevClose scales to observed prices, not zero', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
   const host = document.createElement('div')
@@ -168,7 +189,8 @@ it('listing day without prevClose anchors y-axis with scale, not zero', async ()
     <EChartsIntraday data={wideRows('2026-09-17')} date="2026-09-17" />,
   ))
   const axis = lastYAxis()
-  expect(axis.min).toBeUndefined()
-  expect(axis.max).toBeUndefined()
+  expect(axis.min).toBeGreaterThan(0)
+  expect(axis.min).toBeLessThan(15)
+  expect(axis.max).toBeGreaterThan(57.77)
   expect(axis.scale).toBe(true)
 })

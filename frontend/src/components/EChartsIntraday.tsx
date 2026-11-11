@@ -224,6 +224,17 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
         yMax = prevClose + maxDiff
       }
     }
+  } else if (data.length > 0) {
+    // 指数日K尚未加载时也按分钟价格缩放，避免默认从零起轴压扁走势。
+    const observed = [closes, highs, lows, ...(showAvgLine ? [avgData] : [])]
+      .flat().filter(isValidPrice) as number[]
+    if (observed.length) {
+      const min = Math.min(...observed)
+      const max = Math.max(...observed)
+      const padding = Math.max((max - min) * 0.08, max * 0.0005)
+      yMin = min - padding
+      yMax = max + padding
+    }
   }
 
   // x 轴标签: 9:30, 10:30, 11:30/13:00, 14:00, 15:00
