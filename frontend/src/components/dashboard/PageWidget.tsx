@@ -14,6 +14,7 @@ const CORE_PAGES: PageOption[] = [
   { path: '/regime', label: '市场环境', component: lazy(() => import('@/pages/Regime').then(m => ({ default: m.Regime }))) },
   { path: '/data', label: '数据', component: lazy(() => import('@/pages/Data').then(m => ({ default: m.Data }))) },
   { path: '/pick-model', label: '拾贝模型', component: lazy(() => import('@/pages/PickModel').then(m => ({ default: m.PickModel }))) },
+  { path: '/sentiment-monitor', label: '情绪监控', component: lazy(() => import('@/pages/SentimentMonitor').then(m => ({ default: m.SentimentMonitor }))) },
   { path: '/myagent-quant', label: 'MyAgent 量化', component: lazy(() => import('@/pages/MyAgentQuant').then(m => ({ default: m.MyAgentQuant }))) },
   { path: '/fund-flow', label: '资金流向完整页', component: lazy(() => import('@/pages/FundFlow').then(m => ({ default: m.FundFlow }))) },
   { path: '/market-news', label: '市场新闻', component: lazy(() => import('@/pages/MarketNews').then(m => ({ default: m.MarketNews }))) },
