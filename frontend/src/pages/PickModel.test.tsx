@@ -100,7 +100,9 @@ it('keeps scan results navigable while an empty research pool disables theme fil
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
   expect(host.querySelector('a[href^="/stock-analysis?symbol=600519.SH&name="]')?.textContent).toBe('贵州茅台')
   expect(Array.from(host.querySelectorAll('button')).find(node => node.textContent === '创新药')?.disabled).toBe(true)
-  expect(host.textContent).toContain('资料池为空，主题筛选尚无内容')
+  expect(host.textContent).toContain('资料池为空：请先导入你给我的“创新药与物理AI产业链”Excel')
+  expect(Array.from(host.querySelectorAll('label')).find(node => node.textContent?.includes('导入 Excel'))).toBeTruthy()
+  expect(host.querySelector('input[aria-label="选择研究资料 Excel"]')?.getAttribute('accept')).toBe('.xlsx')
 })
 
 it('reports a failed background scan without showing invented candidates', async () => {
