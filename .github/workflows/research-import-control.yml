@@ -1,0 +1,47 @@
+name: Private Research Import Control
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Server-local import operation
+        required: true
+        type: choice
+        options:
+          - key
+          - consume
+permissions:
+  contents: read
+concurrency:
+  group: private-research-import-control
+  cancel-in-progress: false
+jobs:
+  control:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - name: Call server-local import endpoint
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          OPERATION: ${{ inputs.operation }}
+        run: |
+          set -euo pipefail
+          test "$DEPLOY_USER" = myagent-deploy
+          test "$OPERATION" = key -o "$OPERATION" = consume
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          trap 'rm -f ~/.ssh/deploy_key' EXIT
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          opts=(-i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15)
+          if [[ "$OPERATION" = key ]]; then
+            ssh "${opts[@]}" "$target" "curl -fsS http://127.0.0.1:8001/api/bridge/research-import/key"
+          else
+            ssh "${opts[@]}" "$target" "curl -fsS -X POST http://127.0.0.1:8001/api/bridge/research-import/consume"
+          fi
