@@ -20,7 +20,7 @@ const apiMock = vi.hoisted(() => ({
 vi.mock('@/lib/api', () => ({ api: apiMock }))
 
 let cleanup = async () => {}
-afterEach(async () => { await cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks() })
+afterEach(async () => { await cleanup(); sessionStorage.clear(); vi.unstubAllGlobals(); vi.clearAllMocks() })
 
 it('shows pool-and-model intersections and blocks paper buy until AI explicitly permits it', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
@@ -99,4 +99,24 @@ it('reports a failed background scan without showing invented candidates', async
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
   expect(host.textContent).toContain('历史行情源暂不可用')
   expect(host.querySelectorAll('[aria-label="待观察个股"] > button')).toHaveLength(0)
+})
+
+it('restores the latest completed scan after reopening the page', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  vi.stubGlobal('fetch', vi.fn(async (input: string) => {
+    const url = String(input)
+    const body = url.endsWith('/history?limit=1') ? { items: [{ id: 42 }] }
+      : url.endsWith('/history/42') ? { result: { items: [{ symbol: '000739', name: '普洛药业', score: 80, latest_date: '2026-11-10' }], count: 1, generated_at: '2026-11-10 15:30:00' } }
+        : { items: [] }
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }))
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  cleanup = async () => { await act(async () => root.unmount()); queryClient.clear() }
+  await act(async () => root.render(<MemoryRouter><QueryClientProvider client={queryClient}><PickModel /></QueryClientProvider></MemoryRouter>))
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+  expect(host.textContent).toContain('2026-11-10 15:30:00')
+  expect(host.querySelectorAll('[aria-label="待观察个股"] > button')).toHaveLength(1)
+  expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).endsWith('/scan/start'))).toBe(false)
 })

@@ -20,8 +20,13 @@ type SectorNews = { title: string; url: string; source: string; sector_names?: s
 type PoolItem = MyAgentResearchPoolItem
 type PoolData = MyAgentResearchPool
 type CandidateQuote = { symbol: string; name?: string; price?: number; previous_close?: number; pct?: number; turnover?: number; volume_ratio?: number }
-type ScanResult = { items: Candidate[]; count: number; universe_count?: number; data_source?: string }
+type ScanResult = { items: Candidate[]; count: number; universe_count?: number; data_source?: string; generated_at?: string }
 type ScanJob = { status: 'pending' | 'running' | 'complete' | 'failed'; elapsed_seconds?: number; result?: ScanResult | null; error?: string | null }
+const SCAN_JOB_KEY = 'myagent-pick-model-scan-job'
+
+function savedScanJob(): string {
+  try { return sessionStorage.getItem(SCAN_JOB_KEY) || '' } catch { return '' }
+}
 
 function aiVerdict(reply: string | undefined): '继续观察' | '等待买点' | '可考虑模拟买入' | null {
   const match = reply?.replace(/\*\*/g, '').match(/(?:^|\n)\s*结论[：:]\s*(继续观察|等待买点|可考虑模拟买入)/)
@@ -48,8 +53,9 @@ export function PickModel() {
   const [form, setForm] = useState({ baseline_days: 60, max_avg_turnover: 1.5, recent_days: 5, volume_multiple: 2, max_market_cap_yi: 100 })
   const [items, setItems] = useState<Candidate[]>([])
   const [meta, setMeta] = useState<any>(null)
-  const [loading, setLoading] = useState(false)
-  const [scanJobId, setScanJobId] = useState('')
+  const [loading, setLoading] = useState(() => !!savedScanJob())
+  const [scanJobId, setScanJobId] = useState(savedScanJob)
+  const [hasScanResult, setHasScanResult] = useState(false)
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
   const [strongSectors, setStrongSectors] = useState<StrongSector[]>([])
@@ -96,6 +102,23 @@ export function PickModel() {
     refetchInterval: query => query.state.data?.status === 'complete' || query.state.data?.status === 'failed' ? false : 3_000,
     retry: false,
   })
+  const scanHistory = useQuery({
+    queryKey: QK.pickModelHistory,
+    queryFn: async () => {
+      const list = await fetchJson<{ items: { id: number }[] }>(`${API}/history?limit=1`)
+      if (!list.items?.length) return null
+      const detail = await fetchJson<{ result: ScanResult }>(`${API}/history/${list.items[0].id}`)
+      return detail.result
+    },
+    staleTime: 60_000,
+    retry: false,
+  })
+  useEffect(() => {
+    if (loading || hasScanResult || !scanHistory.data) return
+    setItems(scanHistory.data.items ?? [])
+    setMeta(scanHistory.data)
+    setHasScanResult(true)
+  }, [hasScanResult, loading, scanHistory.data])
   useEffect(() => {
     if (!scanJobId) return
     if (scanJob.isError) {
@@ -104,12 +127,19 @@ export function PickModel() {
     } else if (scanJob.data?.status === 'complete') {
       setItems(scanJob.data.result?.items ?? [])
       setMeta(scanJob.data.result ?? null)
+      setHasScanResult(true)
       setLoading(false); setScanJobId('')
     } else if (scanJob.data?.status === 'failed') {
       setError(scanJob.data.error || '扫描失败')
       setLoading(false); setScanJobId('')
     }
   }, [scanJob.data, scanJob.error, scanJob.isError, scanJobId])
+  useEffect(() => {
+    try {
+      if (scanJobId) sessionStorage.setItem(SCAN_JOB_KEY, scanJobId)
+      else sessionStorage.removeItem(SCAN_JOB_KEY)
+    } catch { /* 浏览器禁用会话存储时，页面内扫描仍可继续 */ }
+  }, [scanJobId])
   useEffect(() => {
     let active = true
     void Promise.all([
@@ -223,7 +253,7 @@ export function PickModel() {
     finally { setAiLoading('') }
   }
   const scan = async () => {
-    setLoading(true); setError(''); setAiReplies({}); setAiReviewBasis({})
+    setLoading(true); setError(''); setItems([]); setMeta(null); setHasScanResult(true); setAiReplies({}); setAiReviewBasis({})
     try {
       const started = await fetchJson<{ job_id: string }>(`${API}/scan/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, force: true }) })
       setScanJobId(started.job_id)
@@ -314,7 +344,7 @@ export function PickModel() {
     </div>
     <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-4">
       <div className="rounded border border-border bg-surface p-2 text-xs"><span className="text-muted">资料股票池</span><b className="mt-1 block font-mono text-sm">{pool.items.length} 条</b><span className="text-[10px] text-muted">{pool.items.length ? '已入私有数据' : '等待导入'}</span></div>
-      <div className="rounded border border-border bg-surface p-2 text-xs"><span className="text-muted">拾贝扫描</span><b className="mt-1 block font-mono text-sm">{meta?.count ?? items.length} 只</b><span className="text-[10px] text-muted">{loading ? `后台任务 ${scanJob.data?.status || '提交中'}` : meta?.data_source || '尚未扫描'}</span></div>
+      <div className="rounded border border-border bg-surface p-2 text-xs"><span className="text-muted">拾贝扫描</span><b className="mt-1 block font-mono text-sm">{meta?.count ?? items.length} 只</b><span className="text-[10px] text-muted">{loading ? `后台任务 ${scanJob.data?.status || '提交中'}` : meta?.generated_at || meta?.data_source || '尚未扫描'}</span></div>
       <div className="rounded border border-border bg-surface p-2 text-xs"><span className="text-muted">可核验候选</span><b className="mt-1 block font-mono text-sm">{shortlist.length} 只</b><span className="text-[10px] text-muted">资料与模型交集 · 最多 5 只</span></div>
       <div className="rounded border border-border bg-surface p-2 text-xs"><span className="text-muted">市场 / 新闻</span><b className="mt-1 block text-sm">{market.data?.as_of?.slice(0, 16) || '市场不可用'}</b><span className="text-[10px] text-muted">新闻 {allNews.length} 条 · 数据时间见详情</span></div>
     </div>
