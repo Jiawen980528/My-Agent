@@ -14,9 +14,8 @@ import httpx
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 
-from app.api import auth as auth_api
 from app.config import settings
-from app.services import fund_flow_archive, ptrade_replay, research_pool, secure_research_import
+from app.services import fund_flow_archive, ptrade_replay, research_pool
 from app.services.decision_engine import build_decision
 from app.services.kline_sync import fetch_minute_single, selected_minute_source
 from app.services.market_volume_forecast import forecast_market_amount
@@ -24,26 +23,6 @@ from app.services.volume_forecast import forecast_amount
 from app.tickflow.capabilities import Cap
 
 router = APIRouter(prefix="/api/myagent", tags=["myagent-bridge"])
-research_import_router = APIRouter(
-    prefix="/api/bridge/research-import", tags=["myagent-research-import"],
-)
-
-
-def _require_local_research_import(request: Request) -> None:
-    if not auth_api._is_local_network(auth_api._client_ip(request)):
-        raise HTTPException(status_code=404, detail="Not found")
-
-
-@research_import_router.get("/key")
-def get_research_import_key(request: Request):
-    _require_local_research_import(request)
-    return secure_research_import.public_key(request.app.state.repo.store.data_dir)
-
-
-@research_import_router.post("/consume")
-def consume_research_import(request: Request):
-    _require_local_research_import(request)
-    return secure_research_import.consume(request.app.state.repo.store.data_dir)
 
 
 @router.get("/research-pool")
