@@ -22,6 +22,8 @@ type PoolData = MyAgentResearchPool
 type CandidateQuote = { symbol: string; name?: string; price?: number; previous_close?: number; pct?: number; turnover?: number; volume_ratio?: number }
 type ScanResult = { items: Candidate[]; count: number; universe_count?: number; data_source?: string; generated_at?: string }
 type ScanJob = { status: 'pending' | 'running' | 'complete' | 'failed'; elapsed_seconds?: number; result?: ScanResult | null; error?: string | null }
+type RecommendationStage = '全部' | '集合竞价' | '盘中推荐' | '其他时间轮动'
+type Cycle = '全部' | '短线' | '中线' | '长线'
 const SCAN_JOB_KEY = 'myagent-pick-model-scan-job'
 
 function savedScanJob(): string {
@@ -49,6 +51,7 @@ export function PickModel() {
   const queryClient = useQueryClient()
   const market = useQuery({ queryKey: QK.overviewMarket(), queryFn: () => api.overviewMarket(),
     refetchInterval: query => query.state.data?.quote_status?.is_trading_hours === false ? 60_000 : 5_000, staleTime: 3_000 })
+  const portfolio = useQuery({ queryKey: ['myagent', 'portfolio-snapshot'], queryFn: () => typeof (api as any).portfolioSnapshot === 'function' ? api.portfolioSnapshot() : Promise.resolve({ items: [], source: 'unavailable' }), refetchInterval: 10_000, staleTime: 5_000 })
   const conceptRotation = useQuery({ queryKey: QK.sectorRotation('concept', undefined, 1),
     queryFn: () => api.sectorRotation({ kind: 'concept', bucket: 1 }), refetchInterval: 30_000, staleTime: 20_000 })
   const [form, setForm] = useState({ baseline_days: 60, max_avg_turnover: 1.5, recent_days: 5, volume_multiple: 2, max_market_cap_yi: 100 })
@@ -80,6 +83,8 @@ export function PickModel() {
   const [paperBusy, setPaperBusy] = useState(false)
   const [paperMessage, setPaperMessage] = useState('')
   const [focusFilter, setFocusFilter] = useState<'全部' | '创新药' | '物理AI' | '其他'>('全部')
+  const [recommendationStage, setRecommendationStage] = useState<RecommendationStage>('全部')
+  const [cycleFilter, setCycleFilter] = useState<Cycle>('全部')
   const [focusSymbol, setFocusSymbol] = useState<string | null>(null)
   const activeSectors = useMemo(() => {
     const rotation = conceptRotation.data
@@ -288,8 +293,17 @@ export function PickModel() {
     const isFocus = rows.some(row => row.theme.includes('创新药') || row.theme.includes('物理AI') || row.theme.includes('机器人'))
     return focusFilter === '全部' || (focusFilter === '其他' ? !isFocus : rows.some(row =>
       row.theme.includes(focusFilter) || (focusFilter === '物理AI' && row.theme.includes('机器人'))))
+  }).filter(item => {
+    const status = `${item.entry_status || ''}${item.pattern || ''}`
+    const stage: RecommendationStage = /竞价|集合|盘前/.test(status) ? '集合竞价' : Number(item.pct ?? 0) >= 2 || Number(item.volume_multiple ?? 0) >= 2 ? '盘中推荐' : '其他时间轮动'
+    if (recommendationStage !== '全部' && stage !== recommendationStage) return false
+    if (cycleFilter === '短线') return Number(item.score ?? 0) >= 80 || Number(item.volume_multiple ?? 0) >= 2
+    if (cycleFilter === '中线') return Number(item.score ?? 0) >= 70 && Number(item.score ?? 0) < 80
+    if (cycleFilter === '长线') return Number(item.score ?? 0) < 70
+    return true
   }).sort((a, b) => Number(b.score ?? -1) - Number(a.score ?? -1) || Number(b.volume_multiple ?? 0) - Number(a.volume_multiple ?? 0))
-    .slice(0, 5), [items, poolByCode, focusFilter])
+    .slice(0, 5), [items, poolByCode, focusFilter, recommendationStage, cycleFilter])
+  // console.debug('pick shortlist', items.length, pool.items.length, shortlist.length, recommendationStage, cycleFilter)
   const quoteCodes = shortlist.map(item => codeOf(item.symbol)).join(',')
   const quotes = useQuery({
     queryKey: QK.pickModelQuotes(quoteCodes),
@@ -362,6 +376,14 @@ export function PickModel() {
       <div className="rounded border border-border bg-surface p-2 text-xs"><span className="text-muted">可核验候选</span><b className="mt-1 block font-mono text-sm">{shortlist.length} 只</b><span className="text-[10px] text-muted">资料与模型交集 · 最多 5 只</span></div>
       <div className="rounded border border-border bg-surface p-2 text-xs"><span className="text-muted">市场 / 新闻</span><b className="mt-1 block text-sm">{market.data?.as_of?.slice(0, 16) || '市场不可用'}</b><span className="text-[10px] text-muted">新闻 {allNews.length} 条 · 数据时间见详情</span></div>
     </div>
+    <div className="mb-3 rounded-card border border-border bg-surface p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2"><div><b className="text-sm">我的持仓 · 实时分析</b><p className="mt-1 text-[11px] text-muted">持仓只读接入 MyAgent；缺少数量或成本时明确标记，不推断数据。</p></div><Link to="/myagent-quant" className="text-[11px] text-accent hover:underline">打开完整持仓页 ↗</Link></div>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{(portfolio.data?.items ?? []).slice(0, 8).map(item => {
+        const cost = Number(item.cost); const price = Number(item.price); const qty = Number(item.quantity)
+        const breakEven = Number.isFinite(cost) && Number.isFinite(price) && Number.isFinite(qty) && qty > 0 ? cost : null
+        return <Link key={item.symbol} to={`/stock-analysis?symbol=${encodeURIComponent(item.symbol)}&name=${encodeURIComponent(item.name)}`} className="rounded border border-border bg-base/60 p-2 text-xs hover:border-accent/60"><div className="flex justify-between gap-2"><b className="truncate">{item.name}</b><span className={Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}>{item.change_pct == null ? '—' : `${Number(item.change_pct).toFixed(2)}%`}</span></div><div className="mt-1 grid grid-cols-2 gap-1 text-[10px] text-muted"><span>现价 {item.price ?? '缺失'}</span><span>数量 {item.quantity ?? '缺失'}</span><span>成本 {item.cost ?? '缺失'}</span><span>浮盈亏 {item.pnl == null ? '缺失' : Number(item.pnl).toFixed(2)}</span></div>{breakEven == null ? <span className="mt-1 block text-[10px] text-warning">回本计算：成本/数量缺失</span> : <span className="mt-1 block text-[10px] text-accent">回本价 {breakEven.toFixed(2)} · 补仓需在个股页计算</span>}</Link>
+      })}{!portfolio.isLoading && !(portfolio.data?.items?.length) && <p className="text-xs text-muted">暂无已接入持仓，或持仓数据源暂不可用。</p>}</div>
+    </div>
     <section className="mb-3 rounded-card border border-border bg-surface p-3">
       <div className="flex flex-wrap items-center justify-between gap-2"><div><b className="text-sm">资料股票池 × 拾贝扫描 · 待观察</b><p className="mt-1 text-[11px] text-muted">创新药、物理 AI 优先核对，也保留其他板块；只展示资料与扫描交集，按模型评分排序。新闻和板块是旁证，不能代替买点确认。</p></div><Link to="/paper" className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-secondary"><Wallet className="h-3.5 w-3.5" />模拟盘</Link></div>
       <div className="mt-2 text-[10px] text-muted">已存 {pool.items.length} 条资料记录 · {new Set(pool.items.filter(item => item.symbol).map(item => codeOf(item.symbol!))).size} 只已识别股票 · {pool.items.filter(item => !item.symbol).length} 条待匹配代码 · 资料日期：{Array.from(new Set(pool.items.map(item => item.source_date).filter(Boolean))).join(' / ') || '未注明'} · 大盘快照：{market.data?.as_of || '不可用'}</div>
@@ -372,7 +394,8 @@ export function PickModel() {
           <input aria-label="选择研究资料 Excel" type="file" multiple accept=".xlsx" className="hidden" disabled={poolBusy} onChange={event => { void importPool(event.target.files); event.target.value = '' }} />
         </label>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">{(['全部', '创新药', '物理AI', '其他'] as const).map(value => <button key={value} type="button" disabled={!pool.items.length} onClick={() => setFocusFilter(value)} className={`rounded border px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40 ${focusFilter === value ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted'}`}>{value}</button>)}<span className="ml-1 text-muted">按模型评分排序，每次最多显示 5 只</span></div>
+      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">{(['全部', '创新药', '物理AI', '其他'] as const).map(value => <button key={value} type="button" disabled={!pool.items.length} onClick={() => setFocusFilter(value)} className={`rounded border px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40 ${focusFilter === value ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted'}`}>{value}</button>)}<span className="ml-1 text-muted">当前阶段最多显示 5 只；资金、情绪、新闻缺失会单独标记</span></div>
+      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]"><span className="mr-1 text-muted">推荐时段</span>{(['全部', '集合竞价', '盘中推荐', '其他时间轮动'] as RecommendationStage[]).map(value => <button key={value} type="button" onClick={() => setRecommendationStage(value)} className={`rounded border px-2 py-1 ${recommendationStage === value ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted'}`}>{value}</button>)}<span className="mx-1 text-muted">周期</span>{(['全部', '短线', '中线', '长线'] as Cycle[]).map(value => <button key={value} type="button" onClick={() => setCycleFilter(value)} className={`rounded border px-2 py-1 ${cycleFilter === value ? 'border-sky-400/70 bg-sky-400/10 text-sky-300' : 'border-border text-muted'}`}>{value}</button>)}</div>
       {!!pool.sources.length && <p className="mt-1 text-[10px] text-muted">已导入：{pool.sources.join('、')}</p>}
       {pool.items.some(item => !item.symbol) && <details className="mt-2 text-[10px] text-muted"><summary className="cursor-pointer">查看待匹配代码的股票名称</summary><div className="mt-1 max-h-24 overflow-auto">{pool.items.filter(item => !item.symbol).slice(0, 100).map((item, index) => <span key={`${item.name}-${index}`} className="mr-2 inline-block">{item.name}（{item.theme}）</span>)}</div></details>}
       {poolMessage && <p className="mt-1 text-[11px] text-accent">{poolMessage}</p>}
