@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Search, RefreshCw, BookOpen, AlertTriangle, Upload, Wallet, Activity } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type MyAgentResearchPool, type MyAgentResearchPoolItem, type PaperAccountSummary } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { EChartsIntraday } from '@/components/EChartsIntraday'
@@ -46,6 +46,7 @@ function SectorTrend({ values, buckets }: { values: (number | null)[]; buckets: 
 const API = '/quant/api/myagent/quant'
 
 export function PickModel() {
+  const queryClient = useQueryClient()
   const market = useQuery({ queryKey: QK.overviewMarket(), queryFn: () => api.overviewMarket(),
     refetchInterval: query => query.state.data?.quote_status?.is_trading_hours === false ? 60_000 : 5_000, staleTime: 3_000 })
   const conceptRotation = useQuery({ queryKey: QK.sectorRotation('concept', undefined, 1),
@@ -127,13 +128,14 @@ export function PickModel() {
     } else if (scanJob.data?.status === 'complete') {
       setItems(scanJob.data.result?.items ?? [])
       setMeta(scanJob.data.result ?? null)
+      queryClient.setQueryData(QK.pickModelHistory, scanJob.data.result ?? null)
       setHasScanResult(true)
       setLoading(false); setScanJobId('')
     } else if (scanJob.data?.status === 'failed') {
       setError(scanJob.data.error || '扫描失败')
       setLoading(false); setScanJobId('')
     }
-  }, [scanJob.data, scanJob.error, scanJob.isError, scanJobId])
+  }, [queryClient, scanJob.data, scanJob.error, scanJob.isError, scanJobId])
   useEffect(() => {
     try {
       if (scanJobId) sessionStorage.setItem(SCAN_JOB_KEY, scanJobId)
