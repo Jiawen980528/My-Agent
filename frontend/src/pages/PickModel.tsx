@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search, RefreshCw, BookOpen, AlertTriangle, Upload, Wallet, Activity } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -87,6 +87,10 @@ export function PickModel() {
   const [recommendationStage, setRecommendationStage] = useState<RecommendationStage>('全部')
   const [cycleFilter, setCycleFilter] = useState<Cycle>('全部')
   const [focusSymbol, setFocusSymbol] = useState<string | null>(null)
+  const [browserNotify, setBrowserNotify] = useState(() => {
+    try { return localStorage.getItem('myagent-leader-notify') === 'on' } catch { return false }
+  })
+  const notifiedSignals = useRef<Set<string>>(new Set())
   const activeSectors = useMemo(() => {
     const rotation = conceptRotation.data
     if (rotation?.status === 'ok' && rotation.date === market.data?.as_of?.slice(0, 10)) {
@@ -378,13 +382,32 @@ export function PickModel() {
     if (emotion >= 70 && broken < Math.max(3, limitUp * 0.2)) return { label: '情绪偏强：只考虑龙头分歧转强，不追后排', tone: 'text-bull' }
     return { label: '震荡轮动：等待龙头与板块同步', tone: 'text-accent' }
   })()
+  useEffect(() => {
+    if (!browserNotify || typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+    for (const row of abnormalRows.slice(0, 30)) {
+      const key = `${abnormal.data?.cache_date || ''}:${row.symbol}:${row.signals.join(',')}:${row.change_pct}`
+      if (notifiedSignals.current.has(key)) continue
+      notifiedSignals.current.add(key)
+      const holding = holdingCodes.has(codeOf(row.symbol))
+      const label = row.signals.includes('broken') ? '炸板异动' : row.signals.includes('limit_up') ? '龙头/涨停异动' : '盘中异动'
+      new Notification(`MyAgent：${label}`, { body: `${row.name || row.symbol} ${row.change_pct == null ? '' : `${Number(row.change_pct).toFixed(2)}%`} · ${holding ? '影响你的持仓，请查看' : '暂未匹配你的持仓'}` })
+    }
+    if (notifiedSignals.current.size > 300) notifiedSignals.current = new Set([...notifiedSignals.current].slice(-150))
+  }, [abnormal.data, browserNotify, holdingCodes])
+  const enableBrowserNotify = async () => {
+    if (typeof Notification === 'undefined') return
+    const permission = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission
+    const enabled = permission === 'granted'
+    setBrowserNotify(enabled)
+    try { localStorage.setItem('myagent-leader-notify', enabled ? 'on' : 'off') } catch { /* ignore */ }
+  }
   return <div className="h-full overflow-auto bg-base p-3">
     <div className="mb-3 flex items-center justify-between gap-3 rounded-card border border-border bg-surface p-3">
       <div><div className="flex items-center gap-2 text-sm font-semibold"><BookOpen className="h-4 w-4 text-accent" />个股观察 · 拾贝模型</div><p className="mt-1 text-[11px] text-muted">资料股票池 → 地量异动扫描 → 公开行情与板块核对 → AI复核 → 模拟盘。研究候选需逐只验证。</p></div>
       <button onClick={scan} disabled={loading} className="inline-flex items-center gap-1 rounded-btn bg-accent px-3 py-2 text-xs text-white disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />{loading ? `后台扫描中 ${scanJob.data?.elapsed_seconds ? `${Math.round(scanJob.data.elapsed_seconds)} 秒` : '…'}` : '扫描全市场'}</button>
     </div>
     <div className="mb-3 rounded-card border border-border bg-surface p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2"><div><b className="text-sm">龙头与情绪监控</b><p className="mt-1 text-[11px] text-muted">全市场监控连板龙头、涨停与炸板；结合板块强弱、涨跌家数和情绪给出条件式指引。</p></div><span className={`text-xs font-medium ${marketGuidance.tone}`}>{marketGuidance.label}</span></div>
+      <div className="flex flex-wrap items-center justify-between gap-2"><div><b className="text-sm">龙头与情绪监控</b><p className="mt-1 text-[11px] text-muted">全市场监控连板龙头、涨停与炸板；结合板块强弱、涨跌家数和情绪给出条件式指引。</p></div><div className="flex items-center gap-2"><span className={`text-xs font-medium ${marketGuidance.tone}`}>{marketGuidance.label}</span><button type="button" onClick={() => void enableBrowserNotify()} className={`rounded border px-2 py-1 text-[10px] ${browserNotify ? 'border-bull/60 text-bull' : 'border-accent/60 text-accent'}`}>{browserNotify ? '浏览器提醒已开' : '开启浏览器提醒'}</button></div></div>
       <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4"><div className="rounded border border-border bg-base/60 p-2 text-xs"><span className="text-muted">涨停 / 炸板</span><b className="mt-1 block font-mono">{market.data?.limit?.limit_up ?? '—'} / {market.data?.limit?.broken ?? '—'}</b></div><div className="rounded border border-border bg-base/60 p-2 text-xs"><span className="text-muted">上涨 / 下跌</span><b className="mt-1 block font-mono">{market.data?.breadth?.up ?? '—'} / {market.data?.breadth?.down ?? '—'}</b></div><div className="rounded border border-border bg-base/60 p-2 text-xs"><span className="text-muted">情绪</span><b className="mt-1 block font-mono">{market.data?.emotion?.label ?? '—'} {market.data?.emotion?.score ?? '—'}</b></div><div className="rounded border border-border bg-base/60 p-2 text-xs"><span className="text-muted">监控刷新</span><b className="mt-1 block font-mono">5秒</b></div></div>
       <div className="mt-2 grid gap-2 lg:grid-cols-2"><div className="rounded border border-border bg-base/60 p-2 text-xs"><b>龙头 / 真强势候选</b>{leaderRows.length ? leaderRows.map(row => <Link key={row.symbol} to={`/stock-analysis?symbol=${encodeURIComponent(qualifiedSymbol(row.symbol))}&name=${encodeURIComponent(row.name || row.symbol)}`} className="mt-1 flex items-center justify-between gap-2 rounded px-1 py-1 hover:bg-elevated"><span><b>{row.name || row.symbol}</b><small className="ml-2 text-muted">{row.consecutive_limit_ups ? `${row.consecutive_limit_ups}连板` : '涨停异动'}</small></span><span className="text-bull">{row.change_pct == null ? '—' : `${Number(row.change_pct).toFixed(2)}%`}{holdingCodes.has(codeOf(row.symbol)) && <em className="ml-1 not-italic text-accent">持仓相关</em>}</span></Link>) : <p className="mt-1 text-muted">暂无可核验龙头异动</p>}</div><div className="rounded border border-border bg-base/60 p-2 text-xs"><b>炸板 / 分歧监控</b>{brokenRows.length ? brokenRows.map(row => <Link key={row.symbol} to={`/stock-analysis?symbol=${encodeURIComponent(qualifiedSymbol(row.symbol))}&name=${encodeURIComponent(row.name || row.symbol)}`} className="mt-1 flex items-center justify-between gap-2 rounded px-1 py-1 hover:bg-elevated"><span><b>{row.name || row.symbol}</b><small className="ml-2 text-warning">炸板</small></span><span className="text-warning">{row.change_pct == null ? '—' : `${Number(row.change_pct).toFixed(2)}%`}{holdingCodes.has(codeOf(row.symbol)) && <em className="ml-1 not-italic text-accent">持仓相关</em>}</span></Link>) : <p className="mt-1 text-muted">暂无炸板数据</p>}</div></div>
       <p className="mt-2 text-[10px] text-muted">判断规则：龙头稳定、封板率高且情绪增强时才进入“观察追踪”；炸板占比上升、涨跌家数转弱或防御板块领涨时标记“高抛/等待”。这不是自动下单信号；持仓相关标的会单独标注并提醒。</p>
