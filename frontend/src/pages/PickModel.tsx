@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Search, RefreshCw, BookOpen, AlertTriangle, Upload, Wallet } from 'lucide-react'
+import { Search, RefreshCw, BookOpen, AlertTriangle, Upload, Wallet, Activity } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api, type MyAgentResearchPool, type MyAgentResearchPoolItem, type PaperAccountSummary } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
+import { EChartsIntraday } from '@/components/EChartsIntraday'
 
 type Candidate = {
   symbol: string; name: string; sector?: string; price?: number; pct?: number
@@ -18,6 +19,22 @@ type SectorStock = { symbol: string; name: string; sector: string; price?: numbe
 type SectorNews = { title: string; url: string; source: string; sector_names?: string[]; bias?: string }
 type PoolItem = MyAgentResearchPoolItem
 type PoolData = MyAgentResearchPool
+type CandidateQuote = { symbol: string; name?: string; price?: number; previous_close?: number; pct?: number; turnover?: number; volume_ratio?: number }
+
+function aiVerdict(reply: string | undefined): '继续观察' | '等待买点' | '可考虑模拟买入' | null {
+  const match = reply?.replace(/\*\*/g, '').match(/(?:^|\n)\s*结论[：:]\s*(继续观察|等待买点|可考虑模拟买入)/)
+  return match ? match[1] as '继续观察' | '等待买点' | '可考虑模拟买入' : null
+}
+
+function SectorTrend({ values, buckets }: { values: (number | null)[]; buckets: string[] }) {
+  const points = values.map((value, index) => value == null ? null : { x: index, y: value * 100 }).filter((point): point is { x: number; y: number } => point !== null)
+  if (points.length < 2) return <div className="flex h-24 items-center justify-center text-xs text-muted">暂无对应板块分钟走势</div>
+  const min = Math.min(...points.map(point => point.y))
+  const max = Math.max(...points.map(point => point.y))
+  const span = Math.max(max - min, 0.2)
+  const path = points.map((point, index) => `${index ? 'L' : 'M'}${(point.x / Math.max(1, values.length - 1) * 600).toFixed(1)},${(105 - (point.y - min) / span * 90).toFixed(1)}`).join(' ')
+  return <div><svg viewBox="0 0 600 120" preserveAspectRatio="none" className="h-24 w-full" role="img" aria-label="板块分钟涨跌幅走势"><path d={path} fill="none" stroke="#f59e0b" strokeWidth="2" vectorEffect="non-scaling-stroke" /></svg><div className="flex justify-between text-[10px] text-muted"><span>{buckets[0] || '开盘'}</span><span>最新 {points.at(-1)!.y.toFixed(2)}%</span><span>{buckets.at(-1) || '最新'}</span></div></div>
+}
 
 const API = '/quant/api/myagent/quant'
 
@@ -40,6 +57,7 @@ export function PickModel() {
   const [sectorLoading, setSectorLoading] = useState(false)
   const [sectorError, setSectorError] = useState('')
   const [aiReplies, setAiReplies] = useState<Record<string, string>>({})
+  const [aiReviewBasis, setAiReviewBasis] = useState<Record<string, { quotePrice: number; scanDate: string; reviewedAt: number }>>({})
   const [aiLoading, setAiLoading] = useState('')
   const [pool, setPool] = useState<PoolData>({ items: [], sources: [] })
   const [poolBusy, setPoolBusy] = useState(false)
@@ -52,6 +70,7 @@ export function PickModel() {
   const [paperBusy, setPaperBusy] = useState(false)
   const [paperMessage, setPaperMessage] = useState('')
   const [focusFilter, setFocusFilter] = useState<'全部' | '创新药' | '物理AI' | '其他'>('全部')
+  const [focusSymbol, setFocusSymbol] = useState<string | null>(null)
   const activeSectors = useMemo(() => {
     const rotation = conceptRotation.data
     if (rotation?.status === 'ok' && rotation.date === market.data?.as_of?.slice(0, 10)) {
@@ -112,7 +131,8 @@ export function PickModel() {
       }
       const result = await api.myagentResearchPool()
       setPool(result)
-      setPoolMessage(`已导入 ${result.items.length} 条产业链 / 板块观察记录。`)
+      setPoolMessage(`已导入 ${result.items.length} 条产业链 / 板块观察记录，正在运行拾贝扫描。`)
+      await scan()
     } catch (error) {
       setPoolMessage(error instanceof Error ? `导入失败：${error.message}` : '导入失败')
       void api.myagentResearchPool().then(setPool).catch(() => {})
@@ -150,24 +170,31 @@ export function PickModel() {
   }, [items, matchedModelSector, sectorStocks])
   const analyzeCandidate = async (candidate: Candidate & { sectorQuote?: SectorStock }) => {
     if (aiLoading) return
+    const quotePrice = quoteByCode.get(codeOf(candidate.symbol))?.price
+    if (!quotePrice || !Number.isFinite(quotePrice)) {
+      setAiReplies(current => ({ ...current, [candidate.symbol]: 'AI分析暂不可用：尚未取得可核验的公开行情快照。' }))
+      return
+    }
     setAiLoading(candidate.symbol)
     try {
       const reply = await fetchJson<{ reply: string }>(`${API}/ai`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-        symbol: candidate.symbol, name: candidate.name,
-        question: '请按课堂拾贝规则核对长期地量、低换手、四种资金异动、回踩15/45日均线和7日观察期；结合当前大盘、板块与新闻，分开列出已验证与缺失的数据。最后只给“继续观察/等待买点/可考虑模拟买入”之一及触发和失效条件；旧课程的点位预测不能当作今日事实。不要给真实账户下单指令。',
-        context: { model: '拾贝模型', sector: candidate.sectorQuote ? selectedSector : matchedStrongSector(candidate), candidate, sector_quote: candidate.sectorQuote,
+        symbol: codeOf(candidate.symbol), name: candidate.name,
+        question: '请按课堂拾贝规则核对长期地量、低换手、四种资金异动、回踩15/45日均线和7日观察期；结合当前大盘、板块与新闻，分开列出已验证与缺失的数据。第一行必须且只能写“结论：继续观察”、“结论：等待买点”或“结论：可考虑模拟买入”之一；随后列出证据、缺失数据、触发条件和失效条件。数据不足时只能继续观察，旧课程的点位预测不能当作今日事实。不要给真实账户下单指令。',
+        context: { model: '拾贝模型', full_symbol: candidate.symbol, sector: candidate.sectorQuote ? selectedSector : matchedStrongSector(candidate), candidate, sector_quote: candidate.sectorQuote,
           market: market.data ? { as_of: market.data.as_of, breadth: market.data.breadth, amount: market.data.amount,
             indices: market.data.indices, quote_status: market.data.quote_status } : null,
           news: matchedNews(candidate),
+          public_quote: quoteByCode.get(codeOf(candidate.symbol)) ?? null,
           research_pool: pool.items.filter(item => item.symbol && codeOf(item.symbol) === codeOf(candidate.symbol)),
           source: '公开行情、用户资料股票池与拾贝扫描' },
       }), })
       setAiReplies(current => ({ ...current, [candidate.symbol]: reply.reply }))
+      setAiReviewBasis(current => ({ ...current, [candidate.symbol]: { quotePrice, scanDate: candidate.latest_date ?? '', reviewedAt: Date.now() } }))
     } catch (error) { setAiReplies(current => ({ ...current, [candidate.symbol]: error instanceof Error ? `AI分析失败：${error.message}` : 'AI分析失败' })) }
     finally { setAiLoading('') }
   }
   const scan = async () => {
-    setLoading(true); setError('')
+    setLoading(true); setError(''); setAiReplies({}); setAiReviewBasis({})
     try {
       const r = await fetch(`${API}/scan`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, force: true }) })
       const d = await r.json(); if (!r.ok) throw new Error(d.detail || '扫描失败')
@@ -191,6 +218,23 @@ export function PickModel() {
       row.theme.includes(focusFilter) || (focusFilter === '物理AI' && row.theme.includes('机器人'))))
   }).sort((a, b) => Number(b.score ?? -1) - Number(a.score ?? -1) || Number(b.volume_multiple ?? 0) - Number(a.volume_multiple ?? 0))
     .slice(0, 5), [items, poolByCode, focusFilter])
+  const quoteCodes = shortlist.map(item => codeOf(item.symbol)).join(',')
+  const quotes = useQuery({
+    queryKey: QK.pickModelQuotes(quoteCodes),
+    queryFn: () => fetchJson<{ items: CandidateQuote[]; source?: string }>(`${API}/quotes?symbols=${encodeURIComponent(quoteCodes)}`),
+    enabled: !!quoteCodes,
+    refetchInterval: market.data?.quote_status?.is_trading_hours ? 5_000 : 60_000,
+    staleTime: 4_000,
+  })
+  const quoteByCode = useMemo(() => new Map((quotes.data?.items ?? []).map(item => [codeOf(item.symbol), item])), [quotes.data?.items])
+  const focusCandidate = shortlist.find(item => item.symbol === focusSymbol) ?? shortlist[0]
+  const focusedMinute = useQuery({
+    queryKey: QK.pickModelMinute(focusCandidate?.symbol ?? ''),
+    queryFn: () => api.klineMinute(focusCandidate!.symbol, undefined, true),
+    enabled: !!focusCandidate,
+    refetchInterval: market.data?.quote_status?.is_trading_hours ? 5_000 : 60_000,
+    staleTime: 4_000,
+  })
   const matchedNews = (candidate: Candidate) => {
     const poolRows = poolByCode.get(codeOf(candidate.symbol)) || []
     const terms = [candidate.sector, ...poolRows.map(row => row.theme), ...poolRows.map(row => row.segment)].filter(Boolean) as string[]
@@ -200,8 +244,30 @@ export function PickModel() {
     const terms = [candidate.sector, ...(poolByCode.get(codeOf(candidate.symbol)) || []).flatMap(row => [row.theme, row.segment])].filter(Boolean) as string[]
     return activeSectors.find(sector => terms.some(term => term.length >= 2 && (sector.name.includes(term) || term.includes(sector.name))))
   }
+  const focusSector = focusCandidate ? matchedStrongSector(focusCandidate) : undefined
+  const focusedSectorMinute = useQuery({
+    queryKey: QK.sectorRotation('concept', undefined, 1, focusSector?.name ?? ''),
+    queryFn: () => api.sectorRotation({ kind: 'concept', bucket: 1, seriesNames: [focusSector!.name] }),
+    enabled: !!focusSector,
+    refetchInterval: 30_000,
+    staleTime: 20_000,
+  })
+  const sectorSeries = focusedSectorMinute.data?.series
+  const sectorSeriesIndex = sectorSeries?.sectors.findIndex(name => name === focusSector?.name) ?? -1
+  const focusedSectorValues = focusedSectorMinute.data?.date === focusedMinute.data?.date && sectorSeriesIndex >= 0
+    ? sectorSeries?.matrix[sectorSeriesIndex] ?? [] : []
+  const canSimulate = (candidate: Candidate) => {
+    const basis = aiReviewBasis[candidate.symbol]
+    const quotePrice = quoteByCode.get(codeOf(candidate.symbol))?.price
+    return aiVerdict(aiReplies[candidate.symbol]) === '可考虑模拟买入' && !!basis &&
+      !!quotePrice && Number.isFinite(quotePrice) && basis.scanDate === (candidate.latest_date ?? '') &&
+      Date.now() - basis.reviewedAt < 120_000 && Math.abs(quotePrice / basis.quotePrice - 1) <= 0.01
+  }
   const submitPaperBuy = async () => {
-    if (!paperCandidate || !paperAccount || !Number.isInteger(paperQty) || paperQty < 100 || paperQty % 100 !== 0) {
+    if (!paperCandidate || !canSimulate(paperCandidate)) {
+      setPaperMessage('需要有效且未过期的行情快照，以及 AI 明确给出“可考虑模拟买入”。请重新复核。'); return
+    }
+    if (!paperAccount || !Number.isInteger(paperQty) || paperQty < 100 || paperQty % 100 !== 0) {
       setPaperMessage('请选择模拟账户，并输入 100 股的整数倍。'); return
     }
     setPaperBusy(true); setPaperMessage('')
@@ -215,8 +281,14 @@ export function PickModel() {
   const filtered = items.filter(x => !query || `${x.symbol}${x.name}${x.sector || ''}`.includes(query))
   return <div className="h-full overflow-auto bg-base p-3">
     <div className="mb-3 flex items-center justify-between gap-3 rounded-card border border-border bg-surface p-3">
-      <div><div className="flex items-center gap-2 text-sm font-semibold"><BookOpen className="h-4 w-4 text-accent" />拾贝模型 · 地量异动候选</div><p className="mt-1 text-[11px] text-muted">长期低成交量 → 连续低换手 → 最近数日放量异动 → 回踩确认。结果是研究候选，不是自动买入指令。</p></div>
+      <div><div className="flex items-center gap-2 text-sm font-semibold"><BookOpen className="h-4 w-4 text-accent" />个股观察 · 拾贝模型</div><p className="mt-1 text-[11px] text-muted">资料股票池 → 地量异动扫描 → 公开行情与板块核对 → AI复核 → 模拟盘。研究候选需逐只验证。</p></div>
       <button onClick={scan} disabled={loading} className="inline-flex items-center gap-1 rounded-btn bg-accent px-3 py-2 text-xs text-white disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />{loading ? '扫描中…' : '扫描全市场'}</button>
+    </div>
+    <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+      <div className="rounded border border-border bg-surface p-2 text-xs"><span className="text-muted">资料股票池</span><b className="mt-1 block font-mono text-sm">{pool.items.length} 条</b><span className="text-[10px] text-muted">{pool.items.length ? '已入私有数据' : '等待导入'}</span></div>
+      <div className="rounded border border-border bg-surface p-2 text-xs"><span className="text-muted">拾贝扫描</span><b className="mt-1 block font-mono text-sm">{meta?.count ?? items.length} 只</b><span className="text-[10px] text-muted">{meta?.data_source || '尚未扫描'}</span></div>
+      <div className="rounded border border-border bg-surface p-2 text-xs"><span className="text-muted">可核验候选</span><b className="mt-1 block font-mono text-sm">{shortlist.length} 只</b><span className="text-[10px] text-muted">资料与模型交集 · 最多 5 只</span></div>
+      <div className="rounded border border-border bg-surface p-2 text-xs"><span className="text-muted">市场 / 新闻</span><b className="mt-1 block text-sm">{market.data?.as_of?.slice(0, 16) || '市场不可用'}</b><span className="text-[10px] text-muted">新闻 {allNews.length} 条 · 数据时间见详情</span></div>
     </div>
     <section className="mb-3 rounded-card border border-border bg-surface p-3">
       <div className="flex flex-wrap items-center justify-between gap-2"><div><b className="text-sm">资料股票池 × 拾贝扫描 · 待观察</b><p className="mt-1 text-[11px] text-muted">创新药、物理 AI 优先核对，也保留其他板块；只展示资料与扫描交集，按模型评分排序。新闻和板块是旁证，不能代替买点确认。</p></div><div className="flex items-center gap-2"><label className="inline-flex cursor-pointer items-center gap-1 rounded border border-accent/50 px-2 py-1 text-[11px] text-accent"><Upload className="h-3.5 w-3.5" />{poolBusy ? '导入中…' : '导入资料表'}<input type="file" multiple accept=".xlsx" className="hidden" disabled={poolBusy} onChange={event => { void importPool(event.target.files); event.target.value = '' }} /></label><Link to="/paper" className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-secondary"><Wallet className="h-3.5 w-3.5" />模拟盘</Link></div></div>
@@ -227,15 +299,33 @@ export function PickModel() {
       {!pool.items.length && <p className="mt-2 text-xs text-warning">先导入“创新药与物理AI产业链”表，以及课程压缩包中的“A股主流板块中军与辨识度补漏表”；资料保存在私有用户数据目录。</p>}
       {!!pool.items.length && !items.length && <p className="mt-2 text-xs text-muted">资料已就绪。点击“扫描全市场”后，才会从真实模型结果中筛出观察候选。</p>}
       {!!pool.items.length && !!items.length && !shortlist.length && <p className="mt-2 text-xs text-warning">当前筛选范围内没有同时通过资料池与拾贝扫描的股票，暂不输出个股。可切换方向或检查代码匹配情况。</p>}
-      {!!shortlist.length && <div className="mt-2 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">{shortlist.map(candidate => {
-        const references = poolByCode.get(codeOf(candidate.symbol)) || []
-        const sector = matchedStrongSector(candidate)
-        const news = matchedNews(candidate)
-        return <article key={candidate.symbol} className="rounded border border-border bg-base/60 p-2 text-xs"><div className="flex items-center justify-between gap-2"><b>{candidate.name} <span className="font-normal text-muted">{candidate.symbol}</span></b><span className="font-mono text-accent">拾贝 {candidate.score ?? '—'}</span></div><p className="mt-1 text-[10px] text-secondary">{Array.from(new Set(references.map(row => `${row.theme} / ${row.segment || row.role}`))).slice(0, 3).join(' · ')}</p><div className="mt-1 flex flex-wrap gap-x-3 text-[10px] text-muted"><span>模型：{candidate.entry_status || candidate.pattern || '待核'}</span><span>放量：{candidate.volume_multiple ?? '—'}×</span><span>板块：{sector ? `${sector.name} ${Number(sector.pct ?? 0).toFixed(2)}%` : '未匹配当日强势榜'}</span><span>新闻：{news.length ? `${news.length} 条关联` : '无已关联条目'}</span><span>行情日：{candidate.latest_date || '未知'}</span></div><p className="mt-1 text-[10px] text-muted">资料依据：{references[0]?.rationale || '待核对'}（{references[0]?.source_date || '日期未知'}）</p><div className="mt-2 flex flex-wrap gap-1"><button type="button" onClick={() => void analyzeCandidate(candidate)} disabled={aiLoading === candidate.symbol} className="rounded border border-accent/50 px-2 py-1 text-[10px] text-accent disabled:opacity-50">{aiLoading === candidate.symbol ? 'AI复核中…' : 'AI量化复核'}</button><button type="button" onClick={() => { setPaperCandidate(candidate); setPaperMessage('') }} disabled={!aiReplies[candidate.symbol] || aiReplies[candidate.symbol].startsWith('AI分析失败')} title="先完成 AI 量化复核" className="rounded border border-border px-2 py-1 text-[10px] text-secondary disabled:opacity-40">模拟买入…</button><Link to={`/stock-analysis?symbol=${encodeURIComponent(candidate.symbol)}`} className="rounded border border-border px-2 py-1 text-[10px] text-secondary">看走势</Link></div>{aiReplies[candidate.symbol] && <p className="mt-2 rounded bg-elevated p-2 text-[10px] leading-relaxed text-secondary">{aiReplies[candidate.symbol]}</p>}</article>
-      })}</div>}
+      {!!shortlist.length && <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(250px,0.75fr)_minmax(0,1.6fr)]">
+        <div className="grid content-start gap-2" aria-label="待观察个股">
+          {shortlist.map((candidate, index) => {
+            const quote = quoteByCode.get(codeOf(candidate.symbol))
+            const sector = matchedStrongSector(candidate)
+            const verdict = aiVerdict(aiReplies[candidate.symbol])
+            return <button key={candidate.symbol} type="button" onClick={() => setFocusSymbol(candidate.symbol)} className={`rounded border p-3 text-left ${focusCandidate?.symbol === candidate.symbol ? 'border-accent bg-accent/10' : 'border-border bg-base/60 hover:border-accent/60'}`}>
+              <div className="flex items-start justify-between gap-2"><div><span className="mr-2 text-[10px] text-muted">#{index + 1}</span><b className="text-sm">{candidate.name}</b><span className="ml-1 text-[10px] text-muted">{candidate.symbol}</span></div><b className="whitespace-nowrap font-mono text-accent">{candidate.score ?? '—'} 分</b></div>
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]"><span>公开快照 <b className="font-mono">{quote?.price ? quote.price.toFixed(2) : '—'}</b></span><span className={Number(quote?.pct) >= 0 ? 'text-bull' : 'text-bear'}>{quote?.pct == null ? '涨跌待取' : `${quote.pct.toFixed(2)}%`}</span><span className="text-muted">{sector ? `${sector.name} ${sector.pct == null ? '' : `${Number(sector.pct).toFixed(2)}%`}` : '板块待核'}</span></div>
+              <div className="mt-2 flex flex-wrap gap-1 text-[10px]"><span className="rounded bg-elevated px-1.5 py-0.5">{candidate.entry_status || '模型阶段待核'}</span><span className="rounded bg-elevated px-1.5 py-0.5">放量 {candidate.volume_multiple ?? '—'}×</span><span className="rounded bg-elevated px-1.5 py-0.5">{verdict ? `AI：${verdict}` : '待 AI 复核'}</span></div>
+            </button>
+          })}
+        </div>
+        {focusCandidate && <div className="min-w-0 rounded border border-border bg-base/60 p-3">
+          <div className="flex flex-wrap items-start justify-between gap-2"><div><div className="flex items-center gap-2"><Activity className="h-4 w-4 text-accent" /><b className="text-sm">{focusCandidate.name} · 个股观察</b></div><p className="mt-1 text-[10px] text-muted">{focusCandidate.symbol} · 拾贝扫描日 {focusCandidate.latest_date || '未知'} · {quotes.data?.source || '公开快照暂不可用'}</p></div><div className="flex gap-1"><button type="button" onClick={() => void analyzeCandidate(focusCandidate)} disabled={aiLoading === focusCandidate.symbol} className="rounded border border-accent/50 px-2 py-1 text-[11px] text-accent disabled:opacity-50">{aiLoading === focusCandidate.symbol ? 'AI复核中…' : 'AI量化复核'}</button><Link to={`/stock-analysis?symbol=${encodeURIComponent(focusCandidate.symbol)}`} className="rounded border border-border px-2 py-1 text-[11px]">完整走势</Link></div></div>
+          <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_minmax(240px,0.8fr)]">
+            <div className="min-w-0 rounded border border-border bg-surface p-2"><div className="flex justify-between text-xs"><b>个股分时与成交量</b><span className="text-muted">{focusedMinute.data?.date || '读取中'}</span></div>{focusedMinute.data?.rows?.length ? <EChartsIntraday data={focusedMinute.data.rows} assetType={focusedMinute.data.asset_type ?? 'stock'} height={310} date={focusedMinute.data.date ?? undefined} prevClose={focusedMinute.data.prev_close ?? undefined} priceLimit={focusedMinute.data.price_limit ?? undefined} /> : <div className="flex h-[310px] items-center justify-center text-xs text-muted">{focusedMinute.isLoading ? '正在读取分钟走势…' : '当前分钟数据不可用'}</div>}<p className="text-[10px] text-muted">来源：{focusedMinute.data?.source || '未取得'} · 最后行情：{focusedMinute.data?.rows?.at(-1)?.datetime || '—'}</p></div>
+            <div className="grid content-start gap-2"><div className="rounded border border-border bg-surface p-2"><div className="flex justify-between text-xs"><b>{focusSector?.name || '关联板块待核'} · 分钟走势</b><span className="text-muted">{focusedSectorMinute.data?.date || '—'}</span></div><SectorTrend values={focusedSectorValues} buckets={sectorSeries?.buckets ?? []} /><p className="text-[10px] text-muted">{focusSector ? '概念成分股等权涨跌幅；只有同交易日且名称匹配才显示' : '资料板块未与实时概念板块匹配，不推断走势'}</p></div><div className="rounded border border-border bg-surface p-2 text-[11px]"><b>量价核对</b><div className="mt-1 grid grid-cols-2 gap-1 text-muted"><span>放量 {focusCandidate.volume_multiple ?? '—'}×</span><span>最高换手 {focusCandidate.max_turnover ?? '—'}%</span><span>均线距离 {focusCandidate.ma_distance_pct ?? '—'}%</span><span>量比 {quoteByCode.get(codeOf(focusCandidate.symbol))?.volume_ratio ?? '—'}</span></div><p className="mt-1 text-[10px] text-muted">{focusCandidate.pattern || focusCandidate.entry_status || '形态尚未核验'}</p></div></div>
+          </div>
+          <div className="mt-2 grid gap-2 lg:grid-cols-2"><div className="rounded border border-border bg-surface p-2 text-[11px]"><b>资料与板块依据</b>{(poolByCode.get(codeOf(focusCandidate.symbol)) || []).slice(0, 3).map((row, index) => <p key={`${row.theme}-${index}`} className="mt-1 text-muted">{row.theme} / {row.segment || row.role}：{row.rationale || '资料未写明逻辑'} <span className="text-[10px]">（{row.source_date || '日期未知'}）</span></p>)}</div><div className="rounded border border-border bg-surface p-2 text-[11px]"><b>相关新闻</b>{matchedNews(focusCandidate).length ? matchedNews(focusCandidate).map((item, index) => <a key={`${item.url}-${index}`} href={item.url} target="_blank" rel="noopener noreferrer" className="mt-1 block text-accent hover:underline">{item.title} · {item.source}</a>) : <p className="mt-1 text-muted">暂无可核对的关联新闻，不补写新闻理由。</p>}</div></div>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded border border-border bg-surface p-2 text-[11px]"><div><b>AI复核：{aiVerdict(aiReplies[focusCandidate.symbol]) || '未完成'}</b><p className="mt-1 text-muted">只有明确给出“可考虑模拟买入”，且复核未超过 2 分钟、行情偏离不超过 1%，才开放模拟委托。</p></div><button type="button" onClick={() => { setPaperCandidate(focusCandidate); setPaperMessage('') }} disabled={!canSimulate(focusCandidate)} className="rounded border border-accent px-2 py-1 text-accent disabled:cursor-not-allowed disabled:opacity-40">模拟买入…</button></div>
+          {aiReplies[focusCandidate.symbol] && <p className="mt-2 whitespace-pre-wrap rounded bg-elevated p-2 text-[11px] leading-relaxed text-secondary">{aiReplies[focusCandidate.symbol]}</p>}
+        </div>}
+      </div>}
       {paperMessage && <p className="mt-2 text-[11px] text-accent">{paperMessage} <Link to="/paper" className="underline">查看模拟盘</Link></p>}
     </section>
-    {paperCandidate && <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/70 p-4"><div className="w-full max-w-sm rounded-card border border-border bg-surface p-4 text-xs"><b>模拟买入 · {paperCandidate.name}</b><p className="mt-2 text-muted">仅向虚拟账户提交委托。最新扫描日 {paperCandidate.latest_date || '未知'}；请先核对现价和 AI 复核结果。</p><label className="mt-3 grid gap-1">模拟账户<select value={paperAccount} onChange={event => setPaperAccount(event.target.value)} className="h-8 rounded border border-border bg-base px-2">{paperAccounts.map(account => <option key={account.id} value={account.id}>{account.name || account.id}</option>)}</select></label><label className="mt-3 grid gap-1">股数（100 股整数倍）<input type="number" min={100} step={100} value={paperQty} onChange={event => setPaperQty(Number(event.target.value))} className="h-8 rounded border border-border bg-base px-2" /></label>{!paperAccounts.length && <p className="mt-2 text-warning">还没有可用模拟账户。请先到模拟盘创建账户。</p>}{paperMessage && <p className="mt-2 text-danger">{paperMessage}</p>}<div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setPaperCandidate(null)} className="rounded border border-border px-3 py-1.5">取消</button><button type="button" onClick={() => void submitPaperBuy()} disabled={paperBusy || !paperAccount} className="rounded bg-accent px-3 py-1.5 text-white disabled:opacity-50">{paperBusy ? '提交中…' : '确认模拟买入'}</button></div></div></div>}
+    {paperCandidate && <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/70 p-4"><div className="w-full max-w-sm rounded-card border border-border bg-surface p-4 text-xs"><b>模拟买入 · {paperCandidate.name}</b><p className="mt-2 text-muted">仅向虚拟账户提交委托，不连接真实券商。扫描日 {paperCandidate.latest_date || '未知'}；公开行情快照 {quoteByCode.get(codeOf(paperCandidate.symbol))?.price?.toFixed(2) ?? '不可用'}，AI 结论：{aiVerdict(aiReplies[paperCandidate.symbol]) || '无'}。</p><label className="mt-3 grid gap-1">模拟账户<select value={paperAccount} onChange={event => setPaperAccount(event.target.value)} className="h-8 rounded border border-border bg-base px-2">{paperAccounts.map(account => <option key={account.id} value={account.id}>{account.name || account.id}</option>)}</select></label><label className="mt-3 grid gap-1">股数（100 股整数倍）<input type="number" min={100} step={100} value={paperQty} onChange={event => setPaperQty(Number(event.target.value))} className="h-8 rounded border border-border bg-base px-2" /></label>{!paperAccounts.length && <p className="mt-2 text-warning">还没有可用模拟账户。请先到模拟盘创建账户。</p>}{paperMessage && <p className="mt-2 text-danger">{paperMessage}</p>}<div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setPaperCandidate(null)} className="rounded border border-border px-3 py-1.5">取消</button><button type="button" onClick={() => void submitPaperBuy()} disabled={paperBusy || !paperAccount || !canSimulate(paperCandidate)} className="rounded bg-accent px-3 py-1.5 text-white disabled:opacity-50">{paperBusy ? '提交中…' : '确认模拟买入'}</button></div></div></div>}
     <div className="mb-3 grid grid-cols-2 gap-2 rounded-card border border-border bg-surface p-3 md:grid-cols-5">
       {([['baseline_days','长期地量天数'],['max_avg_turnover','每日换手上限%'],['recent_days','异动窗口天数'],['volume_multiple','放量倍数'],['max_market_cap_yi','放量前市值上限亿']] as const).map(([k,label]) => <label key={k} className="grid gap-1 text-[11px] text-muted">{label}<input type="number" value={form[k]} onChange={e => setForm({...form, [k]: Number(e.target.value)})} className="h-8 rounded border border-border bg-elevated px-2 text-xs text-foreground" /></label>)}
     </div>
