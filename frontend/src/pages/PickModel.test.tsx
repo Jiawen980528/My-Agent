@@ -51,6 +51,8 @@ it('shows pool-and-model intersections and blocks paper buy until AI explicitly 
   expect(shortlist.querySelectorAll('[aria-label="待观察个股"] > button')).toHaveLength(1)
   expect(shortlist.textContent).toContain('普洛药业')
   expect(shortlist.textContent).not.toContain('贵州茅台')
+  expect(host.querySelector('a[href^="/stock-analysis?symbol=600519.SH&name="]')?.textContent).toBe('贵州茅台')
+  expect(host.querySelectorAll('a[href^="/stock-analysis?symbol=000739.SZ&name="]')).toHaveLength(3)
   expect(shortlist.textContent).toContain('个股分钟图')
   expect(apiMock.klineMinute).toHaveBeenCalledWith('000739.SZ', undefined, true)
   await act(async () => { button('物理AI').click() })
@@ -78,6 +80,27 @@ it('shows pool-and-model intersections and blocks paper buy until AI explicitly 
   expect(apiMock.paperOrderCreate).toHaveBeenCalledWith(
     { symbol: '000739.SZ', side: 'buy', qty: 100, order_type: 'market' }, 'default',
   )
+})
+
+it('keeps scan results navigable while an empty research pool disables theme filters', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  apiMock.myagentResearchPool.mockResolvedValueOnce({ items: [], sources: [] })
+  vi.stubGlobal('fetch', vi.fn(async (input: string) => {
+    const url = String(input)
+    const body = url.endsWith('/history?limit=1') ? { items: [{ id: 1 }] }
+      : url.endsWith('/history/1') ? { result: { items: [{ symbol: '600519', name: '贵州茅台' }], count: 1 } }
+        : { items: [] }
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }))
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  cleanup = async () => { await act(async () => root.unmount()); queryClient.clear() }
+  await act(async () => root.render(<MemoryRouter><QueryClientProvider client={queryClient}><PickModel /></QueryClientProvider></MemoryRouter>))
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+  expect(host.querySelector('a[href^="/stock-analysis?symbol=600519.SH&name="]')?.textContent).toBe('贵州茅台')
+  expect(Array.from(host.querySelectorAll('button')).find(node => node.textContent === '创新药')?.disabled).toBe(true)
+  expect(host.textContent).toContain('资料池为空，主题筛选尚无内容')
 })
 
 it('reports a failed background scan without showing invented candidates', async () => {

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Sparkles, LineChart, History as HistoryIcon, Loader2, ExternalLink, Bell, AlertTriangle } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
@@ -26,6 +27,10 @@ import {
  *  - 报告胶囊用蓝色系,与财务分析(紫色)并存
  */
 export function StockAnalysis() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedSymbol = searchParams.get('symbol')?.trim().toUpperCase() || ''
+  const linkedSymbol = /^\d{6}\.(SH|SZ|BJ|SS)$/.test(requestedSymbol) ? requestedSymbol : ''
+  const linkedName = searchParams.get('name')?.trim() || ''
   const [symbol, setSymbol] = useState<string>('')
   const [name, setName] = useState<string>('')
   const [checking, setChecking] = useState(false)
@@ -39,14 +44,23 @@ export function StockAnalysis() {
 
   // 自动恢复上次选中的股票(切走再回来不丢)。useLastStock 的 last 来自 localStorage, 同步可用。
   useEffect(() => {
-    if (!symbol && lastStock) {
+    if (!linkedSymbol && !symbol && lastStock) {
       setSymbol(lastStock.symbol)
       setName(lastStock.name)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => {
+    if (!linkedSymbol) return
+    setSymbol(linkedSymbol)
+    setName(linkedName || (lastStock?.symbol === linkedSymbol ? lastStock.name : ''))
+    setConfirmReport(null)
+    setShowPriceAlerts(false)
+  }, [linkedSymbol, linkedName, lastStock])
+
   const onSelect = (sym: string, nm: string) => {
+    setSearchParams({ symbol: sym, name: nm })
     setSymbol(sym)
     setName(nm)
     setConfirmReport(null)
