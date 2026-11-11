@@ -4611,7 +4611,7 @@ export const api = {
     content?: string
     message?: string
   }> {
-    const res = await fetch('/api/financials/analyze', {
+    const res = await fetch(`${BASE}/api/financials/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ symbol, focus: focus ?? '' }),
@@ -4683,7 +4683,7 @@ export const api = {
     content?: string
     message?: string
   }> {
-    const res = await fetch('/api/stock-analysis/analyze', {
+    const res = await fetch(`${BASE}/api/stock-analysis/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ symbol, focus: focus ?? '' }),
@@ -4758,7 +4758,7 @@ export const api = {
     content?: string
     message?: string
   }> {
-    const res = await fetch('/api/market-recap/analyze', {
+    const res = await fetch(`${BASE}/api/market-recap/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ as_of: asOf ?? null, focus: focus ?? '' }),
@@ -4800,7 +4800,7 @@ export const api = {
     content?: string
     message?: string
   }> {
-    const res = await fetch('/api/rps/rotation-analyze', {
+    const res = await fetch(`${BASE}/api/rps/rotation-analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ days, focus: focus ?? '', kind: kind ?? 'concept', level: level ?? null }),
@@ -5168,7 +5168,7 @@ export const api = {
     ),
 
   async *strategyBuildStream(step: number, payload: Record<string, any>): AsyncGenerator<StrategyBuildStreamEvent> {
-    const res = await fetch('/api/strategies/build/stream', {
+    const res = await fetch(`${BASE}/api/strategies/build/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ step, ...payload }),
