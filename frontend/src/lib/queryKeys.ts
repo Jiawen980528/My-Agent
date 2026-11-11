@@ -193,6 +193,7 @@ export const QK = {
   sectorRotation:       (kind: string, flow?: string, bucket?: number, seriesKey?: string, filterKey?: string) => ['sector-rotation', kind, flow ?? '', bucket ?? 5, seriesKey ?? '', filterKey ?? ''] as const,
   pickModelQuotes:      (symbols: string) => ['pick-model-quotes', symbols] as const,
   pickModelMinute:      (symbol: string) => ['pick-model-minute-live', symbol] as const,
+  pickModelScanJob:     (jobId: string) => ['pick-model-scan-job', jobId] as const,
   // 板块切换的指数叠加线 (核心四只, 默认上证) — 分钟取当日, 日K取昨收基准
   sectorRotationIndexMinute: (symbol: string, date?: string) => ['sector-rotation-index-minute', symbol, date ?? ''] as const,
   sectorRotationIndexDaily:  (symbol: string) => ['sector-rotation-index-daily', symbol] as const,

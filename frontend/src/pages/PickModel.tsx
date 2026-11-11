@@ -20,6 +20,8 @@ type SectorNews = { title: string; url: string; source: string; sector_names?: s
 type PoolItem = MyAgentResearchPoolItem
 type PoolData = MyAgentResearchPool
 type CandidateQuote = { symbol: string; name?: string; price?: number; previous_close?: number; pct?: number; turnover?: number; volume_ratio?: number }
+type ScanResult = { items: Candidate[]; count: number; universe_count?: number; data_source?: string }
+type ScanJob = { status: 'pending' | 'running' | 'complete' | 'failed'; elapsed_seconds?: number; result?: ScanResult | null; error?: string | null }
 
 function aiVerdict(reply: string | undefined): '继续观察' | '等待买点' | '可考虑模拟买入' | null {
   const match = reply?.replace(/\*\*/g, '').match(/(?:^|\n)\s*结论[：:]\s*(继续观察|等待买点|可考虑模拟买入)/)
@@ -47,6 +49,7 @@ export function PickModel() {
   const [items, setItems] = useState<Candidate[]>([])
   const [meta, setMeta] = useState<any>(null)
   const [loading, setLoading] = useState(false)
+  const [scanJobId, setScanJobId] = useState('')
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
   const [strongSectors, setStrongSectors] = useState<StrongSector[]>([])
@@ -86,6 +89,27 @@ export function PickModel() {
     if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`)
     return body as T
   }
+  const scanJob = useQuery({
+    queryKey: QK.pickModelScanJob(scanJobId),
+    queryFn: () => fetchJson<ScanJob>(`${API}/scan/job/${encodeURIComponent(scanJobId)}`),
+    enabled: !!scanJobId,
+    refetchInterval: query => query.state.data?.status === 'complete' || query.state.data?.status === 'failed' ? false : 3_000,
+    retry: false,
+  })
+  useEffect(() => {
+    if (!scanJobId) return
+    if (scanJob.isError) {
+      setError(scanJob.error instanceof Error ? scanJob.error.message : '扫描状态读取失败')
+      setLoading(false); setScanJobId('')
+    } else if (scanJob.data?.status === 'complete') {
+      setItems(scanJob.data.result?.items ?? [])
+      setMeta(scanJob.data.result ?? null)
+      setLoading(false); setScanJobId('')
+    } else if (scanJob.data?.status === 'failed') {
+      setError(scanJob.data.error || '扫描失败')
+      setLoading(false); setScanJobId('')
+    }
+  }, [scanJob.data, scanJob.error, scanJob.isError, scanJobId])
   useEffect(() => {
     let active = true
     void Promise.all([
@@ -160,6 +184,11 @@ export function PickModel() {
     finally { setSectorLoading(false) }
   }
   const codeOf = (symbol: string) => symbol.replace(/\.(SH|SZ|SS|BJ)$/i, '')
+  const qualifiedSymbol = (symbol: string) => {
+    if (/^\d{6}\.(SH|SZ|BJ)$/i.test(symbol)) return symbol.toUpperCase()
+    const code = codeOf(symbol)
+    return `${code}.${code.startsWith('6') ? 'SH' : code.startsWith('4') || code.startsWith('8') || code.startsWith('9') ? 'BJ' : 'SZ'}`
+  }
   const recommendations = useMemo(() => {
     if (!matchedModelSector || !sectorStocks.length) return []
     const stockCodes = new Set(sectorStocks.map(stock => codeOf(stock.symbol)))
@@ -180,7 +209,7 @@ export function PickModel() {
       const reply = await fetchJson<{ reply: string }>(`${API}/ai`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
         symbol: codeOf(candidate.symbol), name: candidate.name,
         question: '请按课堂拾贝规则核对长期地量、低换手、四种资金异动、回踩15/45日均线和7日观察期；结合当前大盘、板块与新闻，分开列出已验证与缺失的数据。第一行必须且只能写“结论：继续观察”、“结论：等待买点”或“结论：可考虑模拟买入”之一；随后列出证据、缺失数据、触发条件和失效条件。数据不足时只能继续观察，旧课程的点位预测不能当作今日事实。不要给真实账户下单指令。',
-        context: { model: '拾贝模型', full_symbol: candidate.symbol, sector: candidate.sectorQuote ? selectedSector : matchedStrongSector(candidate), candidate, sector_quote: candidate.sectorQuote,
+        context: { model: '拾贝模型', full_symbol: qualifiedSymbol(candidate.symbol), sector: candidate.sectorQuote ? selectedSector : matchedStrongSector(candidate), candidate, sector_quote: candidate.sectorQuote,
           market: market.data ? { as_of: market.data.as_of, breadth: market.data.breadth, amount: market.data.amount,
             indices: market.data.indices, quote_status: market.data.quote_status } : null,
           news: matchedNews(candidate),
@@ -196,10 +225,9 @@ export function PickModel() {
   const scan = async () => {
     setLoading(true); setError(''); setAiReplies({}); setAiReviewBasis({})
     try {
-      const r = await fetch(`${API}/scan`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, force: true }) })
-      const d = await r.json(); if (!r.ok) throw new Error(d.detail || '扫描失败')
-      setItems(d.items || []); setMeta(d)
-    } catch (e) { setError(e instanceof Error ? e.message : '扫描失败') } finally { setLoading(false) }
+      const started = await fetchJson<{ job_id: string }>(`${API}/scan/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, force: true }) })
+      setScanJobId(started.job_id)
+    } catch (e) { setError(e instanceof Error ? e.message : '扫描失败'); setLoading(false) }
   }
   const poolByCode = useMemo(() => {
     const map = new Map<string, PoolItem[]>()
@@ -229,8 +257,8 @@ export function PickModel() {
   const quoteByCode = useMemo(() => new Map((quotes.data?.items ?? []).map(item => [codeOf(item.symbol), item])), [quotes.data?.items])
   const focusCandidate = shortlist.find(item => item.symbol === focusSymbol) ?? shortlist[0]
   const focusedMinute = useQuery({
-    queryKey: QK.pickModelMinute(focusCandidate?.symbol ?? ''),
-    queryFn: () => api.klineMinute(focusCandidate!.symbol, undefined, true),
+    queryKey: QK.pickModelMinute(focusCandidate ? qualifiedSymbol(focusCandidate.symbol) : ''),
+    queryFn: () => api.klineMinute(qualifiedSymbol(focusCandidate!.symbol), undefined, true),
     enabled: !!focusCandidate,
     refetchInterval: market.data?.quote_status?.is_trading_hours ? 5_000 : 60_000,
     staleTime: 4_000,
@@ -272,7 +300,7 @@ export function PickModel() {
     }
     setPaperBusy(true); setPaperMessage('')
     try {
-      const result = await api.paperOrderCreate({ symbol: paperCandidate.symbol, side: 'buy', qty: paperQty, order_type: 'market' }, paperAccount)
+      const result = await api.paperOrderCreate({ symbol: qualifiedSymbol(paperCandidate.symbol), side: 'buy', qty: paperQty, order_type: 'market' }, paperAccount)
       setPaperMessage(`${paperCandidate.name}模拟买入委托已提交（${result.order.status}）。成交后可在模拟盘查看持仓。`)
       setPaperCandidate(null)
     } catch (error) { setPaperMessage(error instanceof Error ? error.message : '模拟下单失败') }
@@ -282,11 +310,11 @@ export function PickModel() {
   return <div className="h-full overflow-auto bg-base p-3">
     <div className="mb-3 flex items-center justify-between gap-3 rounded-card border border-border bg-surface p-3">
       <div><div className="flex items-center gap-2 text-sm font-semibold"><BookOpen className="h-4 w-4 text-accent" />个股观察 · 拾贝模型</div><p className="mt-1 text-[11px] text-muted">资料股票池 → 地量异动扫描 → 公开行情与板块核对 → AI复核 → 模拟盘。研究候选需逐只验证。</p></div>
-      <button onClick={scan} disabled={loading} className="inline-flex items-center gap-1 rounded-btn bg-accent px-3 py-2 text-xs text-white disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />{loading ? '扫描中…' : '扫描全市场'}</button>
+      <button onClick={scan} disabled={loading} className="inline-flex items-center gap-1 rounded-btn bg-accent px-3 py-2 text-xs text-white disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />{loading ? `后台扫描中 ${scanJob.data?.elapsed_seconds ? `${Math.round(scanJob.data.elapsed_seconds)} 秒` : '…'}` : '扫描全市场'}</button>
     </div>
     <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-4">
       <div className="rounded border border-border bg-surface p-2 text-xs"><span className="text-muted">资料股票池</span><b className="mt-1 block font-mono text-sm">{pool.items.length} 条</b><span className="text-[10px] text-muted">{pool.items.length ? '已入私有数据' : '等待导入'}</span></div>
-      <div className="rounded border border-border bg-surface p-2 text-xs"><span className="text-muted">拾贝扫描</span><b className="mt-1 block font-mono text-sm">{meta?.count ?? items.length} 只</b><span className="text-[10px] text-muted">{meta?.data_source || '尚未扫描'}</span></div>
+      <div className="rounded border border-border bg-surface p-2 text-xs"><span className="text-muted">拾贝扫描</span><b className="mt-1 block font-mono text-sm">{meta?.count ?? items.length} 只</b><span className="text-[10px] text-muted">{loading ? `后台任务 ${scanJob.data?.status || '提交中'}` : meta?.data_source || '尚未扫描'}</span></div>
       <div className="rounded border border-border bg-surface p-2 text-xs"><span className="text-muted">可核验候选</span><b className="mt-1 block font-mono text-sm">{shortlist.length} 只</b><span className="text-[10px] text-muted">资料与模型交集 · 最多 5 只</span></div>
       <div className="rounded border border-border bg-surface p-2 text-xs"><span className="text-muted">市场 / 新闻</span><b className="mt-1 block text-sm">{market.data?.as_of?.slice(0, 16) || '市场不可用'}</b><span className="text-[10px] text-muted">新闻 {allNews.length} 条 · 数据时间见详情</span></div>
     </div>
@@ -313,7 +341,7 @@ export function PickModel() {
           })}
         </div>
         {focusCandidate && <div className="min-w-0 rounded border border-border bg-base/60 p-3">
-          <div className="flex flex-wrap items-start justify-between gap-2"><div><div className="flex items-center gap-2"><Activity className="h-4 w-4 text-accent" /><b className="text-sm">{focusCandidate.name} · 个股观察</b></div><p className="mt-1 text-[10px] text-muted">{focusCandidate.symbol} · 拾贝扫描日 {focusCandidate.latest_date || '未知'} · {quotes.data?.source || '公开快照暂不可用'}</p></div><div className="flex gap-1"><button type="button" onClick={() => void analyzeCandidate(focusCandidate)} disabled={aiLoading === focusCandidate.symbol} className="rounded border border-accent/50 px-2 py-1 text-[11px] text-accent disabled:opacity-50">{aiLoading === focusCandidate.symbol ? 'AI复核中…' : 'AI量化复核'}</button><Link to={`/stock-analysis?symbol=${encodeURIComponent(focusCandidate.symbol)}`} className="rounded border border-border px-2 py-1 text-[11px]">完整走势</Link></div></div>
+          <div className="flex flex-wrap items-start justify-between gap-2"><div><div className="flex items-center gap-2"><Activity className="h-4 w-4 text-accent" /><b className="text-sm">{focusCandidate.name} · 个股观察</b></div><p className="mt-1 text-[10px] text-muted">{qualifiedSymbol(focusCandidate.symbol)} · 拾贝扫描日 {focusCandidate.latest_date || '未知'} · {quotes.data?.source || '公开快照暂不可用'}</p></div><div className="flex gap-1"><button type="button" onClick={() => void analyzeCandidate(focusCandidate)} disabled={aiLoading === focusCandidate.symbol} className="rounded border border-accent/50 px-2 py-1 text-[11px] text-accent disabled:opacity-50">{aiLoading === focusCandidate.symbol ? 'AI复核中…' : 'AI量化复核'}</button><Link to={`/stock-analysis?symbol=${encodeURIComponent(qualifiedSymbol(focusCandidate.symbol))}`} className="rounded border border-border px-2 py-1 text-[11px]">完整走势</Link></div></div>
           <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_minmax(240px,0.8fr)]">
             <div className="min-w-0 rounded border border-border bg-surface p-2"><div className="flex justify-between text-xs"><b>个股分时与成交量</b><span className="text-muted">{focusedMinute.data?.date || '读取中'}</span></div>{focusedMinute.data?.rows?.length ? <EChartsIntraday data={focusedMinute.data.rows} assetType={focusedMinute.data.asset_type ?? 'stock'} height={310} date={focusedMinute.data.date ?? undefined} prevClose={focusedMinute.data.prev_close ?? undefined} priceLimit={focusedMinute.data.price_limit ?? undefined} /> : <div className="flex h-[310px] items-center justify-center text-xs text-muted">{focusedMinute.isLoading ? '正在读取分钟走势…' : '当前分钟数据不可用'}</div>}<p className="text-[10px] text-muted">来源：{focusedMinute.data?.source || '未取得'} · 最后行情：{focusedMinute.data?.rows?.at(-1)?.datetime || '—'}</p></div>
             <div className="grid content-start gap-2"><div className="rounded border border-border bg-surface p-2"><div className="flex justify-between text-xs"><b>{focusSector?.name || '关联板块待核'} · 分钟走势</b><span className="text-muted">{focusedSectorMinute.data?.date || '—'}</span></div><SectorTrend values={focusedSectorValues} buckets={sectorSeries?.buckets ?? []} /><p className="text-[10px] text-muted">{focusSector ? '概念成分股等权涨跌幅；只有同交易日且名称匹配才显示' : '资料板块未与实时概念板块匹配，不推断走势'}</p></div><div className="rounded border border-border bg-surface p-2 text-[11px]"><b>量价核对</b><div className="mt-1 grid grid-cols-2 gap-1 text-muted"><span>放量 {focusCandidate.volume_multiple ?? '—'}×</span><span>最高换手 {focusCandidate.max_turnover ?? '—'}%</span><span>均线距离 {focusCandidate.ma_distance_pct ?? '—'}%</span><span>量比 {quoteByCode.get(codeOf(focusCandidate.symbol))?.volume_ratio ?? '—'}</span></div><p className="mt-1 text-[10px] text-muted">{focusCandidate.pattern || focusCandidate.entry_status || '形态尚未核验'}</p></div></div>

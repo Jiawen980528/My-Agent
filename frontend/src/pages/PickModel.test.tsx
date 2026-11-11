@@ -29,10 +29,11 @@ it('shows pool-and-model intersections and blocks paper buy until AI explicitly 
   vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
     const url = String(input)
     let body: unknown = { items: [] }
-    if (url.endsWith('/scan') && init?.method === 'POST') body = { items: [
-      { symbol: '000739.SZ', name: '普洛药业', score: 80, latest_date: '2026-11-10' },
-      { symbol: '600519.SH', name: '贵州茅台', score: 99, latest_date: '2026-11-10' },
-    ], count: 2 }
+    if (url.endsWith('/scan/start') && init?.method === 'POST') body = { job_id: 'mock-job', status: 'pending' }
+    if (url.endsWith('/scan/job/mock-job')) body = { status: 'complete', result: { items: [
+      { symbol: '000739', name: '普洛药业', score: 80, latest_date: '2026-11-10' },
+      { symbol: '600519', name: '贵州茅台', score: 99, latest_date: '2026-11-10' },
+    ], count: 2 } }
     if (url.includes('/quotes?symbols=')) body = { source: '腾讯公开行情（非QMT）', items: [{ symbol: '000739', price: quotePrice, pct: 1.5 }] }
     if (url.endsWith('/ai') && init?.method === 'POST') body = { reply: aiReply }
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
@@ -45,11 +46,13 @@ it('shows pool-and-model intersections and blocks paper buy until AI explicitly 
   const button = (label: string) => Array.from(host.querySelectorAll('button')).find(node => node.textContent?.includes(label))!
   await act(async () => { button('扫描全市场').click() })
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
   const shortlist = host.querySelector('section')!
   expect(shortlist.querySelectorAll('[aria-label="待观察个股"] > button')).toHaveLength(1)
   expect(shortlist.textContent).toContain('普洛药业')
   expect(shortlist.textContent).not.toContain('贵州茅台')
   expect(shortlist.textContent).toContain('个股分钟图')
+  expect(apiMock.klineMinute).toHaveBeenCalledWith('000739.SZ', undefined, true)
   await act(async () => { button('物理AI').click() })
   expect(shortlist.querySelectorAll('[aria-label="待观察个股"] > button')).toHaveLength(0)
   await act(async () => { button('全部').click() })
@@ -75,4 +78,25 @@ it('shows pool-and-model intersections and blocks paper buy until AI explicitly 
   expect(apiMock.paperOrderCreate).toHaveBeenCalledWith(
     { symbol: '000739.SZ', side: 'buy', qty: 100, order_type: 'market' }, 'default',
   )
+})
+
+it('reports a failed background scan without showing invented candidates', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  vi.stubGlobal('fetch', vi.fn(async (input: string) => {
+    const url = String(input)
+    const body = url.endsWith('/scan/start') ? { job_id: 'failed-job' }
+      : url.endsWith('/scan/job/failed-job') ? { status: 'failed', error: '历史行情源暂不可用' }
+        : { items: [] }
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }))
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  cleanup = async () => { await act(async () => root.unmount()); queryClient.clear() }
+  await act(async () => root.render(<MemoryRouter><QueryClientProvider client={queryClient}><PickModel /></QueryClientProvider></MemoryRouter>))
+  const scan = Array.from(host.querySelectorAll('button')).find(node => node.textContent?.includes('扫描全市场'))!
+  await act(async () => { scan.click(); await new Promise(resolve => setTimeout(resolve, 0)) })
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+  expect(host.textContent).toContain('历史行情源暂不可用')
+  expect(host.querySelectorAll('[aria-label="待观察个股"] > button')).toHaveLength(0)
 })
