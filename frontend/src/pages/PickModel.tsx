@@ -228,14 +228,28 @@ export function PickModel() {
     return `${code}.${code.startsWith('6') ? 'SH' : code.startsWith('4') || code.startsWith('8') || code.startsWith('9') ? 'BJ' : 'SZ'}`
   }
   const stockUrl = (candidate: Candidate) => `/stock-analysis?symbol=${encodeURIComponent(qualifiedSymbol(candidate.symbol))}&name=${encodeURIComponent(candidate.name)}`
+  const poolByCode = useMemo(() => {
+    const map = new Map<string, PoolItem[]>()
+    for (const row of pool.items) {
+      if (!row.symbol) continue
+      const code = codeOf(row.symbol)
+      map.set(code, [...(map.get(code) || []), row])
+    }
+    return map
+  }, [pool.items])
+  const sectorLeaders = useMemo(() => [...sectorStocks]
+    .sort((a, b) => Number(b.pct ?? -999) - Number(a.pct ?? -999)
+      || Number(b.volume_ratio ?? 0) - Number(a.volume_ratio ?? 0))
+    .slice(0, 8), [sectorStocks])
   const recommendations = useMemo(() => {
     if (!matchedModelSector || !sectorStocks.length) return []
     const stockCodes = new Set(sectorStocks.map(stock => codeOf(stock.symbol)))
-    return items.filter(item => stockCodes.has(codeOf(item.symbol)) && (item.sector === matchedModelSector.sector || !item.sector))
+    return items.filter(item => stockCodes.has(codeOf(item.symbol)) && poolByCode.has(codeOf(item.symbol))
+      && (item.sector === matchedModelSector.sector || !item.sector))
       .map(item => ({ ...item, sectorQuote: sectorStocks.find(stock => codeOf(stock.symbol) === codeOf(item.symbol)) }))
       .sort((a, b) => Number(b.score || 0) - Number(a.score || 0) || Number(b.pct || 0) - Number(a.pct || 0))
       .slice(0, 8)
-  }, [items, matchedModelSector, sectorStocks])
+  }, [items, matchedModelSector, poolByCode, sectorStocks])
   const analyzeCandidate = async (candidate: Candidate & { sectorQuote?: SectorStock }) => {
     if (aiLoading) return
     const quotePrice = quoteByCode.get(codeOf(candidate.symbol))?.price
@@ -268,15 +282,6 @@ export function PickModel() {
       setScanJobId(started.job_id)
     } catch (e) { setError(e instanceof Error ? e.message : '扫描失败'); setLoading(false) }
   }
-  const poolByCode = useMemo(() => {
-    const map = new Map<string, PoolItem[]>()
-    for (const row of pool.items) {
-      if (!row.symbol) continue
-      const code = codeOf(row.symbol)
-      map.set(code, [...(map.get(code) || []), row])
-    }
-    return map
-  }, [pool.items])
   const shortlist = useMemo(() => items.filter(item => {
     const rows = poolByCode.get(codeOf(item.symbol)) || []
     if (!rows.length) return false
@@ -373,7 +378,7 @@ export function PickModel() {
       {poolMessage && <p className="mt-1 text-[11px] text-accent">{poolMessage}</p>}
       {!pool.items.length && <p className="mt-2 text-xs text-warning">主题筛选尚无内容。支持 .xlsx；课程压缩包请先解压后选择其中的 .xlsx。下方扫描股票仍可点击查看个股走势。</p>}
       {!!pool.items.length && !items.length && <p className="mt-2 text-xs text-muted">资料已就绪。点击“扫描全市场”后，才会从真实模型结果中筛出观察候选。</p>}
-      {!!pool.items.length && !!items.length && !shortlist.length && <p className="mt-2 text-xs text-warning">当前筛选范围内没有同时通过资料池与拾贝扫描的股票，暂不输出个股。可切换方向或检查代码匹配情况。</p>}
+      {!!pool.items.length && !!items.length && !shortlist.length && <p className="mt-2 text-xs text-warning">拾贝初筛 {items.length} 只 → 文档代码匹配 0 只 → 本次展示 0 只。没有匹配就不输出个股。</p>}
       {!!shortlist.length && <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(250px,0.75fr)_minmax(0,1.6fr)]">
         <div className="grid content-start gap-2" aria-label="待观察个股">
           {shortlist.map((candidate, index) => {
@@ -406,17 +411,24 @@ export function PickModel() {
     </div>
     {error && <div className="mb-3 flex items-center gap-2 rounded border border-danger/30 bg-danger/10 p-2 text-xs text-danger"><AlertTriangle className="h-4 w-4" />{error}</div>}
     <section className="mb-3 rounded-card border border-border bg-surface p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2"><div><b className="text-sm">最近强势板块 → 可核验个股</b><p className="mt-1 text-[11px] text-muted">先按公开板块涨幅选择，再与拾贝扫描结果和项目个股库交集；未通过交集校验的股票不会显示为推荐。</p></div><span className="text-[10px] text-warning">仅研究候选，不自动下单</span></div>
+      <div className="flex flex-wrap items-center justify-between gap-2"><div><b className="text-sm">最近强势板块 · 独立行情榜</b><p className="mt-1 text-[11px] text-muted">板块强弱来自实时轮动，独立于拾贝模型。点击板块先看成分股异动；只有同时通过拾贝和资料池匹配的股票，才进入下方共振候选。</p></div><span className="text-[10px] text-warning">行情层 ≠ 拾贝筛选</span></div>
       <div className="mt-1 text-[10px] text-muted">{conceptRotation.data?.status === 'ok' && conceptRotation.data.date === market.data?.as_of?.slice(0, 10) ? `板块分钟轮动 ${conceptRotation.data.as_of || conceptRotation.data.date} · 约30秒更新` : '公开板块目录（可能延迟，暂无同日分钟轮动）'}</div>
       <div className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">{activeSectors.map(sector => <button key={sector.code} type="button" onClick={() => void selectSector(sector)} className={`rounded border px-2 py-1.5 text-left text-xs ${selectedSector?.code === sector.code ? 'border-accent bg-accent/15' : 'border-border bg-base hover:border-accent/60'}`}><div className="flex items-center justify-between gap-1"><b className="truncate">{sector.name}</b><span className={Number(sector.pct) >= 0 ? 'text-bull' : 'text-bear'}>{sector.pct == null ? '—' : `${Number(sector.pct).toFixed(2)}%`}</span></div><span className="text-[10px] text-muted">{sector.code}</span></button>)}{!activeSectors.length && <p className="text-xs text-muted">板块排行暂不可用，请稍后刷新。</p>}</div>
       {selectedSector && <div className="mt-2 rounded border border-border/70 bg-base/50 p-2">
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs"><b>{selectedSector.name}</b><span className="text-muted">公开板块涨幅 {selectedSector.pct == null ? '—' : `${Number(selectedSector.pct).toFixed(2)}%`} · {matchedModelSector ? `拾贝个股库：${matchedModelSector.sector}` : '项目个股库暂无精确板块映射'}</span></div>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs"><b>{selectedSector.name}</b><span className="text-muted">公开板块涨幅 {selectedSector.pct == null ? '—' : `${Number(selectedSector.pct).toFixed(2)}%`} · {matchedModelSector ? `成分股映射：${matchedModelSector.sector}` : '项目资料暂无精确板块映射'}</span></div>
         {sectorLoading && <p className="mt-2 text-xs text-accent">正在读取个股库、新闻和量价数据…</p>}
         {sectorError && <p className="mt-2 text-xs text-danger">{sectorError}</p>}
-        {!sectorLoading && matchedModelSector && !items.length && <p className="mt-2 text-xs text-warning">请先点击上方“扫描全市场”，没有拾贝扫描结果就不输出个股推荐。</p>}
-        {!sectorLoading && matchedModelSector && items.length && !recommendations.length && <p className="mt-2 text-xs text-warning">当前板块没有同时通过“拾贝扫描 + 项目个股库”交集校验的标的，因此不推荐。</p>}
-        {!sectorLoading && !matchedModelSector && <p className="mt-2 text-xs text-warning">该强势板块未被项目个股库覆盖，不做跨板块猜测；可换一个板块或补充个股库。</p>}
-        {!!recommendations.length && <div className="mt-2 grid gap-1.5 lg:grid-cols-2">{recommendations.map(candidate => <article key={candidate.symbol} className="rounded border border-border bg-surface p-2 text-xs"><div className="flex flex-wrap items-center justify-between gap-2"><div><b>{candidate.name}</b><span className="ml-2 text-muted">{candidate.symbol}</span></div><span className="font-semibold text-accent">拾贝评分 {candidate.score ?? '—'}</span></div><div className="mt-1 grid grid-cols-2 gap-1 text-[10px] text-muted sm:grid-cols-4"><span>涨跌 {candidate.pct == null ? '—' : `${candidate.pct.toFixed(2)}%`}</span><span>放量 {candidate.volume_multiple == null ? '—' : `${candidate.volume_multiple}x`}</span><span>量比 {candidate.sectorQuote?.volume_ratio == null ? '—' : candidate.sectorQuote.volume_ratio.toFixed(2)}</span><span>换手 {candidate.sectorQuote?.turnover == null ? '—' : `${candidate.sectorQuote.turnover.toFixed(2)}%`}</span></div><p className="mt-1 text-[10px] text-secondary">筛选依据：拾贝阶段 {candidate.entry_status || '—'} · 量价形态 {candidate.pattern || '—'} · 板块 {selectedSector.name} · 新闻 {sectorNews.length ? '有可核对条目' : '暂无可核对条目'}</p><button type="button" onClick={() => void analyzeCandidate(candidate)} disabled={aiLoading === candidate.symbol} className="mt-1 rounded border border-accent/50 px-2 py-1 text-[10px] text-accent disabled:opacity-50">{aiLoading === candidate.symbol ? 'AI分析中…' : 'AI量化复核'}</button>{aiReplies[candidate.symbol] && <p className="mt-1 rounded bg-accent/5 p-1.5 text-[10px] leading-relaxed text-secondary"><b className="text-accent">AI：</b>{aiReplies[candidate.symbol]}</p>}</article>)}</div>}
+        {!!sectorLeaders.length && <div className="mt-2"><div className="mb-1 text-[11px] font-medium">板块成分股异动榜 <span className="font-normal text-muted">（仅展示行情事实）</span></div><div className="grid gap-1.5 lg:grid-cols-2">{sectorLeaders.map(stock => {
+          const scanCandidate = items.find(item => codeOf(item.symbol) === codeOf(stock.symbol))
+          const inResearchPool = poolByCode.has(codeOf(stock.symbol))
+          return <article key={stock.symbol} className="rounded border border-border bg-surface p-2 text-xs"><div className="flex flex-wrap items-center justify-between gap-2"><div><Link to={stockUrl(stock)} className="font-semibold hover:text-accent">{stock.name}</Link><span className="ml-2 text-muted">{stock.symbol}</span></div><span className={Number(stock.pct) >= 0 ? 'font-semibold text-bull' : 'font-semibold text-bear'}>{stock.pct == null ? '—' : `${stock.pct.toFixed(2)}%`}</span></div><div className="mt-1 flex flex-wrap gap-1 text-[10px]"><span className="rounded bg-elevated px-1.5 py-0.5 text-muted">量比 {stock.volume_ratio == null ? '—' : stock.volume_ratio.toFixed(2)}</span><span className="rounded bg-elevated px-1.5 py-0.5 text-muted">换手 {stock.turnover == null ? '—' : `${stock.turnover.toFixed(2)}%`}</span>{scanCandidate && <span className="rounded bg-sky-400/10 px-1.5 py-0.5 text-sky-300">拾贝通过 {scanCandidate.score ?? '—'}分</span>}{inResearchPool && <span className="rounded bg-amber-400/10 px-1.5 py-0.5 text-amber-300">资料匹配</span>}</div></article>
+        })}</div></div>}
+        {!sectorLoading && matchedModelSector && !sectorLeaders.length && <p className="mt-2 text-xs text-warning">该板块成分股行情暂不可用，请稍后刷新。</p>}
+        {!sectorLoading && !matchedModelSector && <p className="mt-2 text-xs text-warning">该强势板块暂未建立成分股映射，只显示板块强弱，不猜测关联股票。</p>}
+        <div className="mt-3 border-t border-border/60 pt-2 text-[11px] font-medium">板块 × 拾贝 × 资料池共振候选</div>
+        {!items.length && <p className="mt-1 text-xs text-muted">尚无拾贝扫描结果；上面的板块异动榜仍可独立查看。</p>}
+        {!!items.length && !recommendations.length && <p className="mt-1 text-xs text-warning">当前板块没有同时通过“拾贝扫描 + 文档代码匹配”的股票，本轮不输出共振候选。</p>}
+        {!!recommendations.length && <div className="mt-2 grid gap-1.5 lg:grid-cols-2">{recommendations.map(candidate => <article key={candidate.symbol} className="rounded border border-accent/30 bg-accent/[0.04] p-2 text-xs"><div className="flex flex-wrap items-center justify-between gap-2"><div><b>{candidate.name}</b><span className="ml-2 text-muted">{candidate.symbol}</span></div><span className="font-semibold text-accent">拾贝评分 {candidate.score ?? '—'}</span></div><div className="mt-1 grid grid-cols-2 gap-1 text-[10px] text-muted sm:grid-cols-4"><span>涨跌 {candidate.pct == null ? '—' : `${candidate.pct.toFixed(2)}%`}</span><span>放量 {candidate.volume_multiple == null ? '—' : `${candidate.volume_multiple}x`}</span><span>量比 {candidate.sectorQuote?.volume_ratio == null ? '—' : candidate.sectorQuote.volume_ratio.toFixed(2)}</span><span>换手 {candidate.sectorQuote?.turnover == null ? '—' : `${candidate.sectorQuote.turnover.toFixed(2)}%`}</span></div><p className="mt-1 text-[10px] text-secondary">共振依据：强势板块 {selectedSector.name} · 拾贝阶段 {candidate.entry_status || '—'} · 文档已匹配 · 新闻 {sectorNews.length ? '有可核对条目' : '暂无可核对条目'}</p><button type="button" onClick={() => void analyzeCandidate(candidate)} disabled={aiLoading === candidate.symbol} className="mt-1 rounded border border-accent/50 px-2 py-1 text-[10px] text-accent disabled:opacity-50">{aiLoading === candidate.symbol ? 'AI分析中…' : 'AI量化复核'}</button>{aiReplies[candidate.symbol] && <p className="mt-1 rounded bg-accent/5 p-1.5 text-[10px] leading-relaxed text-secondary"><b className="text-accent">AI：</b>{aiReplies[candidate.symbol]}</p>}</article>)}</div>}
       </div>}
     </section>
     <div className="mb-2 flex items-center justify-between text-xs text-muted"><span>候选 {meta?.count ?? items.length} 只 · 全市场样本 {meta?.universe_count ?? '—'} · {meta?.data_source ?? '尚未扫描'}</span><label className="flex items-center gap-1"><Search className="h-3.5 w-3.5" /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索代码 / 名称 / 板块" className="h-7 w-48 rounded border border-border bg-elevated px-2 text-xs text-foreground" /></label></div>

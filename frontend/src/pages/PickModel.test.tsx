@@ -34,6 +34,12 @@ it('shows pool-and-model intersections and blocks paper buy until AI explicitly 
       { symbol: '000739', name: '普洛药业', score: 80, latest_date: '2026-11-10' },
       { symbol: '600519', name: '贵州茅台', score: 99, latest_date: '2026-11-10' },
     ], count: 2 } }
+    if (url.includes('/fund-flow/sectors?')) body = { items: [{ code: 'cx', name: '创新药', pct: 3.2 }] }
+    if (url.endsWith('/sectors')) body = { items: [{ sector: '创新药', theme: '创新药', anchors: ['普洛药业'], watch: ['恒瑞医药'] }] }
+    if (url.includes('/sector/%E5%88%9B%E6%96%B0%E8%8D%AF')) body = { items: [
+      { symbol: '000739', name: '普洛药业', sector: '创新药', price: 10.2, pct: 1.5, turnover: 1.1, volume_ratio: 1.8 },
+      { symbol: '600276', name: '恒瑞医药', sector: '创新药', price: 50, pct: 4.8, turnover: 2.2, volume_ratio: 2.6 },
+    ] }
     if (url.includes('/quotes?symbols=')) body = { source: '腾讯公开行情（非QMT）', items: [{ symbol: '000739', price: quotePrice, pct: 1.5 }] }
     if (url.endsWith('/ai') && init?.method === 'POST') body = { reply: aiReply }
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
@@ -55,6 +61,12 @@ it('shows pool-and-model intersections and blocks paper buy until AI explicitly 
   expect(host.querySelectorAll('a[href^="/stock-analysis?symbol=000739.SZ&name="]')).toHaveLength(3)
   expect(shortlist.textContent).toContain('个股分钟图')
   expect(apiMock.klineMinute).toHaveBeenCalledWith('000739.SZ', undefined, true)
+  const sectorButton = Array.from(host.querySelectorAll('button')).find(node => node.textContent?.includes('创新药3.20%'))!
+  await act(async () => { sectorButton.click(); await new Promise(resolve => setTimeout(resolve, 0)) })
+  expect(host.textContent).toContain('板块成分股异动榜')
+  expect(host.textContent).toContain('恒瑞医药')
+  expect(host.textContent).toContain('板块 × 拾贝 × 资料池共振候选')
+  expect((host.textContent?.match(/拾贝评分/g) || [])).toHaveLength(1)
   await act(async () => { button('物理AI').click() })
   expect(shortlist.querySelectorAll('[aria-label="待观察个股"] > button')).toHaveLength(0)
   await act(async () => { button('全部').click() })
