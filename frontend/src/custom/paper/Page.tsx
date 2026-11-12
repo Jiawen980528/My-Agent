@@ -171,7 +171,7 @@ function loadNewAccountDefaults(): Required<NewAccountDefaults> {
   try { last = JSON.parse(localStorage.getItem(NEW_ACCOUNT_DEFAULTS_KEY) || '{}') } catch { /* 忽略坏数据 */ }
   const src = { ...last, ...base }
   return {
-    cash: src.cash ?? '1000000',
+    cash: src.cash ?? '100000',
     commissionWan: src.commissionWan ?? '2.5',   // 万2.5
     stampQian: src.stampQian ?? '1',             // 千1 (仅卖出)
     slippageBps: src.slippageBps ?? '5',         // 5bps
