@@ -24,6 +24,7 @@ type ScanResult = { items: Candidate[]; count: number; universe_count?: number; 
 type ScanJob = { status: 'pending' | 'running' | 'complete' | 'failed'; elapsed_seconds?: number; result?: ScanResult | null; error?: string | null }
 type RecommendationStage = '全部' | '集合竞价' | '盘中推荐' | '其他时间轮动'
 type Cycle = '全部' | '短线' | '中线' | '长线'
+type RecommendationRecord = { id: string; date: string; stage: RecommendationStage; createdAt: string; marketEmotion?: string; items: { symbol: string; name: string; score?: number; price?: number; verdict?: string | null }[] }
 const SCAN_JOB_KEY = 'myagent-pick-model-scan-job'
 
 function savedScanJob(): string {
@@ -85,6 +86,9 @@ export function PickModel() {
   const [focusFilter, setFocusFilter] = useState<'全部' | '创新药' | '物理AI' | '其他'>('全部')
   const [recommendationStage, setRecommendationStage] = useState<RecommendationStage>('全部')
   const [cycleFilter, setCycleFilter] = useState<Cycle>('全部')
+  const [recommendationHistory, setRecommendationHistory] = useState<RecommendationRecord[]>(() => {
+    try { return JSON.parse(localStorage.getItem('myagent-recommendation-history') || '[]') as RecommendationRecord[] } catch { return [] }
+  })
   const [focusSymbol, setFocusSymbol] = useState<string | null>(null)
   const activeSectors = useMemo(() => {
     const rotation = conceptRotation.data
@@ -314,6 +318,18 @@ export function PickModel() {
   })
   const quoteByCode = useMemo(() => new Map((quotes.data?.items ?? []).map(item => [codeOf(item.symbol), item])), [quotes.data?.items])
   const focusCandidate = shortlist.find(item => item.symbol === focusSymbol) ?? shortlist[0]
+  useEffect(() => {
+    if (!shortlist.length || loading) return
+    const date = market.data?.as_of?.slice(0, 10) || new Date().toISOString().slice(0, 10)
+    const stage = recommendationStage
+    const signature = shortlist.map(item => item.symbol).join(',')
+    const id = `${date}:${stage}:${signature}`
+    if (recommendationHistory.some(record => record.id === id)) return
+    const record: RecommendationRecord = { id, date, stage, createdAt: new Date().toISOString(), marketEmotion: market.data?.emotion ? `${market.data.emotion.label} ${market.data.emotion.score}` : undefined, items: shortlist.map(item => ({ symbol: item.symbol, name: item.name, score: item.score })) }
+    const next = [record, ...recommendationHistory].slice(0, 100)
+    setRecommendationHistory(next)
+    try { localStorage.setItem('myagent-recommendation-history', JSON.stringify(next)) } catch { /* storage unavailable */ }
+  }, [shortlist, loading, market.data?.as_of, market.data?.emotion, recommendationStage, recommendationHistory])
   const focusedMinute = useQuery({
     queryKey: QK.pickModelMinute(focusCandidate ? qualifiedSymbol(focusCandidate.symbol) : ''),
     queryFn: () => api.klineMinute(qualifiedSymbol(focusCandidate!.symbol), undefined, true),
@@ -376,6 +392,7 @@ export function PickModel() {
       <div className="rounded border border-border bg-surface p-2 text-xs"><span className="text-muted">可核验候选</span><b className="mt-1 block font-mono text-sm">{shortlist.length} 只</b><span className="text-[10px] text-muted">资料与模型交集 · 最多 5 只</span></div>
       <div className="rounded border border-border bg-surface p-2 text-xs"><span className="text-muted">市场 / 新闻</span><b className="mt-1 block text-sm">{market.data?.as_of?.slice(0, 16) || '市场不可用'}</b><span className="text-[10px] text-muted">新闻 {allNews.length} 条 · 数据时间见详情</span></div>
     </div>
+    <div className="mb-3 rounded-card border border-border bg-surface p-3"><div className="flex items-center justify-between gap-2"><div><b className="text-sm">今日推荐记录</b><p className="mt-1 text-[10px] text-muted">按早盘、盘中和轮动阶段保存快照，避免推荐只出现一次后无法回看。</p></div><span className="text-[10px] text-muted">{recommendationHistory.filter(record => record.date === (market.data?.as_of?.slice(0, 10) || '')).length} 条</span></div><div className="mt-2 grid gap-1.5 md:grid-cols-2">{recommendationHistory.filter(record => !market.data?.as_of || record.date === market.data.as_of.slice(0, 10)).slice(0, 8).map(record => <details key={record.id} className="rounded border border-border bg-base/50 p-2 text-xs"><summary className="cursor-pointer"><b>{record.stage}</b><span className="ml-2 text-muted">{record.createdAt.slice(11, 16)} · {record.marketEmotion || '情绪数据缺失'}</span></summary><div className="mt-2 flex flex-wrap gap-1">{record.items.map(item => <span key={item.symbol} className="rounded bg-elevated px-2 py-1 text-accent">{item.name} {item.score == null ? '' : `${item.score}分`}</span>)}</div></details>)}{!recommendationHistory.length && <p className="text-xs text-muted">今天尚未形成推荐快照；运行扫描并切换推荐时段后会自动保存。</p>}</div></div>
     <div className="mb-3 rounded-card border border-border bg-surface p-3">
       <div className="flex flex-wrap items-center justify-between gap-2"><div><b className="text-sm">我的持仓 · 实时分析</b><p className="mt-1 text-[11px] text-muted">持仓只读接入 MyAgent；缺少数量或成本时明确标记，不推断数据。</p></div><Link to="/holdings" className="text-[11px] text-accent hover:underline">打开持仓首页 ↗</Link></div>
       <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{(portfolio.data?.items ?? []).slice(0, 8).map(item => {
