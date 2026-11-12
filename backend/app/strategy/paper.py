@@ -280,13 +280,6 @@ def delete_account(data_dir: Path, account_id: str = DEFAULT_ACCOUNT_ID, *, forc
         if acc is None:
             return None, "账户不存在"
         positions = load_positions(data_dir, account_id)
-        if side == "buy":
-            # 每次买入视为一层；已成交 lot + 待成交买单不能超过账户上限。
-            existing = len([lot for lot in positions.get(symbol, {}).get("lots", []) if float(lot.get("qty", 0)) > 0])
-            pending = len([o for o in load_orders(data_dir, account_id) if o.get("symbol") == symbol and o.get("side") == "buy" and o.get("status") == "pending"])
-            tranche_limit = int(acc.get("max_tranches_per_symbol", DEFAULT_MAX_TRANCHES_PER_SYMBOL))
-            if existing + pending >= tranche_limit:
-                return None, f"{symbol} 已达到分层仓位上限 {tranche_limit} 层"
         holdings = sum(1 for p in positions.values() if p["qty"] > 0)
         pending = sum(1 for o in load_orders(data_dir, account_id) if o["status"] == "pending")
         if (holdings or pending) and not force:
@@ -452,6 +445,13 @@ def create_order(
 
         # 持仓标的数上限 (仅新开仓的买入; 加仓已有持仓不受限)
         positions = load_positions(data_dir, account_id)
+        if side == "buy":
+            # 每次买入视为一层；已成交 lot + 待成交买单不能超过账户上限。
+            existing = len([lot for lot in positions.get(symbol, {}).get("lots", []) if float(lot.get("qty", 0)) > 0])
+            pending_tranches = len([o for o in load_orders(data_dir, account_id) if o.get("symbol") == symbol and o.get("side") == "buy" and o.get("status") == "pending"])
+            tranche_limit = int(acc.get("max_tranches_per_symbol", DEFAULT_MAX_TRANCHES_PER_SYMBOL))
+            if existing + pending_tranches >= tranche_limit:
+                return None, f"{symbol} 已达到分层仓位上限 {tranche_limit} 层"
         if (
             side == "buy"
             and symbol not in positions
