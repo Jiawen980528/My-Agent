@@ -79,6 +79,52 @@ def _board_keyword_match(item: dict, query: str) -> bool:
 logger = logging.getLogger(__name__)
 _ptrade_upload_times: dict[str, list[float]] = {}
 
+# 公开外围行情回退：TickFlow 没有相应标的时使用 Yahoo Finance chart API。
+# 结果明确带 source/as_of/delay_seconds，供多维决策和交易记录标注数据新鲜度。
+_EXTERNAL_MARKET_SYMBOLS = {
+    'A50': 'XIN9.SG', '标普500': '^GSPC', '纳斯达克': '^IXIC', '道琼斯': '^DJI',
+    '恒生指数': '^HSI', '日经225': '^N225', '股指期货': 'ES=F',
+}
+_external_market_cache: tuple[float, dict] | None = None
+_external_market_lock = asyncio.Lock()
+
+
+@router.get('/external-market')
+async def external_market_context():
+    """读取外围/期货公开行情，失败时返回可解释的缺失项而不是编造数据。"""
+    global _external_market_cache
+    now = time.time()
+    if _external_market_cache and now - _external_market_cache[0] < 30:
+        return _external_market_cache[1]
+    async with _external_market_lock:
+        now = time.time()
+        if _external_market_cache and now - _external_market_cache[0] < 30:
+            return _external_market_cache[1]
+        items: list[dict] = []
+        missing: list[str] = []
+        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+            for name, symbol in _EXTERNAL_MARKET_SYMBOLS.items():
+                try:
+                    response = await client.get(
+                        'https://query1.finance.yahoo.com/v8/finance/chart/' + symbol,
+                        params={'range': '1d', 'interval': '5m'},
+                        headers={'User-Agent': 'MyAgent/1.0'},
+                    )
+                    response.raise_for_status()
+                    result = response.json().get('chart', {}).get('result') or []
+                    meta = result[0].get('meta', {}) if result else {}
+                    price = meta.get('regularMarketPrice')
+                    ts = meta.get('regularMarketTime')
+                    if price is None or ts is None:
+                        raise ValueError('missing quote')
+                    age = max(0, int(time.time() - float(ts)))
+                    items.append({'name': name, 'symbol': symbol, 'price': float(price), 'change_pct': meta.get('regularMarketChangePercent'), 'as_of': datetime.fromtimestamp(float(ts), tz=ZoneInfo('UTC')).isoformat(), 'delay_seconds': age, 'source': 'yahoo_public_delayed'})
+                except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError):
+                    missing.append(name)
+        payload = {'items': items, 'missing': missing, 'source': 'Yahoo Finance公开行情（可能延迟）', 'fetched_at': datetime.now(tz=ZoneInfo('UTC')).isoformat(), 'max_delay_seconds': max((x['delay_seconds'] for x in items), default=None), 'notice': '外围数据缺失时允许模拟盘继续交易，但交易记录必须标注缺失项。'}
+        _external_market_cache = (time.time(), payload)
+        return payload
+
 
 def _previous_weekdays(day: date, count: int) -> list[date]:
     result: list[date] = []
