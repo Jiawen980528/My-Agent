@@ -954,6 +954,21 @@ def _format_openai_error(exc: Exception) -> str:
     return f"AI 服务请求失败: {message}"
 
 
+def friendly_ai_error(exc: Exception) -> str:
+    """把兼容网关未包装成 OpenAI 异常的错误也转换成可排查提示。
+
+    部分网关对不存在的模型/路径只返回纯文本 ``Not Found``，导致前端只能
+    显示一个没有上下文的错误。这里不暴露密钥，仅显示当前模型和网关主机。
+    """
+    raw = str(exc).strip()
+    if raw and raw.lower() not in {"not found", "404", "http 404"} and "404" not in raw.lower():
+        return raw
+    model = current_ai_model() or "未设置"
+    configured = secrets_store.get_ai_config("ai_base_url", settings.ai_base_url)
+    host = urlsplit(str(configured or "")).hostname or "未设置"
+    return f"AI 服务返回 404：模型或接口不存在（模型 {model}，网关 {host}），请在设置→AI 检查 Base URL、协议和模型名称"
+
+
 def _openai_error_detail(exc: Exception) -> str:
     body = getattr(exc, "body", None)
     if isinstance(body, dict):

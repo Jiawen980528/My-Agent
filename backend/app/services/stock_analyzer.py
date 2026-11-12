@@ -357,7 +357,7 @@ async def analyze_stock_stream(
 
     # 5+6. 构建提示词 + 流式调用 LLM(整体 try-except,任何异常都 yield error,避免前端卡死)
     try:
-        from app.services.ai_provider import stream_ai_text
+        from app.services.ai_provider import friendly_ai_error, stream_ai_text
 
         # 虚拟持仓上下文 (V3): 逐账户 (V2 多账户) 收集持有该标的的持仓注入
         # (任何异常静默跳过, 不影响分析)。
@@ -394,7 +394,7 @@ async def analyze_stock_stream(
 
     except Exception as e:
         logger.exception("AI stock analysis failed for %s: %s", symbol, e)
-        yield json.dumps({"type": "error", "message": f"AI 分析失败: {e}"}, ensure_ascii=False)
+        yield json.dumps({"type": "error", "message": f"AI 分析失败: {friendly_ai_error(e)}"}, ensure_ascii=False)
         return
 
     if not got_content:

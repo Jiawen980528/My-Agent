@@ -172,7 +172,7 @@ async def analyze_financials_stream(
 
     # 3. 调用 LLM 流式
     try:
-        from app.services.ai_provider import stream_ai_text
+        from app.services.ai_provider import friendly_ai_error, stream_ai_text
 
         user_prompt = _build_user_prompt(fins, symbol, focus)
         got_content = False
@@ -191,7 +191,7 @@ async def analyze_financials_stream(
 
     except Exception as e:  # noqa: BLE001
         logger.exception("AI financial analysis failed for %s: %s", symbol, e)
-        yield json.dumps({"type": "error", "message": f"AI 分析失败: {e}"}, ensure_ascii=False)
+        yield json.dumps({"type": "error", "message": f"AI 分析失败: {friendly_ai_error(e)}"}, ensure_ascii=False)
         return
 
     if not got_content:

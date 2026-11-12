@@ -327,7 +327,7 @@ async def recap_market_stream(
 
     # 3+4. 构建 prompt + 流式调用 LLM(整体 try-except,任何异常 yield error,避免前端卡死)
     try:
-        from app.services.ai_provider import stream_ai_text
+        from app.services.ai_provider import friendly_ai_error, stream_ai_text
 
         # 龙虎榜摘要 (fuyao 专有): 拉取失败/未配置 → 空串, 复盘主流程不受影响
         from app.services import dragon_tiger as dragon_tiger_svc
@@ -355,7 +355,7 @@ async def recap_market_stream(
 
     except Exception as e:  # noqa: BLE001
         logger.exception("AI market recap failed for %s: %s", as_of_str, e)
-        yield json.dumps({"type": "error", "message": f"AI 复盘失败: {e}"}, ensure_ascii=False)
+        yield json.dumps({"type": "error", "message": f"AI 复盘失败: {friendly_ai_error(e)}"}, ensure_ascii=False)
         return
 
     if not got_content:
