@@ -12,6 +12,7 @@ export function SentimentMonitor() {
   const portfolio = useQuery({ queryKey: ['myagent', 'portfolio-monitor'], queryFn: () => api.portfolioSnapshot(), refetchInterval: 10_000, staleTime: 5_000 })
   const [notify, setNotify] = useState(() => { try { return localStorage.getItem('myagent-leader-notify') === 'on' } catch { return false } })
   const seen = useRef(new Set<string>())
+  const openNotifications = useRef<Notification[]>([])
   const holdings = useMemo(() => new Set((portfolio.data?.items ?? []).map(item => codeOf(item.symbol))), [portfolio.data?.items])
   const rows = abnormal.data?.rows ?? []
   const leaders = rows.filter(row => Number(row.consecutive_limit_ups ?? 0) >= 2 || row.signals.includes('limit_up')).slice(0, 12)
@@ -24,14 +25,29 @@ export function SentimentMonitor() {
       if (seen.current.has(key)) continue
       seen.current.add(key)
       const related = holdings.has(codeOf(row.symbol))
-      new Notification(`MyAgent：${row.signals.includes('broken') ? '炸板异动' : '龙头/涨停异动'}`, { body: `${row.name || row.symbol} · ${related ? '影响你的持仓，请查看' : '暂未匹配你的持仓'}` })
+      const notification = new Notification(`MyAgent：${row.signals.includes('broken') ? '炸板异动' : '龙头/涨停异动'}`, { body: `${row.name || row.symbol} · ${related ? '影响你的持仓，请查看' : '暂未匹配你的持仓'}` })
+      openNotifications.current.push(notification)
+      notification.onclose = () => { openNotifications.current = openNotifications.current.filter(item => item !== notification) }
     }
   }, [rows, abnormal.data, notify, holdings])
-  const enable = async () => { if (typeof Notification === 'undefined') return; const p = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission; const on = p === 'granted'; setNotify(on); try { localStorage.setItem('myagent-leader-notify', on ? 'on' : 'off') } catch {} }
+  const enable = async () => {
+    if (notify) {
+      openNotifications.current.forEach(item => item.close())
+      openNotifications.current = []
+      setNotify(false)
+      try { localStorage.setItem('myagent-leader-notify', 'off') } catch {}
+      return
+    }
+    if (typeof Notification === 'undefined') return
+    const p = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission
+    const on = p === 'granted'
+    setNotify(on)
+    try { localStorage.setItem('myagent-leader-notify', on ? 'on' : 'off') } catch {}
+  }
   return <div className="h-full overflow-auto bg-base p-3 text-foreground">
     <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-card border border-border bg-surface p-4">
       <div><h1 className="text-base font-semibold">市场情绪与龙头监控</h1><p className="mt-1 text-xs text-muted">大局观 → 指数与涨跌家数 → 板块分化 → 龙头/炸板 → 持仓操作指引。</p></div>
-      <button type="button" onClick={() => void enable()} className={`rounded border px-3 py-2 text-xs ${notify ? 'border-bull/60 text-bull' : 'border-accent/60 text-accent'}`}>{notify ? '浏览器提醒已开启' : '开启浏览器提醒'}</button>
+      <button type="button" onClick={() => void enable()} className={`rounded border px-3 py-2 text-xs ${notify ? 'border-bull/60 text-bull' : 'border-accent/60 text-accent'}`}>{notify ? '关闭浏览器提醒' : '开启浏览器提醒'}</button>
     </div>
     <section className="mb-3 rounded-card border border-border bg-surface p-3"><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-semibold">一、全市场大局观</h2><span className="text-[10px] text-muted">数据时点：{market.data?.as_of ?? '读取中'}</span></div><div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-6"><div className="rounded border border-border bg-base/50 p-2 text-xs">情绪分<b className="mt-1 block text-lg text-accent">{market.data?.emotion.score ?? '—'}</b><span className="text-[10px] text-muted">{market.data?.emotion.label ?? '—'}</span></div><div className="rounded border border-border bg-base/50 p-2 text-xs">上涨家数<b className="mt-1 block text-lg text-bull">{market.data?.breadth.up ?? '—'}</b></div><div className="rounded border border-border bg-base/50 p-2 text-xs">下跌家数<b className="mt-1 block text-lg text-bear">{market.data?.breadth.down ?? '—'}</b></div><div className="rounded border border-border bg-base/50 p-2 text-xs">涨停 / 跌停<b className="mt-1 block text-lg">{market.data?.limit.limit_up ?? '—'} / {market.data?.limit.limit_down ?? '—'}</b></div><div className="rounded border border-border bg-base/50 p-2 text-xs">炸板 / 封板率<b className="mt-1 block text-lg text-warning">{market.data?.limit.broken ?? '—'} / {market.data?.limit.seal_rate == null ? '—' : `${market.data.limit.seal_rate.toFixed(0)}%`}</b></div><div className="rounded border border-border bg-base/50 p-2 text-xs">成交额<b className="mt-1 block text-lg">{market.data?.amount.total == null ? '—' : `${(market.data.amount.total / 1e12).toFixed(2)}万亿`}</b></div></div><div className="mt-3 grid gap-2 md:grid-cols-2"><div className="rounded border border-border bg-base/50 p-2 text-xs"><b>指数状态</b>{(market.data?.indices ?? []).slice(0, 6).map(index => <div key={index.symbol} className="mt-1 flex justify-between"><span>{index.name || index.symbol}</span><span className={Number(index.change_pct) >= 0 ? 'text-bull' : 'text-bear'}>{index.last_price == null ? '—' : index.last_price.toFixed(2)} {index.change_pct == null ? '' : `${Number(index.change_pct).toFixed(2)}%`}</span></div>)}</div><div className="rounded border border-border bg-base/50 p-2 text-xs"><b>情绪雷达</b><div className="mt-2 grid grid-cols-2 gap-1">{(market.data?.radar ?? []).slice(0, 8).map(item => <span key={item.key} className="rounded bg-elevated px-2 py-1">{item.label} <b>{Number(item.value).toFixed(0)}</b></span>)}</div></div></div></section>
     <section className="mb-3 rounded-card border border-border bg-surface p-3"><h2 className="font-semibold">二、板块分化与风格</h2><div className="mt-2 grid gap-2 md:grid-cols-2"><div><h3 className="mb-1 text-xs text-bull">领涨板块</h3>{(market.data?.concept_rank?.leading ?? []).slice(0, 8).map(item => <div key={item.name} className="flex justify-between border-b border-border/60 py-1.5 text-xs"><span>{item.name}</span><span className="text-bull">{item.avg_pct == null ? '—' : `${Number(item.avg_pct).toFixed(2)}%`} · {item.count ?? 0}只</span></div>)}{!market.data?.concept_rank?.leading?.length && <p className="text-xs text-muted">暂无板块排行</p>}</div><div><h3 className="mb-1 text-xs text-bear">走弱板块 / 防御切换</h3>{(market.data?.concept_rank?.lagging ?? []).slice(0, 8).map(item => <div key={item.name} className="flex justify-between border-b border-border/60 py-1.5 text-xs"><span>{item.name}</span><span className="text-bear">{item.avg_pct == null ? '—' : `${Number(item.avg_pct).toFixed(2)}%`} · {item.count ?? 0}只</span></div>)}{!market.data?.concept_rank?.lagging?.length && <p className="text-xs text-muted">暂无板块排行</p>}</div></div><p className="mt-2 text-[10px] text-muted">科技硬件、半导体、CPO等进攻板块需要龙头同步；银行、煤炭、公用事业等防御板块领涨时，追涨科技的评分自动降低。</p></section>
