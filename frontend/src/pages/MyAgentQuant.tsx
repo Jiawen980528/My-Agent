@@ -30,16 +30,21 @@ export function MyAgentQuant() {
   useEffect(() => {
     setError(''); setBusy(true)
     const work = tab === 'history' ? get<{items: Scan[]}>('/history').then(d => setHistory(d.items))
-      : tab === 'holdings' ? get<{items: Holding[]; source?: string; notice?: string}>('/holdings').then(async d => {
-        setHoldingSource(d.source || 'MyAgent持仓库')
-        if (d.items.length) { setHoldings(d.items); return }
-        // 持仓库为空时，尝试读取账户快照；仅展示明确标记为持仓的标的，不把自选股冒充持仓。
-        try {
-          const snapshot = await get<{items: any[]; source?: string}>('/portfolio/snapshot')
-          const verified = (snapshot.items || []).filter(x => x.holding_source || Number(x.quantity || 0) > 0)
-          setHoldingSource(snapshot.source || d.source || '账户快照')
+      : tab === 'holdings' ? get<{items: any[]; source?: string}>('/portfolio/snapshot').then(async snapshot => {
+        // 持仓首页统一使用 MyAgent 自身快照；不读取券商、不把自选股冒充持仓。
+        const verified = (snapshot.items || []).filter(x => x.holding_source || Number(x.quantity || 0) > 0)
+        setHoldingSource(snapshot.source || 'MyAgent持仓快照')
+        if (verified.length) {
           setHoldings(verified.map(x => ({ symbol: x.symbol, name: x.name, sector: x.board?.name || '', quantity: Number(x.quantity || 0), cost: Number(x.cost || 0), price: x.price, profit: x.pnl, profit_pct: x.pnl != null && x.cost && x.quantity ? Number((x.pnl / (x.cost * x.quantity) * 100).toFixed(2)) : undefined })))
-        } catch { setHoldings([]) }
+          return
+        }
+        const d = await get<{items: Holding[]; source?: string}>('/holdings')
+        setHoldingSource(d.source || 'MyAgent持仓库')
+        setHoldings(d.items)
+      }).catch(async () => {
+        const d = await get<{items: Holding[]; source?: string}>('/holdings')
+        setHoldingSource(d.source || 'MyAgent持仓库')
+        setHoldings(d.items)
       })
       : tab === 'sectors' ? get<{items: Sector[]}>('/sectors').then(d => setSectors(d.items))
       : Promise.resolve()
