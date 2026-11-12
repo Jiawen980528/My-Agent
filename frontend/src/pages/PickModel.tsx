@@ -377,7 +377,7 @@ export function PickModel() {
       <div className="rounded border border-border bg-surface p-2 text-xs"><span className="text-muted">市场 / 新闻</span><b className="mt-1 block text-sm">{market.data?.as_of?.slice(0, 16) || '市场不可用'}</b><span className="text-[10px] text-muted">新闻 {allNews.length} 条 · 数据时间见详情</span></div>
     </div>
     <div className="mb-3 rounded-card border border-border bg-surface p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2"><div><b className="text-sm">我的持仓 · 实时分析</b><p className="mt-1 text-[11px] text-muted">持仓只读接入 MyAgent；缺少数量或成本时明确标记，不推断数据。</p></div><Link to="/myagent-quant" className="text-[11px] text-accent hover:underline">打开完整持仓页 ↗</Link></div>
+      <div className="flex flex-wrap items-center justify-between gap-2"><div><b className="text-sm">我的持仓 · 实时分析</b><p className="mt-1 text-[11px] text-muted">持仓只读接入 MyAgent；缺少数量或成本时明确标记，不推断数据。</p></div><Link to="/myagent-quant?tab=holdings" className="text-[11px] text-accent hover:underline">打开完整持仓页 ↗</Link></div>
       <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{(portfolio.data?.items ?? []).slice(0, 8).map(item => {
         const cost = Number(item.cost); const price = Number(item.price); const qty = Number(item.quantity)
         const breakEven = Number.isFinite(cost) && Number.isFinite(price) && Number.isFinite(qty) && qty > 0 ? cost : null

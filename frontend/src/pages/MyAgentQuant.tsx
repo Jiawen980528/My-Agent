@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 
 const API = '/quant/api/myagent/quant'
 type Scan = { id: number; model_name: string; match_count: number; generated_at: string; criteria: Record<string, unknown> }
@@ -14,7 +14,9 @@ async function get<T>(path: string): Promise<T> {
 }
 
 export function MyAgentQuant() {
-  const [tab, setTab] = useState<Tab>('history')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedTab = searchParams.get('tab') as Tab | null
+  const [tab, setTab] = useState<Tab>(requestedTab === 'holdings' ? 'holdings' : 'history')
   const [history, setHistory] = useState<Scan[]>([])
   const [selected, setSelected] = useState<any>(null)
   const [holdings, setHoldings] = useState<Holding[]>([])
@@ -31,11 +33,14 @@ export function MyAgentQuant() {
       : Promise.resolve()
     work.catch(e => setError(e.message)).finally(() => setBusy(false))
   }, [tab])
+  useEffect(() => {
+    if (requestedTab === 'holdings' && tab !== 'holdings') setTab('holdings')
+  }, [requestedTab, tab])
   async function openScan(id: number) { try { setError(''); setSelected(await get<any>(`/history/${id}`)) } catch (e) { setError((e as Error).message) } }
   async function openSector(name: string) { try { setError(''); setSector(name); const d = await get<{items: any[]}>(`/sector/${encodeURIComponent(name)}`); setMembers(d.items) } catch (e) { setError((e as Error).message) } }
   return <div className="h-full overflow-auto bg-base p-3 text-foreground">
     <div className="mb-3 rounded-card border border-border bg-surface p-3"><h1 className="text-base font-semibold">MyAgent 量化</h1><p className="mt-1 text-xs text-muted">筛选记录、持仓、项目板块库和研究规则，直接在 TickFlow 内查看。行情使用各自标注的数据源。</p></div>
-    <nav className="mb-3 flex flex-wrap gap-2">{([['history','筛选历史'],['holdings','持仓跟踪'],['sectors','板块库'],['guide','模型说明']] as const).map(([key,label]) => <button key={key} onClick={() => setTab(key)} className={`rounded-btn border px-3 py-1.5 text-xs ${tab === key ? 'border-accent bg-accent/15 text-accent' : 'border-border bg-surface text-muted'}`}>{label}</button>)}<Link to="/pick-model" className="rounded-btn border border-border bg-surface px-3 py-1.5 text-xs text-accent">打开拾贝模型</Link><Link to="/fund-flow" className="rounded-btn border border-border bg-surface px-3 py-1.5 text-xs text-accent">查看资金流向</Link></nav>
+    <nav className="mb-3 flex flex-wrap gap-2">{([['history','筛选历史'],['holdings','持仓跟踪'],['sectors','板块库'],['guide','模型说明']] as const).map(([key,label]) => <button key={key} onClick={() => { setTab(key); setSearchParams(key === 'holdings' ? { tab: 'holdings' } : {}) }} className={`rounded-btn border px-3 py-1.5 text-xs ${tab === key ? 'border-accent bg-accent/15 text-accent' : 'border-border bg-surface text-muted'}`}>{label}</button>)}<Link to="/pick-model" className="rounded-btn border border-border bg-surface px-3 py-1.5 text-xs text-accent">打开拾贝模型</Link><Link to="/fund-flow" className="rounded-btn border border-border bg-surface px-3 py-1.5 text-xs text-accent">查看资金流向</Link></nav>
     {error && <p className="mb-3 rounded border border-danger/40 p-2 text-xs text-danger">{error}</p>}{busy && <p className="text-xs text-muted">加载中…</p>}
     {tab === 'history' && <><div className="grid gap-2 md:grid-cols-2">{history.map(x => <button key={x.id} onClick={() => openScan(x.id)} className="rounded-card border border-border bg-surface p-3 text-left hover:border-accent"><b>{x.model_name}</b><span className="ml-3 text-accent">{x.match_count} 只</span><div className="mt-1 text-xs text-muted">{x.generated_at} · 地量 {String(x.criteria.baseline_days || '—')} 日 · 换手 ≤ {String(x.criteria.max_avg_turnover || '—')}%</div></button>)}</div>{!history.length && !busy && <p className="text-xs text-muted">暂无历史记录；在拾贝模型运行扫描后会自动保存。</p>}{selected && <section className="mt-3 rounded-card border border-border bg-surface p-3"><div className="mb-2 flex justify-between"><b>历史结果 #{selected.id} · {selected.match_count} 只</b><button onClick={() => setSelected(null)}>关闭</button></div><div className="max-h-80 overflow-auto text-xs">{(selected.result?.items || []).map((x: any) => <div key={x.symbol} className="flex gap-4 border-t border-border p-2"><span className="w-32">{x.name} {x.symbol}</span><span>{x.entry_status}</span><span>评分 {x.score}</span><span>{x.latest_date}</span></div>)}</div></section>}</>}
     {tab === 'holdings' && <><p className="mb-2 text-xs text-muted">这里读取 MyAgent 保存的持仓；TickFlow 自选和券商账户是另外的数据源。</p><div className="grid gap-2 md:grid-cols-2">{holdings.map(x => <div key={x.symbol} className="rounded-card border border-border bg-surface p-3"><b>{x.name} <span className="text-muted">{x.symbol}</span></b><div className="mt-2 grid grid-cols-2 gap-2 text-xs"><span>板块 {x.sector || '待绑定'}</span><span>数量 {x.quantity}</span><span>成本 {x.cost}</span><span>现价 {x.price ?? '—'}</span><span>浮盈亏 {x.profit ?? '—'}</span><span>收益率 {x.profit_pct ?? '—'}%</span></div></div>)}</div>{!holdings.length && !busy && <p className="text-xs text-muted">暂无 MyAgent 持仓。</p>}</>}
