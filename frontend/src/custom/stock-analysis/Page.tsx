@@ -338,6 +338,14 @@ function StockAnalysisBoard({ symbol, name }: { symbol: string; name: string }) 
   const isUp = researchQ.data?.quote?.pct != null
     ? Number(researchQ.data.quote.pct) >= 0
     : last ? (prev ? last.close >= prev.close : last.close >= last.open) : true
+  const chipLevels = (levels.sr ?? []).filter(level => Number.isFinite(Number(level.value)))
+  const chipSupport = chipLevels.filter(level => level.side === 'support').sort((a, b) => Number(b.value) - Number(a.value))
+  const chipPressure = chipLevels.filter(level => level.side === 'resistance').sort((a, b) => Number(a.value) - Number(b.value))
+  const chipGuidance = chipPressure.length > chipSupport.length + 1
+    ? '上方筹码压力较大：反弹靠近密集区先观察量能，持仓不宜盲目追高。'
+    : chipSupport.length > chipPressure.length + 1
+      ? '下方筹码支撑较强：回踩支撑区缩量企稳，可等待板块和龙头同步确认。'
+      : '筹码支撑与压力接近：按突破放量或跌破缩量分别处理，暂不预判方向。'
 
   return (
     <div className="space-y-4">
@@ -349,6 +357,12 @@ function StockAnalysisBoard({ symbol, name }: { symbol: string; name: string }) 
         aiLoading={aiLoading}
         onAnalyze={runQuantReview}
       />
+
+      <div className="rounded-card border border-border/60 bg-surface/40 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2"><div><div className="text-sm font-medium">筹码分布与支撑压力</div><p className="mt-1 text-[10px] text-muted">基于换手衰减筹码模型计算密集成本区；不是单纯历史成交量堆积。</p></div><span className={`text-xs font-medium ${chipPressure.length > chipSupport.length + 1 ? 'text-warning' : chipSupport.length > chipPressure.length + 1 ? 'text-bull' : 'text-accent'}`}>{chipGuidance}</span></div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3"><div className="rounded border border-border bg-base/50 p-2 text-xs"><span className="text-muted">支撑密集区</span><b className="mt-1 block">{chipSupport.length ? chipSupport.slice(0, 3).map(level => `${Number(level.value).toFixed(2)}${level.strength === 'strong' ? ' · 强' : ''}`).join(' / ') : '暂无可核验支撑'}</b></div><div className="rounded border border-border bg-base/50 p-2 text-xs"><span className="text-muted">压力密集区</span><b className="mt-1 block">{chipPressure.length ? chipPressure.slice(0, 3).map(level => `${Number(level.value).toFixed(2)}${level.strength === 'strong' ? ' · 强' : ''}`).join(' / ') : '暂无可核验压力'}</b></div><div className="rounded border border-border bg-base/50 p-2 text-xs"><span className="text-muted">当前价格位置</span><b className="mt-1 block">{shownPrice == null ? '暂无价格' : chipSupport[0] && shownPrice >= Number(chipSupport[0].value) ? '位于支撑上方' : chipPressure[0] && shownPrice <= Number(chipPressure[0].value) ? '位于压力下方' : '密集区数据不足'}</b></div></div>
+        <p className="mt-2 text-[10px] text-muted">判断顺序：先看筹码区是否被放量突破，再看板块龙头是否同步；突破无量只视为假突破，跌破支撑但缩量先观察，放量跌破才提高风险等级。</p>
+      </div>
 
       {minuteRows.length > 0 && (
         <div className="rounded-card border border-border/60 bg-surface/40 overflow-hidden">
