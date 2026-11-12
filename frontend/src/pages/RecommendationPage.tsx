@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
+// Dedicated daily recommendation view (deployment marker: 2026-11-12)
+
 type RecordItem = { symbol: string; name: string; score?: number; price?: number; verdict?: string | null }
 type RecordRow = { id: string; date: string; stage: string; createdAt: string; marketEmotion?: string; items: RecordItem[] }
 
