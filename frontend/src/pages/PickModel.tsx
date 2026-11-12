@@ -52,6 +52,7 @@ export function PickModel() {
   const queryClient = useQueryClient()
   const market = useQuery({ queryKey: QK.overviewMarket(), queryFn: () => api.overviewMarket(),
     refetchInterval: query => query.state.data?.quote_status?.is_trading_hours === false ? 60_000 : 5_000, staleTime: 3_000 })
+  const externalMarket = useQuery({ queryKey: ['myagent', 'external-market'], queryFn: () => fetch('/quant/api/myagent/external-market', { credentials: 'include' }).then(async response => { const body = await response.json(); if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`); return body as { items?: unknown[]; missing?: string[]; source?: string; max_delay_seconds?: number | null } }), refetchInterval: 30_000, staleTime: 20_000 })
   const portfolio = useQuery({ queryKey: ['myagent', 'portfolio-snapshot'], queryFn: () => typeof (api as any).portfolioSnapshot === 'function' ? api.portfolioSnapshot() : Promise.resolve({ items: [], source: 'unavailable' }), refetchInterval: 10_000, staleTime: 5_000 })
   const conceptRotation = useQuery({ queryKey: QK.sectorRotation('concept', undefined, 1),
     queryFn: () => api.sectorRotation({ kind: 'concept', bucket: 1 }), refetchInterval: 30_000, staleTime: 20_000 })
@@ -277,7 +278,8 @@ export function PickModel() {
           news: matchedNews(candidate),
           public_quote: quoteByCode.get(codeOf(candidate.symbol)) ?? null,
           research_pool: pool.items.filter(item => item.symbol && codeOf(item.symbol) === codeOf(candidate.symbol)),
-          source: '公开行情、用户资料股票池与拾贝扫描' },
+          external_market: externalMarket.data || { missing: ['外围数据接口暂未返回'] },
+          source: '公开行情、用户资料股票池、拾贝扫描与外围市场上下文' },
       }), })
       setAiReplies(current => ({ ...current, [candidate.symbol]: reply.reply }))
       setAiReviewBasis(current => ({ ...current, [candidate.symbol]: { quotePrice, scanDate: candidate.latest_date ?? '', reviewedAt: Date.now() } }))
