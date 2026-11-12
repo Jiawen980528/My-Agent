@@ -643,7 +643,12 @@ export function Layout() {
     : [...allNav].sort((a, b) => compareByDefaultNav(a.to, b.to))
 
   const hiddenIds = new Set(prefs?.nav_hidden ?? [])
-  const visibleNavItems = navItems.filter(n => !hiddenIds.has(n.to) && !hiddenIds.has(n.to.replace(/^\/analysis\//, '')))
+  // 侧栏默认只展示日常决策所需的核心入口，低频工具仍保留路由但不占用侧栏空间。
+  const compactNavPaths = new Set([
+    '/', '/watchlist', '/screener', '/pick-model', '/sentiment-monitor',
+    '/strong-sectors', '/fund-flow', '/market-news', '/decision-guide',
+  ])
+  const visibleNavItems = navItems.filter(n => compactNavPaths.has(n.to) && !hiddenIds.has(n.to) && !hiddenIds.has(n.to.replace(/^\/analysis\//, '')))
   const [dragNavPath, setDragNavPath] = useState<string | null>(null)
   const moveNavItem = (targetPath: string) => {
     if (!dragNavPath || dragNavPath === targetPath) return
