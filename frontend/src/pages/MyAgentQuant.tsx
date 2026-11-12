@@ -23,16 +23,28 @@ export function MyAgentQuant() {
   const [sectors, setSectors] = useState<Sector[]>([])
   const [sector, setSector] = useState('')
   const [members, setMembers] = useState<any[]>([])
+  const [holdingSource, setHoldingSource] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   useEffect(() => {
     setError(''); setBusy(true)
     const work = tab === 'history' ? get<{items: Scan[]}>('/history').then(d => setHistory(d.items))
-      : tab === 'holdings' ? get<{items: Holding[]}>('/holdings').then(d => setHoldings(d.items))
+      : tab === 'holdings' ? get<{items: Holding[]; source?: string; notice?: string}>('/holdings').then(async d => {
+        setHoldingSource(d.source || 'MyAgent持仓库')
+        if (d.items.length) { setHoldings(d.items); return }
+        // 持仓库为空时，尝试读取账户快照；仅展示明确标记为持仓的标的，不把自选股冒充持仓。
+        try {
+          const snapshot = await get<{items: any[]; source?: string}>('/portfolio/snapshot')
+          const verified = (snapshot.items || []).filter(x => x.holding_source || Number(x.quantity || 0) > 0)
+          setHoldingSource(snapshot.source || d.source || '账户快照')
+          setHoldings(verified.map(x => ({ symbol: x.symbol, name: x.name, sector: x.board?.name || '', quantity: Number(x.quantity || 0), cost: Number(x.cost || 0), price: x.price, profit: x.pnl, profit_pct: x.pnl != null && x.cost && x.quantity ? Number((x.pnl / (x.cost * x.quantity) * 100).toFixed(2)) : undefined })))
+        } catch { setHoldings([]) }
+      })
       : tab === 'sectors' ? get<{items: Sector[]}>('/sectors').then(d => setSectors(d.items))
       : Promise.resolve()
     work.catch(e => setError(e.message)).finally(() => setBusy(false))
-  }, [tab])
+  }, [tab, reloadKey])
   useEffect(() => {
     if (requestedTab === 'holdings' && tab !== 'holdings') setTab('holdings')
   }, [requestedTab, tab])
@@ -43,7 +55,7 @@ export function MyAgentQuant() {
     <nav className="mb-3 flex flex-wrap gap-2">{([['history','筛选历史'],['holdings','持仓跟踪'],['sectors','板块库'],['guide','模型说明']] as const).map(([key,label]) => <button key={key} onClick={() => { setTab(key); setSearchParams(key === 'holdings' ? { tab: 'holdings' } : {}) }} className={`rounded-btn border px-3 py-1.5 text-xs ${tab === key ? 'border-accent bg-accent/15 text-accent' : 'border-border bg-surface text-muted'}`}>{label}</button>)}<Link to="/pick-model" className="rounded-btn border border-border bg-surface px-3 py-1.5 text-xs text-accent">打开拾贝模型</Link><Link to="/fund-flow" className="rounded-btn border border-border bg-surface px-3 py-1.5 text-xs text-accent">查看资金流向</Link></nav>
     {error && <p className="mb-3 rounded border border-danger/40 p-2 text-xs text-danger">{error}</p>}{busy && <p className="text-xs text-muted">加载中…</p>}
     {tab === 'history' && <><div className="grid gap-2 md:grid-cols-2">{history.map(x => <button key={x.id} onClick={() => openScan(x.id)} className="rounded-card border border-border bg-surface p-3 text-left hover:border-accent"><b>{x.model_name}</b><span className="ml-3 text-accent">{x.match_count} 只</span><div className="mt-1 text-xs text-muted">{x.generated_at} · 地量 {String(x.criteria.baseline_days || '—')} 日 · 换手 ≤ {String(x.criteria.max_avg_turnover || '—')}%</div></button>)}</div>{!history.length && !busy && <p className="text-xs text-muted">暂无历史记录；在拾贝模型运行扫描后会自动保存。</p>}{selected && <section className="mt-3 rounded-card border border-border bg-surface p-3"><div className="mb-2 flex justify-between"><b>历史结果 #{selected.id} · {selected.match_count} 只</b><button onClick={() => setSelected(null)}>关闭</button></div><div className="max-h-80 overflow-auto text-xs">{(selected.result?.items || []).map((x: any) => <div key={x.symbol} className="flex gap-4 border-t border-border p-2"><span className="w-32">{x.name} {x.symbol}</span><span>{x.entry_status}</span><span>评分 {x.score}</span><span>{x.latest_date}</span></div>)}</div></section>}</>}
-    {tab === 'holdings' && <><p className="mb-2 text-xs text-muted">这里读取 MyAgent 保存的持仓；TickFlow 自选和券商账户是另外的数据源。</p><div className="grid gap-2 md:grid-cols-2">{holdings.map(x => <div key={x.symbol} className="rounded-card border border-border bg-surface p-3"><b>{x.name} <span className="text-muted">{x.symbol}</span></b><div className="mt-2 grid grid-cols-2 gap-2 text-xs"><span>板块 {x.sector || '待绑定'}</span><span>数量 {x.quantity}</span><span>成本 {x.cost}</span><span>现价 {x.price ?? '—'}</span><span>浮盈亏 {x.profit ?? '—'}</span><span>收益率 {x.profit_pct ?? '—'}%</span></div></div>)}</div>{!holdings.length && !busy && <p className="text-xs text-muted">暂无 MyAgent 持仓。</p>}</>}
+    {tab === 'holdings' && <><div className="mb-2 flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-muted">数据源：{holdingSource || '读取中'}。这里只显示 MyAgent 已保存或账户快照明确标记的持仓，不会把券商截图或自选股当成真实持仓。</p><button type="button" onClick={() => setTab('holdings')} className="rounded border border-border px-2 py-1 text-[11px] text-accent">刷新</button></div><div className="grid gap-2 md:grid-cols-2">{holdings.map(x => <div key={x.symbol} className="rounded-card border border-border bg-surface p-3"><b>{x.name} <span className="text-muted">{x.symbol}</span></b><div className="mt-2 grid grid-cols-2 gap-2 text-xs"><span>板块 {x.sector || '待绑定'}</span><span>数量 {x.quantity}</span><span>成本 {x.cost}</span><span>现价 {x.price ?? '—'}</span><span>浮盈亏 {x.profit ?? '—'}</span><span>收益率 {x.profit_pct ?? '—'}%</span></div></div>)}</div>{!holdings.length && !busy && <div className="rounded-card border border-warning/30 bg-warning/5 p-4 text-xs text-secondary"><b className="text-warning">当前没有可显示的持仓</b><p className="mt-1">券商账户不会自动同步到这里。请先在 MyAgent 持仓库录入数量和成本，或配置账户只读数据源；录入后点击“刷新”即可看到持仓分析。</p><div className="mt-2 flex gap-2"><Link to="/decision-guide" className="rounded border border-border px-2 py-1 text-accent">查看持仓分析</Link><Link to="/watchlist" className="rounded border border-border px-2 py-1 text-accent">查看自选</Link></div></div>}</>}
     {tab === 'sectors' && <><div className="grid gap-2 md:grid-cols-3">{sectors.map(x => <button key={x.sector} onClick={() => openSector(x.sector)} className="rounded-card border border-border bg-surface p-3 text-left hover:border-accent"><b>{x.sector}</b><p className="text-xs text-muted">{x.theme}</p><p className="mt-2 text-xs">中军：{x.anchors.join('、')}</p><p className="mt-1 text-xs text-muted">观察：{x.watch.slice(0,5).join('、')}</p></button>)}</div>{sector && <section className="mt-3 rounded-card border border-border bg-surface p-3"><b>{sector} · 个股行情</b><div className="mt-2 grid gap-1 md:grid-cols-4">{members.map(x => <div key={x.symbol} className="border border-border p-2 text-xs">{x.name} {x.symbol}<span className="ml-2">{x.price} / {x.pct}%</span></div>)}</div></section>}</>}
     {tab === 'guide' && <div className="grid gap-3 md:grid-cols-2">{[
       ['拾贝初筛','长期地量；这段时间每个交易日的换手率都低于上限；放量前总市值低于上限。长期低量不强制阴跌，放量不作为初筛硬门槛。'],
