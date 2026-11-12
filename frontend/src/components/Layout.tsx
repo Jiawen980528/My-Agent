@@ -975,7 +975,7 @@ export function Layout() {
             )
           })}
           <NavLink
-            to="/myagent-quant"
+            to="/myagent-quant?tab=holdings"
             title={railMode ? 'MyAgent量化' : undefined}
             className={cn(
               'group relative flex items-center rounded-btn text-sm transition-all duration-150 ease-smooth',

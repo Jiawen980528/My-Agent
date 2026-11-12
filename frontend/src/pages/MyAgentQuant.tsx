@@ -16,7 +16,7 @@ async function get<T>(path: string): Promise<T> {
 export function MyAgentQuant() {
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedTab = searchParams.get('tab') as Tab | null
-  const [tab, setTab] = useState<Tab>(requestedTab === 'holdings' ? 'holdings' : 'history')
+  const [tab, setTab] = useState<Tab>(requestedTab === 'history' ? 'history' : 'holdings')
   const [history, setHistory] = useState<Scan[]>([])
   const [selected, setSelected] = useState<any>(null)
   const [holdings, setHoldings] = useState<Holding[]>([])
