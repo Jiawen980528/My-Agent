@@ -12,6 +12,7 @@ type MarketOverviewBrief = { breadth?: { up?: number; down?: number; flat?: numb
 type BoardContext = { rows?: { close?: number; time?: string }[]; latest_time?: string; source?: string; name?: string }
 type BoardCatalog = { items?: { code: string; name: string }[]; source?: string }
 type DecisionResult = { action: string; rating: string; reasons: string[]; basis: string[]; suggested_qty: number; max_risk_yuan: number; trigger_price?: number | null; invalidation_price?: number | null; account_verified: boolean; account_source?: string; valid_until: string; evidence?: { context_missing?: string[] } }
+type ExternalMarket = { items?: { name: string; symbol: string; change_pct?: number | null; delay_seconds?: number | null; source?: string }[]; missing?: string[]; source?: string; max_delay_seconds?: number | null; fetched_at?: string; notice?: string }
 type PeriodSummary = { trend: 'up' | 'down' | 'flat'; first: number; last: number; observations: number; as_of?: string }
 const API = '/quant/api/myagent/quant'
 const pct = (n: number | null) => n == null || !Number.isFinite(n) ? '—' : `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
@@ -127,6 +128,12 @@ export function DecisionGuide() {
     refetchInterval: tradingNow() ? 30_000 : false,
     staleTime: 30_000,
   })
+  const externalMarket = useQuery({
+    queryKey: ['decision-guide-external-market'],
+    queryFn: () => json<ExternalMarket>('/quant/api/myagent/external-market'),
+    refetchInterval: tradingNow() ? 30_000 : 120_000,
+    staleTime: 20_000,
+  })
   const multiPeriod = useQuery({
     queryKey: ['decision-guide-multi-period', selected?.item.symbol, day],
     queryFn: async () => {
@@ -193,7 +200,7 @@ export function DecisionGuide() {
     day_risk_used: snapshot.data?.day_risk_used,
   }
   const decision = useQuery({
-    queryKey: ['decision-guide-assist', selected?.item.symbol, selected?.last, selected?.bars.at(-1)?.datetime, linkedBoardCode, boardPct, defensiveBoard?.code, defensivePct, accountContext.verified, tradeHistory.data?.trades?.length, marketOverview.data?.as_of, marketVolumeForecast.data?.as_of, multiPeriod.data?.as_of],
+    queryKey: ['decision-guide-assist', selected?.item.symbol, selected?.last, selected?.bars.at(-1)?.datetime, linkedBoardCode, boardPct, defensiveBoard?.code, defensivePct, accountContext.verified, tradeHistory.data?.trades?.length, marketOverview.data?.as_of, marketVolumeForecast.data?.as_of, multiPeriod.data?.as_of, externalMarket.data?.fetched_at],
     queryFn: async () => {
       const response = await fetch('/quant/api/myagent/decision/assist', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
@@ -223,6 +230,7 @@ export function DecisionGuide() {
           account: accountContext,
           trades_today: tradeHistory.data?.trades || [],
           turnover_forecast: marketVolumeForecast.data || {},
+          external_market: externalMarket.data || { missing: ['外围数据接口暂未返回'] },
         }),
       })
       const body = await response.json()
@@ -233,7 +241,7 @@ export function DecisionGuide() {
     staleTime: 30_000,
   })
   return <div className="h-full overflow-auto bg-base p-3 text-foreground">
-    <header className="mb-3 rounded-card border border-border bg-surface p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><h1 className="text-base font-semibold">每日行情推演 · 条件观察</h1><p className="mt-1 text-[11px] text-muted">当前使用真实分钟数据；账户、资金流、板块和多周期数据不完整时，不输出可执行买卖建议。</p></div><span className="rounded border border-border px-2 py-1 text-xs text-muted">交易日 {day} · {minute.data?.source || snapshot.data?.source || '数据读取中'}</span></div></header>
+    <header className="mb-3 rounded-card border border-border bg-surface p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><h1 className="text-base font-semibold">每日行情推演 · 多维条件观察</h1><p className="mt-1 text-[11px] text-muted">技术面、资金面、情绪、新闻与外围数据共同参与；缺失数据会明确标注，不伪造。</p></div><span className="rounded border border-border px-2 py-1 text-xs text-muted">交易日 {day} · {minute.data?.source || snapshot.data?.source || '数据读取中'}</span></div><div className="mt-2 flex flex-wrap gap-1 text-[10px] text-muted">{(externalMarket.data?.items || []).slice(0, 7).map(item => <span key={item.symbol} className="rounded bg-elevated px-2 py-1">{item.name} {item.change_pct == null ? '—' : `${Number(item.change_pct).toFixed(2)}%`} · 延迟 {item.delay_seconds == null ? '—' : `${item.delay_seconds}s`}</span>)}{(externalMarket.data?.missing || []).length > 0 && <span className="rounded bg-warning/10 px-2 py-1 text-warning">缺少：{externalMarket.data!.missing!.join('、')}</span>}</div></header>
     {(snapshot.isError || minute.isError) && <div className="mb-3 rounded border border-danger/40 bg-danger/10 p-2 text-xs text-danger">行情读取失败：{String((snapshot.error || minute.error) instanceof Error ? (snapshot.error || minute.error)?.message : '请检查登录和数据源')}</div>}
     {minute.data?.complete === false && <div className="mb-3 rounded border border-warning/40 bg-warning/10 p-2 text-xs text-warning">分钟行情不完整：缺少 {minute.data.missing_symbols?.length || 0} 个标的，当前页面已停止使用异常数据。请检查 TickFlow 权限、连接状态或交易日。</div>}
     {selected && decision.data && <div className="mb-3 rounded-card border border-warning/40 bg-warning/5 p-3 text-xs"><div className="flex flex-wrap items-center justify-between gap-2"><b>决策辅助 · {selected.item.name}</b><span className="text-warning">{decision.data.rating} · {decision.data.action}</span></div><div className="mt-2 grid gap-2 sm:grid-cols-4"><span>触发价<br /><b>{decision.data.trigger_price == null ? '—' : px(decision.data.trigger_price)}</b></span><span>失效价<br /><b>{decision.data.invalidation_price == null ? '—' : px(decision.data.invalidation_price)}</b></span><span>建议数量<br /><b>{decision.data.suggested_qty.toLocaleString()}</b></span><span>最大风险<br /><b>¥{decision.data.max_risk_yuan.toFixed(2)}</b></span></div><p className="mt-2 text-muted">账户：{decision.data.account_verified ? `已核验（${decision.data.account_source || 'broker'}）` : '未核验'} · 有效至 {decision.data.valid_until.slice(11, 16)}{decision.data.evidence?.context_missing?.length ? ` · 缺少上下文：${decision.data.evidence.context_missing.join('、')}` : ''}</p><p className="mt-1">{decision.data.reasons.join('；')}</p></div>}
