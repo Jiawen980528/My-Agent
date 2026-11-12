@@ -1286,6 +1286,7 @@ export interface PaperAccount {
   stamp_tax_pct: number
   slippage_bps: number
   queue_limit_orders?: boolean
+  max_tranches_per_symbol?: number
   status: 'active' | 'frozen'
   created_at: string
 }
@@ -5019,7 +5020,7 @@ export const api = {
   paperOverview: (account?: string) =>
     request<PaperOverview>(accUrl('/api/paper/overview', account)),
 
-  paperCreateAccount: (body: { initial_cash: number; account_id?: string; name?: string; commission_pct?: number; stamp_tax_pct?: number; slippage_bps?: number; queue_limit_orders?: boolean }) =>
+  paperCreateAccount: (body: { initial_cash: number; account_id?: string; name?: string; commission_pct?: number; stamp_tax_pct?: number; slippage_bps?: number; queue_limit_orders?: boolean; max_tranches_per_symbol?: number }) =>
     request<{ account: PaperAccount }>('/api/paper/account', {
       method: 'POST',
       body: JSON.stringify(body),

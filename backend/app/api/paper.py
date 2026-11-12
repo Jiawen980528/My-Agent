@@ -40,6 +40,7 @@ class AccountModel(BaseModel):
     stamp_tax_pct: float = paper.DEFAULT_STAMP_TAX_PCT
     slippage_bps: float = paper.DEFAULT_SLIPPAGE_BPS
     queue_limit_orders: bool = False
+    max_tranches_per_symbol: int = paper.DEFAULT_MAX_TRANCHES_PER_SYMBOL
 
 
 class OrderModel(BaseModel):
@@ -56,6 +57,7 @@ class SettingsModel(BaseModel):
     commission_pct: float | None = None   # 佣金率 (0.00025 = 万2.5)
     stamp_tax_pct: float | None = None    # 印花税 (0.001 = 千1, 仅卖出)
     slippage_bps: float | None = None     # 滑点 (5 = 5bps)
+    max_tranches_per_symbol: int | None = None
 
 
 def _resolve_asset_type(request: Request, symbol: str) -> str:
@@ -114,6 +116,7 @@ def create_account(request: Request, body: AccountModel):
             stamp_tax_pct=body.stamp_tax_pct,
             slippage_bps=body.slippage_bps,
             queue_limit_orders=body.queue_limit_orders,
+            max_tranches_per_symbol=body.max_tranches_per_symbol,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

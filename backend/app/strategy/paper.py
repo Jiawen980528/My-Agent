@@ -61,6 +61,7 @@ _SESSION_OPEN = _time(9, 30)
 _SESSION_CLOSE = _time(15, 0)
 LOT_SIZE = 100                     # 一手 100 股 (股票/ETF 同)
 MAX_POSITION_SYMBOLS = 50          # 持仓标的数上限 (防误操作)
+DEFAULT_MAX_TRANCHES_PER_SYMBOL = 4 # 单一标的最多分四层买入
 DEFAULT_ACCOUNT_ID = "default"
 _ACCOUNT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 
@@ -166,6 +167,7 @@ def create_account(
     stamp_tax_pct: float = DEFAULT_STAMP_TAX_PCT,
     slippage_bps: float = DEFAULT_SLIPPAGE_BPS,
     queue_limit_orders: bool = False,
+    max_tranches_per_symbol: int = DEFAULT_MAX_TRANCHES_PER_SYMBOL,
 ) -> dict:
     """创建账户 (同 id 已存在则原样返回, 不覆盖 — 幂等)。"""
     validate_account_id(account_id)
@@ -184,6 +186,7 @@ def create_account(
             "stamp_tax_pct": float(stamp_tax_pct),
             "slippage_bps": float(slippage_bps),
             "queue_limit_orders": bool(queue_limit_orders),
+            "max_tranches_per_symbol": max(1, int(max_tranches_per_symbol)),
             "status": "active",  # active / frozen
             "created_at": _now_iso(),
         }
@@ -244,6 +247,11 @@ def update_settings(data_dir: Path, account_id: str = DEFAULT_ACCOUNT_ID, **fiel
             raise ValueError("尚未创建模拟账户")
         if "queue_limit_orders" in fields and fields["queue_limit_orders"] is not None:
             acc["queue_limit_orders"] = bool(fields["queue_limit_orders"])
+        if fields.get("max_tranches_per_symbol") is not None:
+            value = int(fields["max_tranches_per_symbol"])
+            if value < 1 or value > 20:
+                raise ValueError("max_tranches_per_symbol 必须在 1~20 层之间")
+            acc["max_tranches_per_symbol"] = value
         for key, lo, hi in (
             ("commission_pct", 0.0, 0.01),    # 佣金率 ≤1% (100‱)
             ("stamp_tax_pct", 0.0, 0.05),     # 印花税 ≤5% (仅卖出)
@@ -272,6 +280,13 @@ def delete_account(data_dir: Path, account_id: str = DEFAULT_ACCOUNT_ID, *, forc
         if acc is None:
             return None, "账户不存在"
         positions = load_positions(data_dir, account_id)
+        if side == "buy":
+            # 每次买入视为一层；已成交 lot + 待成交买单不能超过账户上限。
+            existing = len([lot for lot in positions.get(symbol, {}).get("lots", []) if float(lot.get("qty", 0)) > 0])
+            pending = len([o for o in load_orders(data_dir, account_id) if o.get("symbol") == symbol and o.get("side") == "buy" and o.get("status") == "pending"])
+            tranche_limit = int(acc.get("max_tranches_per_symbol", DEFAULT_MAX_TRANCHES_PER_SYMBOL))
+            if existing + pending >= tranche_limit:
+                return None, f"{symbol} 已达到分层仓位上限 {tranche_limit} 层"
         holdings = sum(1 for p in positions.values() if p["qty"] > 0)
         pending = sum(1 for o in load_orders(data_dir, account_id) if o["status"] == "pending")
         if (holdings or pending) and not force:
