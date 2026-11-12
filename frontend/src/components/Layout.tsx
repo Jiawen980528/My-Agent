@@ -975,7 +975,7 @@ export function Layout() {
             )
           })}
           <NavLink
-            to="/myagent-quant?tab=holdings"
+            to="/holdings"
             title={railMode ? 'MyAgent量化' : undefined}
             className={cn(
               'group relative flex items-center rounded-btn text-sm transition-all duration-150 ease-smooth',
@@ -984,7 +984,7 @@ export function Layout() {
             )}
           >
             <BarChart3 className="h-4 w-4 shrink-0 text-foreground/60 group-hover:text-foreground/85" />
-            {!railMode && <span className="truncate">MyAgent量化</span>}
+            {!railMode && <span className="truncate">持仓首页</span>}
           </NavLink>
           <ExtensionSlot
             name="layout.navigation.extra"
