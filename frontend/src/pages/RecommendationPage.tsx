@@ -19,6 +19,17 @@ export function RecommendationPage() {
     Promise.all([fetch('/quant/api/paper/overview?account=default', { credentials: 'include' }).then(r => r.ok ? r.json() : null), fetch('/quant/api/paper/stats?account=default', { credentials: 'include' }).then(r => r.ok ? r.json() : null), fetch('/quant/api/paper/orders?status=pending&account=default', { credentials: 'include' }).then(r => r.ok ? r.json() : null)]).then(([o, s, p]) => setPaper({ total: o?.total, total_pnl: o?.total_pnl, rounds: s?.rounds, pending: p?.orders?.length ?? 0 })).catch(() => setPaper({}))
   }
   useEffect(() => { load() }, [])
+  useEffect(() => {
+    const refreshAuction = () => {
+      const now = new Date()
+      const mins = now.getHours() * 60 + now.getMinutes()
+      if (mins < 9 * 60 + 15 || mins > 9 * 60 + 25) return
+      fetch('/quant/api/market-recap/auction-benchmark', { credentials: 'include' }).then(async r => r.ok ? r.json() : null).then(body => { if (body) setAuction(body) }).catch(() => undefined)
+    }
+    refreshAuction()
+    const timer = window.setInterval(refreshAuction, 5_000)
+    return () => window.clearInterval(timer)
+  }, [])
   useEffect(() => { const symbols = [...new Set(rows.flatMap(r => r.items.map(i => i.symbol)))].join(','); if (!symbols) return; fetch(`/quant/api/myagent/quant/quotes?symbols=${encodeURIComponent(symbols)}`, { credentials: 'include' }).then(r => r.json()).then(b => setQuotes(Object.fromEntries((b.items || []).map((x: Quote) => [x.symbol, x])))).catch(() => setQuotes({})) }, [rows])
   const today = new Date().toLocaleDateString('sv-SE')
   const visible = rows.filter(r => r.date === today && (stage === '全部' || r.stage === stage))
