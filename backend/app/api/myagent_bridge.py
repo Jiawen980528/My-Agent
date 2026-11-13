@@ -69,6 +69,51 @@ async def save_recommendation(request: Request):
     return {"ok": True, "record": record, "source": "server"}
 
 
+@router.post("/recommendations/{recommendation_id}/paper-execute")
+async def execute_recommendation_paper(request: Request, recommendation_id: str, account: str = Query("default")):
+    """将已保存推荐按固定小仓位提交到暗黑模拟盘；绝不连接真实券商。"""
+    path = _recommendations_path(request.app.state.repo.store.data_dir)
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    except (OSError, ValueError):
+        rows = []
+    record = next((row for row in rows if isinstance(row, dict) and row.get("id") == recommendation_id), None)
+    if record is None:
+        raise HTTPException(status_code=404, detail="推荐记录不存在")
+    from app.strategy import paper
+    try:
+        account_id = paper.validate_account_id(account)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    data_dir = request.app.state.repo.store.data_dir
+    acc = paper.get_account(data_dir, account_id)
+    if acc is None:
+        raise HTTPException(status_code=400, detail="模拟账户不存在，请先创建暗黑模拟账户")
+    amount = float(acc.get("initial_cash", 100000.0)) * 0.04
+    created = []
+    skipped = []
+    for item in record.get("items", [])[:5]:
+        symbol = str(item.get("symbol") or "").strip()
+        price = float(item.get("price") or 0)
+        if not symbol or price <= 0:
+            skipped.append({"symbol": symbol, "reason": "推荐记录缺少有效价格"})
+            continue
+        qty = int(amount / price / 100) * 100
+        if qty < 100:
+            skipped.append({"symbol": symbol, "reason": "4%仓位不足一手"})
+            continue
+        order, err = paper.create_order(
+            data_dir, symbol, "buy", account_id=account_id, qty=qty,
+            order_type="next_open", ref_price=price,
+            source=f"recommendation:{recommendation_id}",
+        )
+        if err:
+            skipped.append({"symbol": symbol, "reason": err})
+        else:
+            created.append(order)
+    return {"ok": True, "account": account_id, "recommendation_id": recommendation_id, "orders": created, "skipped": skipped}
+
+
 @router.get("/research-pool")
 def get_research_pool(request: Request):
     return research_pool.load(request.app.state.repo.store.data_dir)
