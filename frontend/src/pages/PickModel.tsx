@@ -327,7 +327,7 @@ export function PickModel() {
     const signature = shortlist.map(item => item.symbol).join(',')
     const id = `${date}:${stage}:${signature}`
     if (recommendationHistory.some(record => record.id === id)) return
-    const record: RecommendationRecord = { id, date, stage, createdAt: new Date().toISOString(), marketEmotion: market.data?.emotion ? `${market.data.emotion.label} ${market.data.emotion.score}` : undefined, items: shortlist.map(item => ({ symbol: item.symbol, name: item.name, score: item.score })) }
+    const record: RecommendationRecord = { id, date, stage, createdAt: new Date().toISOString(), marketEmotion: market.data?.emotion ? `${market.data.emotion.label} ${market.data.emotion.score}` : undefined, items: shortlist.map(item => ({ symbol: item.symbol, name: item.name, score: item.score, price: quoteByCode.get(codeOf(item.symbol))?.price })) }
     const next = [record, ...recommendationHistory].slice(0, 100)
     setRecommendationHistory(next)
     try { localStorage.setItem('myagent-recommendation-history', JSON.stringify(next)) } catch { /* storage unavailable */ }
