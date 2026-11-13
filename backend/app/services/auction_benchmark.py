@@ -26,7 +26,7 @@ import contextlib
 import json
 import logging
 import re
-from datetime import date as date_cls
+from datetime import date as date_cls, datetime
 from pathlib import Path
 
 import polars as pl
@@ -88,6 +88,47 @@ def _provider():
 
 def _cache_path(data_dir: Path, d: date_cls) -> Path:
     return data_dir / "auction_benchmark" / f"date={d.isoformat()}.json"
+
+
+def _snapshot_path(data_dir: Path, d: date_cls) -> Path:
+    return data_dir / "auction_benchmark" / "snapshots" / f"date={d.isoformat()}.jsonl"
+
+
+def _append_snapshot(data_dir: Path, payload: dict) -> None:
+    """Append one intraday auction snapshot, suppressing unchanged adjacent samples."""
+    if payload.get("state") != "ok":
+        return
+    try:
+        d = date_cls.fromisoformat(str(payload.get("trade_date")))
+    except (TypeError, ValueError):
+        return
+    if d != cn_today():
+        return
+    items = payload.get("items") or []
+    fingerprint = [(row.get("thscode"), row.get("auction_pct")) for row in items if isinstance(row, dict)]
+    path = _snapshot_path(data_dir, d)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            last = path.read_text(encoding="utf-8").splitlines()[-1:]
+            if last:
+                previous = json.loads(last[0])
+                if previous.get("fingerprint") == fingerprint:
+                    return
+        record = {"captured_at": datetime.now().astimezone().isoformat(), "items": items, "fingerprint": fingerprint}
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except (OSError, ValueError, TypeError) as exc:
+        logger.warning("竞价快照写入失败: %s", exc)
+
+
+def load_snapshots(data_dir: Path, d: date_cls | None = None) -> list[dict]:
+    """Read persisted intraday auction snapshots for a date (latest 300 samples)."""
+    path = _snapshot_path(data_dir, d or cn_today())
+    try:
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()][-300:]
+    except (OSError, ValueError):
+        return []
 
 
 def _load_cache(path: Path) -> dict | None:
@@ -215,7 +256,9 @@ def get_auction_benchmark(data_dir: Path, target: date_cls | None = None) -> dic
         if actual is not None and actual < today:
             with contextlib.suppress(OSError):
                 _store_cache(_cache_path(data_dir, actual), base)
-        return _respond(data_dir, actual, base, "ok")
+        payload = _respond(data_dir, actual, base, "ok")
+        _append_snapshot(data_dir, payload)
+        return payload
     except FuyaoError as e:
         # 显式日期失败 (非交易日/边界日) → 回退上一交易日一次
         if trade_date is not None:

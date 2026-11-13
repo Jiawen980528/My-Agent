@@ -74,6 +74,18 @@ def get_auction_benchmark(
     )
 
 
+@router.get("/auction-snapshots")
+def get_auction_snapshots(request: Request, date: str | None = Query(default=None)):
+    """集合竞价阶段按变化落盘的快照历史，供 9:25 结论与复盘使用。"""
+    target = None
+    if date:
+        try:
+            target = date_cls.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(400, f"date 格式应为 YYYY-MM-DD, 收到: {date}")
+    return {"items": auction_benchmark.load_snapshots(request.app.state.repo.store.data_dir, target)}
+
+
 @router.post("/analyze")
 async def analyze_market(request: Request, req: AnalyzeRequest):
     """AI 大盘复盘 — NDJSON 流式返回。

@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 type Item = { symbol: string; name: string; score?: number; price?: number }
 type Row = { id: string; date: string; stage: string; createdAt: string; marketEmotion?: string; items: Item[] }
 type Quote = { symbol: string; price?: number }
-type Auction = { state?: string; trade_date?: string; raw_items?: Array<{ thscode?: string; ticker?: string; name?: string; auction_pct?: number; tags?: string[] }> }
+type Auction = { state?: string; trade_date?: string; items?: Array<{ thscode?: string; ticker?: string; name?: string; auction_pct?: number; tags?: string[] }>; raw_items?: Array<{ thscode?: string; ticker?: string; name?: string; auction_pct?: number; tags?: string[] }> }
 
 export function RecommendationPage() {
   const [rows, setRows] = useState<Row[]>([])
@@ -15,7 +15,7 @@ export function RecommendationPage() {
   const [paper, setPaper] = useState<{ total?: number; total_pnl?: number; rounds?: number; pending?: number }>({})
   const load = () => {
     fetch('/quant/api/myagent/recommendations', { credentials: 'include' }).then(async r => { if (!r.ok) throw new Error(); const b = await r.json(); setRows(Array.isArray(b.items) ? b.items : []) }).catch(() => { try { setRows(JSON.parse(localStorage.getItem('myagent-recommendation-history') || '[]')) } catch { setRows([]) } })
-    fetch('/quant/api/market-recap/auction-benchmark', { credentials: 'include' }).then(async r => r.ok ? r.json() : null).then(setAuction).catch(() => setAuction(null))
+    fetch('/quant/api/market-recap/auction-benchmark', { credentials: 'include' }).then(async r => r.ok ? r.json() : null).then(body => setAuction(body ? { ...body, raw_items: body.raw_items || body.items } : null)).catch(() => setAuction(null))
     Promise.all([fetch('/quant/api/paper/overview?account=default', { credentials: 'include' }).then(r => r.ok ? r.json() : null), fetch('/quant/api/paper/stats?account=default', { credentials: 'include' }).then(r => r.ok ? r.json() : null), fetch('/quant/api/paper/orders?status=pending&account=default', { credentials: 'include' }).then(r => r.ok ? r.json() : null)]).then(([o, s, p]) => setPaper({ total: o?.total, total_pnl: o?.total_pnl, rounds: s?.rounds, pending: p?.orders?.length ?? 0 })).catch(() => setPaper({}))
   }
   useEffect(() => { load() }, [])
@@ -24,7 +24,7 @@ export function RecommendationPage() {
       const now = new Date()
       const mins = now.getHours() * 60 + now.getMinutes()
       if (mins < 9 * 60 + 15 || mins > 9 * 60 + 25) return
-      fetch('/quant/api/market-recap/auction-benchmark', { credentials: 'include' }).then(async r => r.ok ? r.json() : null).then(body => { if (body) setAuction(body) }).catch(() => undefined)
+      fetch('/quant/api/market-recap/auction-benchmark', { credentials: 'include' }).then(async r => r.ok ? r.json() : null).then(body => { if (body) setAuction({ ...body, raw_items: body.raw_items || body.items }) }).catch(() => undefined)
     }
     refreshAuction()
     const timer = window.setInterval(refreshAuction, 5_000)
