@@ -331,6 +331,9 @@ export function PickModel() {
     const next = [record, ...recommendationHistory].slice(0, 100)
     setRecommendationHistory(next)
     try { localStorage.setItem('myagent-recommendation-history', JSON.stringify(next)) } catch { /* storage unavailable */ }
+    void fetch('/quant/api/myagent/recommendations', {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(record),
+    }).catch(() => { /* localStorage remains a client-side fallback */ })
   }, [shortlist, loading, market.data?.as_of, market.data?.emotion, recommendationStage, recommendationHistory])
   const focusedMinute = useQuery({
     queryKey: QK.pickModelMinute(focusCandidate ? qualifiedSymbol(focusCandidate.symbol) : ''),

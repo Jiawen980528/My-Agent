@@ -9,7 +9,15 @@ type RecordRow = { id: string; date: string; stage: string; createdAt: string; m
 export function RecommendationPage() {
   const [rows, setRows] = useState<RecordRow[]>([])
   const [stage, setStage] = useState('全部')
-  const load = () => { try { setRows(JSON.parse(localStorage.getItem('myagent-recommendation-history') || '[]')) } catch { setRows([]) } }
+  const load = () => {
+    fetch('/quant/api/myagent/recommendations', { credentials: 'include' }).then(async response => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const body = await response.json() as { items?: RecordRow[] }
+      setRows(Array.isArray(body.items) ? body.items : [])
+    }).catch(() => {
+      try { setRows(JSON.parse(localStorage.getItem('myagent-recommendation-history') || '[]')) } catch { setRows([]) }
+    })
+  }
   useEffect(() => { load() }, [])
   const today = new Date().toISOString().slice(0, 10)
   const visible = rows.filter(row => row.date === today && (stage === '全部' || row.stage === stage))

@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import sqlite3
+import json
 import time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -23,6 +24,49 @@ from app.services.volume_forecast import forecast_amount
 from app.tickflow.capabilities import Cap
 
 router = APIRouter(prefix="/api/myagent", tags=["myagent-bridge"])
+
+
+def _recommendations_path(data_dir):
+    return data_dir / "user_data" / "myagent_recommendations.json"
+
+
+@router.get("/recommendations")
+def get_recommendations(request: Request, date: str | None = Query(default=None)):
+    """读取 MyAgent 推荐快照；服务端持久化，避免只存在浏览器 localStorage。"""
+    path = _recommendations_path(request.app.state.repo.store.data_dir)
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    except (OSError, ValueError):
+        rows = []
+    if not isinstance(rows, list):
+        rows = []
+    rows = [row for row in rows if isinstance(row, dict)]
+    if date:
+        rows = [row for row in rows if row.get("date") == date]
+    return {"items": rows[:500], "source": "server"}
+
+
+@router.post("/recommendations")
+async def save_recommendation(request: Request):
+    """保存一条推荐快照；按 id 幂等，最多保留 500 条。"""
+    try:
+        record = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="推荐快照必须是 JSON") from exc
+    if not isinstance(record, dict) or not record.get("id") or not isinstance(record.get("items"), list):
+        raise HTTPException(status_code=422, detail="推荐快照缺少 id 或 items")
+    record = dict(record)
+    record["items"] = [item for item in record["items"][:20] if isinstance(item, dict) and item.get("symbol")]
+    path = _recommendations_path(request.app.state.repo.store.data_dir)
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    except (OSError, ValueError):
+        rows = []
+    rows = [row for row in rows if isinstance(row, dict) and row.get("id") != record["id"]]
+    rows.insert(0, record)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(rows[:500], ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"ok": True, "record": record, "source": "server"}
 
 
 @router.get("/research-pool")
