@@ -153,7 +153,44 @@ def _symbol_key(value: object) -> str:
     return str(value or "").strip().upper().split(".", 1)[0]
 
 
-def _score_intraday_candidate(row: dict, pool_items: list[dict], emotion: dict | None) -> tuple[int, dict, bool]:
+def _public_market_context() -> dict:
+    """Small synchronous public-data context for the scheduled scorer.
+
+    Failures are data gaps, never implicit bullish/bearish values.
+    """
+    context = {"market_flow_score": 0, "external_score": 0, "missing": []}
+    try:
+        with httpx.Client(timeout=5.0, follow_redirects=True) as client:
+            flows = []
+            for secid in ("1.000001", "0.399001"):
+                response = client.get(_FLOW_URL, params={"lmt": "0", "klt": "1", "fields1": "f1,f2,f3,f7",
+                    "fields2": "f51,f52,f53,f54,f55,f56,f57,f58", "ut": _FLOW_UT, "secid": secid})
+                response.raise_for_status()
+                flows.extend(_parse_flow((response.json().get("data") or {}).get("klines") or []))
+            merged = _sum_market_flows([row for row in flows if row.get("time")], [])
+            main = float(merged[-1].get("main") or 0) if merged else 0.0
+            context["market_flow_main"] = main
+            context["market_flow_score"] = 8 if main > 0 else -6 if main < 0 else 0
+            external = []
+            for name, symbol in (("A50", "XIN9.SG"), ("标普500", "^GSPC"), ("纳斯达克", "^IXIC")):
+                response = client.get("https://query1.finance.yahoo.com/v8/finance/chart/" + symbol,
+                                      params={"range": "1d", "interval": "5m"}, headers={"User-Agent": "MyAgent/1.0"})
+                response.raise_for_status()
+                result = response.json().get("chart", {}).get("result") or []
+                change = ((result[0].get("meta") or {}).get("regularMarketChangePercent") if result else None)
+                if change is not None:
+                    external.append(float(change))
+            if external:
+                context["external_avg_pct"] = round(sum(external) / len(external), 3)
+                context["external_score"] = 5 if sum(external) >= 0 else -5
+            else:
+                context["missing"].append("外围/A50")
+    except (httpx.HTTPError, ValueError, TypeError, KeyError, IndexError):
+        context["missing"].extend(["全市场资金流", "外围/A50"])
+    return context
+
+
+def _score_intraday_candidate(row: dict, pool_items: list[dict], emotion: dict | None, market_context: dict) -> tuple[int, dict, bool]:
     """Deterministic admission score.  Every point maps to an observable field."""
     signals = set(str(value) for value in row.get("signals") or [])
     technical = 15
@@ -169,12 +206,15 @@ def _score_intraday_candidate(row: dict, pool_items: list[dict], emotion: dict |
     pool = 15 if matched else 0
     emotion_score = int((emotion or {}).get("score") or 50)
     sentiment = max(0, min(15, round((emotion_score - 35) / 4)))
-    score = max(0, min(100, technical + volume + pool + sentiment + 25))
+    market_flow = int(market_context.get("market_flow_score") or 0)
+    external = int(market_context.get("external_score") or 0)
+    score = max(0, min(100, technical + volume + pool + sentiment + market_flow + external + 25))
     blocked = bool({"broken", "limit_down"} & signals)
     detail = {
         "technical": technical, "volume": volume, "sentiment": sentiment, "research_pool": pool,
+        "market_flow": market_flow, "external": external,
         "market_emotion": emotion_score, "pool_match": bool(matched),
-        "missing": ["新闻催化", "个股资金流", "外围/A50"] ,
+        "missing": ["新闻催化", "个股资金流", *market_context.get("missing", [])] ,
     }
     return score, detail, score >= 65 and not blocked
 
@@ -332,6 +372,7 @@ def capture_recommendation_snapshot(app_state) -> dict:
     if not rows:
         return {"status": "skipped", "reason": "no_verified_intraday_signal"}
     pool_items = research_pool.load(data_dir).get("items", [])
+    market_context = _public_market_context()
     try:
         from app.services.market_overview_builder import build_market_overview
         overview = build_market_overview(app_state.repo, getattr(app_state, "quote_service", None),
@@ -344,7 +385,7 @@ def capture_recommendation_snapshot(app_state) -> dict:
     for row in rows:
         if not row.get("symbol"):
             continue
-        score, detail, eligible = _score_intraday_candidate(row, pool_items, emotion)
+        score, detail, eligible = _score_intraday_candidate(row, pool_items, emotion, market_context)
         scored.append({
             "symbol": str(row.get("symbol")), "name": str(row.get("name") or row.get("symbol")),
             "price": row.get("close"), "score": score, "signals": row.get("signals") or [],
@@ -355,7 +396,7 @@ def capture_recommendation_snapshot(app_state) -> dict:
     record = {"id": f"auto-intraday-{day}-{bucket}", "date": day, "stage": "盘中推荐",
               "createdAt": now.isoformat(timespec="seconds"), "source": "后端定时·盘中异动",
               "marketEmotion": f"{(emotion or {}).get('label', '缺失')} {(emotion or {}).get('score', '—')}",
-              "model_status": "准入评分：技术/量能/情绪/资料池；新闻、资金流、外围仍缺失。仅分数≥80的候选允许自动模拟一层",
+              "model_status": "准入评分：技术/量能/情绪/资料池/全市场资金流/外围；新闻催化和个股资金流若缺失会标注。仅分数≥80的候选允许自动模拟一层",
               "items": items}
     # 模拟盘独立运行：只对高阈值候选下单；失败/跳过同样写入记录，方便复盘胜率。
     record["paper_auto"] = _auto_execute_paper_candidate(data_dir, record)
