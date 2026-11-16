@@ -195,6 +195,10 @@ async def execute_recommendation_paper(request: Request, recommendation_id: str,
     skipped = []
     for item in record.get("items", [])[:5]:
         symbol = str(item.get("symbol") or "").strip()
+        # 后端定时盘中快照带有准入标识：未过门槛的异动只保留观察记录，不能混入模拟委托。
+        if "eligible_for_paper" in item and not item.get("eligible_for_paper"):
+            skipped.append({"symbol": symbol, "reason": "未达到模拟盘准入门槛，仅保留观察"})
+            continue
         price = float(item.get("price") or 0)
         if not symbol or price <= 0:
             skipped.append({"symbol": symbol, "reason": "推荐记录缺少有效价格"})
