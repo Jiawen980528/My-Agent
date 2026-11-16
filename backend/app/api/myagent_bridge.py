@@ -30,17 +30,84 @@ def _recommendations_path(data_dir):
     return data_dir / "user_data" / "myagent_recommendations.json"
 
 
-@router.get("/recommendations")
-def get_recommendations(request: Request, date: str | None = Query(default=None)):
-    """读取 MyAgent 推荐快照；服务端持久化，避免只存在浏览器 localStorage。"""
-    path = _recommendations_path(request.app.state.repo.store.data_dir)
+def _load_recommendations(data_dir) -> list[dict]:
+    path = _recommendations_path(data_dir)
     try:
         rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
     except (OSError, ValueError):
         rows = []
-    if not isinstance(rows, list):
-        rows = []
-    rows = [row for row in rows if isinstance(row, dict)]
+    return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+
+
+def _save_recommendation_record(data_dir, record: dict) -> dict:
+    """Save one immutable-ish recommendation snapshot, replacing only the same id."""
+    record = dict(record)
+    record["items"] = [item for item in record.get("items", [])[:20]
+                       if isinstance(item, dict) and item.get("symbol")]
+    rows = [row for row in _load_recommendations(data_dir) if row.get("id") != record.get("id")]
+    rows.insert(0, record)
+    path = _recommendations_path(data_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(rows[:500], ensure_ascii=False, indent=2), encoding="utf-8")
+    return record
+
+
+def capture_recommendation_snapshot(app_state) -> dict:
+    """Persist auditable auction/intraday candidates without a browser being open.
+
+    This deliberately records only verifiable source signals.  It does *not* claim
+    that an AI or a complete multi-factor model has approved a purchase.
+    """
+    now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    minute = now.hour * 60 + now.minute
+    if now.weekday() >= 5:
+        return {"status": "skipped", "reason": "non_trading_weekday"}
+    data_dir = app_state.repo.store.data_dir
+    day = now.date().isoformat()
+    bucket = now.strftime("%H%M")
+    # 集合竞价：只使用独立竞价来源，绝不用拾贝结果填充。
+    if 9 * 60 + 15 <= minute <= 9 * 60 + 25:
+        from app.services import auction_benchmark
+        payload = auction_benchmark.get_auction_benchmark(data_dir, now.date())
+        if payload.get("state") != "ok" or not payload.get("items"):
+            return {"status": "skipped", "reason": payload.get("state", "auction_unavailable")}
+        items = [{
+            "symbol": str(item.get("thscode") or item.get("ticker") or ""),
+            "name": str(item.get("name") or item.get("ticker") or ""),
+            "price": item.get("auction_price"),
+            "score": item.get("auction_pct"),
+            "signals": ["集合竞价", *(item.get("tags") or [])],
+        } for item in payload["items"][:5] if item.get("thscode") or item.get("ticker")]
+        record = {"id": f"auto-auction-{day}-{bucket}", "date": day, "stage": "集合竞价",
+                  "createdAt": now.isoformat(timespec="seconds"), "source": "后端定时·竞价风向标",
+                  "model_status": "仅竞价信号，未做完整多维复核", "items": items}
+        _save_recommendation_record(data_dir, record)
+        return {"status": "saved", "stage": record["stage"], "count": len(items)}
+    # 盘中：读取已有 enriched 异动列，五分钟一档，避免写入每分钟重复的同一批信号。
+    in_session = (9 * 60 + 30 <= minute <= 11 * 60 + 30) or (13 * 60 <= minute <= 15 * 60)
+    if not in_session or now.minute % 5:
+        return {"status": "skipped", "reason": "outside_capture_window"}
+    from app.services.abnormal_moves import build_intraday
+    payload = build_intraday(app_state.repo, limit=20)
+    rows = payload.get("rows") or []
+    if not rows:
+        return {"status": "skipped", "reason": "no_verified_intraday_signal"}
+    items = [{
+        "symbol": str(row.get("symbol") or ""), "name": str(row.get("name") or row.get("symbol") or ""),
+        "price": row.get("close"), "score": row.get("vol_ratio_5d"),
+        "signals": row.get("signals") or [], "change_pct": row.get("change_pct"),
+    } for row in rows[:5] if row.get("symbol")]
+    record = {"id": f"auto-intraday-{day}-{bucket}", "date": day, "stage": "盘中推荐",
+              "createdAt": now.isoformat(timespec="seconds"), "source": "后端定时·盘中异动",
+              "model_status": "仅量价异动，未做完整多维复核", "items": items}
+    _save_recommendation_record(data_dir, record)
+    return {"status": "saved", "stage": record["stage"], "count": len(items)}
+
+
+@router.get("/recommendations")
+def get_recommendations(request: Request, date: str | None = Query(default=None)):
+    """读取 MyAgent 推荐快照；服务端持久化，避免只存在浏览器 localStorage。"""
+    rows = _load_recommendations(request.app.state.repo.store.data_dir)
     if date:
         rows = [row for row in rows if row.get("date") == date]
     return {"items": rows[:500], "source": "server"}
@@ -55,28 +122,14 @@ async def save_recommendation(request: Request):
         raise HTTPException(status_code=400, detail="推荐快照必须是 JSON") from exc
     if not isinstance(record, dict) or not record.get("id") or not isinstance(record.get("items"), list):
         raise HTTPException(status_code=422, detail="推荐快照缺少 id 或 items")
-    record = dict(record)
-    record["items"] = [item for item in record["items"][:20] if isinstance(item, dict) and item.get("symbol")]
-    path = _recommendations_path(request.app.state.repo.store.data_dir)
-    try:
-        rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-    except (OSError, ValueError):
-        rows = []
-    rows = [row for row in rows if isinstance(row, dict) and row.get("id") != record["id"]]
-    rows.insert(0, record)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(rows[:500], ensure_ascii=False, indent=2), encoding="utf-8")
+    record = _save_recommendation_record(request.app.state.repo.store.data_dir, record)
     return {"ok": True, "record": record, "source": "server"}
 
 
 @router.post("/recommendations/{recommendation_id}/paper-execute")
 async def execute_recommendation_paper(request: Request, recommendation_id: str, account: str = Query("default")):
     """将已保存推荐按固定小仓位提交到暗黑模拟盘；绝不连接真实券商。"""
-    path = _recommendations_path(request.app.state.repo.store.data_dir)
-    try:
-        rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-    except (OSError, ValueError):
-        rows = []
+    rows = _load_recommendations(request.app.state.repo.store.data_dir)
     record = next((row for row in rows if isinstance(row, dict) and row.get("id") == recommendation_id), None)
     if record is None:
         raise HTTPException(status_code=404, detail="推荐记录不存在")

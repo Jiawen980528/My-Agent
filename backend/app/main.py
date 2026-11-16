@@ -260,6 +260,11 @@ async def _application_lifespan(app: FastAPI):
         scheduler.add_job(myagent_bridge.archive_after_close, "cron", day_of_week="mon-fri",
                           hour=15, minute=15, timezone="Asia/Shanghai", id="myagent_fund_flow_archive",
                           replace_existing=True, max_instances=1)
+        # 今日推荐由后端定时落快照，不依赖浏览器页面保持打开。
+        # 函数自身会严格限制集合竞价与盘中窗口，并标注只是可核验信号而非 AI 买入结论。
+        scheduler.add_job(lambda: myagent_bridge.capture_recommendation_snapshot(app.state), "interval",
+                          minutes=1, timezone="Asia/Shanghai", id="myagent_recommendation_capture",
+                          replace_existing=True, max_instances=1, misfire_grace_time=45)
         app.state.scheduler = scheduler
     except Exception as e:  # noqa: BLE001
         logger.warning("scheduler not started: %s", e)
