@@ -270,6 +270,11 @@ async def _application_lifespan(app: FastAPI):
                           day_of_week="mon-fri", hour=15, minute=50, timezone="Asia/Shanghai",
                           id="myagent_recommendation_review", replace_existing=True,
                           max_instances=1, misfire_grace_time=3600)
+        # 暗黑模拟盘风险出口：仅系统自动开出的模拟仓，盘后弱市且亏损阈值触发时排队次日卖出。
+        scheduler.add_job(lambda: myagent_bridge.evaluate_auto_paper_risk(app.state), "cron",
+                          day_of_week="mon-fri", hour=15, minute=45, timezone="Asia/Shanghai",
+                          id="myagent_paper_risk_exit", replace_existing=True,
+                          max_instances=1, misfire_grace_time=3600)
         app.state.scheduler = scheduler
     except Exception as e:  # noqa: BLE001
         logger.warning("scheduler not started: %s", e)

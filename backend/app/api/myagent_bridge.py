@@ -193,6 +193,71 @@ def _auto_execute_paper_candidate(data_dir, record: dict) -> dict:
     return {"status": "skipped", "reason": "没有达到自动模拟阈值的候选"}
 
 
+def evaluate_auto_paper_risk(app_state) -> dict:
+    """Risk-only exit pass for positions opened by MyAgent's paper recommender.
+
+    A sell needs both a material close-to-cost loss and weak market emotion.  This
+    prevents a single red day from becoming an automatic exit, and never touches
+    manual paper orders or the user's real holdings.
+    """
+    from app.strategy import paper
+    now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    if now.weekday() >= 5:
+        return {"status": "skipped", "reason": "non_trading_weekday"}
+    data_dir, account_id, day = app_state.repo.store.data_dir, "default", now.date().isoformat()
+    account = paper.get_account(data_dir, account_id)
+    if account is None:
+        return {"status": "skipped", "reason": "模拟账户不存在"}
+    try:
+        from app.services.market_overview_builder import build_market_overview
+        emotion = int((build_market_overview(app_state.repo, getattr(app_state, "quote_service", None),
+                                              getattr(app_state, "depth_service", None)).get("emotion") or {}).get("score") or 50)
+    except Exception as exc:
+        return {"status": "skipped", "reason": f"市场情绪不可用：{type(exc).__name__}"}
+    if emotion >= 45:
+        return {"status": "skipped", "reason": f"情绪 {emotion} 未触发弱市风控"}
+    auto_symbols = {str(order.get("symbol")) for order in paper.load_orders(data_dir, account_id)
+                    if str(order.get("source") or "").startswith("auto-recommendation:") and order.get("side") == "buy"}
+    created, skipped = [], []
+    for symbol in sorted(auto_symbols):
+        pos = paper.load_positions(data_dir, account_id).get(symbol)
+        if not pos or int(pos.get("qty") or 0) <= 0:
+            continue
+        marker = f"auto-risk-exit:{day}:{symbol}"
+        if any(str(order.get("source") or "").startswith(marker) for order in paper.load_orders(data_dir, account_id)):
+            continue
+        code = _symbol_key(symbol)
+        asset_type = "etf" if code.startswith(("51", "56", "58", "15")) else "stock"
+        bar = paper.read_daily_bar(data_dir, symbol, asset_type, day)
+        close, cost = (float(bar.get("close") or 0) if bar else 0.0), float(pos.get("avg_cost") or 0)
+        if close <= 0 or cost <= 0:
+            skipped.append({"symbol": symbol, "reason": "缺少当日真实收盘价"})
+            continue
+        drawdown = (close / cost - 1) * 100
+        if drawdown > -8:
+            continue
+        capacity = paper.sell_capacity(data_dir, symbol, account_id)
+        if capacity is None or capacity[0] <= 0:
+            skipped.append({"symbol": symbol, "reason": "T+1 无可卖数量"})
+            continue
+        order, error = paper.create_order(data_dir, symbol, "sell", account_id=account_id,
+                                          qty=int(capacity[0]), order_type="next_open", ref_price=close,
+                                          source=marker)
+        if error:
+            skipped.append({"symbol": symbol, "reason": error})
+            continue
+        created.append({"symbol": symbol, "order_id": order.get("id"), "drawdown_pct": round(drawdown, 2)})
+        try:
+            from app.services import alert_store
+            alert_store.append_many(data_dir, [{"ts": int(time.time() * 1000), "source": "myagent",
+                "type": "paper_risk_exit", "rule_id": None, "rule_name": "模拟盘弱市止损", "strategy_id": None,
+                "symbol": symbol, "name": "", "price": close,
+                "message": f"暗黑模拟盘弱市风控：{symbol} 收盘较成本 {drawdown:.2f}%，情绪 {emotion}，已提交下一交易日卖出委托（不影响真实持仓）"}])
+        except Exception as exc:
+            logger.warning("paper risk alert write failed: %s", exc)
+    return {"status": "ok", "market_emotion": emotion, "created": created, "skipped": skipped}
+
+
 def capture_recommendation_snapshot(app_state) -> dict:
     """Persist auditable auction/intraday candidates without a browser being open.
 
