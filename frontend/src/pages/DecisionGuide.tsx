@@ -4,7 +4,7 @@ import { api } from '@/lib/api'
 import { usePreferences } from '@/lib/useSharedQueries'
 
 type Bar = { datetime: string; close: number; high?: number; low?: number; volume?: number; source?: string }
-type Holding = { symbol: string; name: string; price?: number | null; change_pct?: number | null; market_timestamp?: string | number | null; board?: { code?: string | null; name?: string | null } | null }
+type Holding = { symbol: string; name: string; quantity?: number | null; cost?: number | null; price?: number | null; change_pct?: number | null; market_timestamp?: string | number | null; board?: { code?: string | null; name?: string | null } | null }
 type AccountContext = { source?: string | null; verified?: boolean; available_cash?: number | null; day_risk_used?: number | null }
 type Freshness = { market_time?: string | null; received_at?: string | null; age_seconds?: number | null; stale?: boolean }
 type VolumeForecast = { status: 'ok' | 'unavailable'; forecast_amount?: number; forecast_low?: number; forecast_high?: number; current_cumulative_amount?: number; sample_days?: number; as_of?: string; method?: string; reason?: string; source?: string; scope?: string; covered_symbol_count?: number; symbol_count?: number; historical_days_available?: number; data_is_real?: boolean }
@@ -90,7 +90,17 @@ export function DecisionGuide() {
   const [selectedSymbol, setSelectedSymbol] = useState('')
   const preferences = usePreferences()
   const snapshot = useQuery({ queryKey: ['decision-guide-snapshot'], queryFn: () => json<{ items: Holding[]; source?: string; account?: AccountContext; account_source?: string | null; account_verified?: boolean; available_cash?: number | null; day_risk_used?: number | null }>(`${API}/portfolio/snapshot`), refetchInterval: tradingNow() ? 30_000 : false })
-  const items = snapshot.data?.items || []
+  // 用户维护的 MyAgent 底账优先：快照只用于补行情字段，不能反向覆盖数量和成本。
+  const ledger = useQuery({ queryKey: ['decision-guide-ledger'], queryFn: () => json<{ items: Holding[]; source?: string }>(`${API}/holdings`), refetchInterval: tradingNow() ? 30_000 : false })
+  const snapshotItems = snapshot.data?.items || []
+  const items = useMemo(() => {
+    const manual = ledger.data?.items || []
+    if (!manual.length) return snapshotItems
+    return manual.map(item => {
+      const quote = snapshotItems.find(row => row.symbol.slice(0, 6) === item.symbol.slice(0, 6))
+      return { ...quote, ...item, price: item.price ?? quote?.price, change_pct: item.change_pct ?? quote?.change_pct, market_timestamp: item.market_timestamp ?? quote?.market_timestamp, board: item.board ?? quote?.board }
+    })
+  }, [ledger.data?.items, snapshotItems])
   const minute = useQuery({ queryKey: ['decision-guide-minute', day], queryFn: () => json<{ data: Record<string, Bar[]>; freshness?: Record<string, Freshness>; source?: string; complete?: boolean; missing_symbols?: string[] }>(`${API}/portfolio/minute-batch?trade_date=${day}`), enabled: items.length > 0, refetchInterval: tradingNow() ? 60_000 : false })
   const usableMinuteData = minute.data?.complete === false ? {} : (minute.data?.data || {})
   const rows = useMemo(() => items.map(item => {
@@ -241,7 +251,7 @@ export function DecisionGuide() {
     staleTime: 30_000,
   })
   return <div className="h-full overflow-auto bg-base p-3 text-foreground">
-    <header className="mb-3 rounded-card border border-border bg-surface p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><h1 className="text-base font-semibold">每日行情推演 · 多维条件观察</h1><p className="mt-1 text-[11px] text-muted">技术面、资金面、情绪、新闻与外围数据共同参与；缺失数据会明确标注，不伪造。</p></div><span className="rounded border border-border px-2 py-1 text-xs text-muted">交易日 {day} · {minute.data?.source || snapshot.data?.source || '数据读取中'}</span></div><div className="mt-2 flex flex-wrap gap-1 text-[10px] text-muted">{(externalMarket.data?.items || []).slice(0, 7).map(item => <span key={item.symbol} className="rounded bg-elevated px-2 py-1">{item.name} {item.change_pct == null ? '—' : `${Number(item.change_pct).toFixed(2)}%`} · 延迟 {item.delay_seconds == null ? '—' : `${item.delay_seconds}s`}</span>)}{(externalMarket.data?.missing || []).length > 0 && <span className="rounded bg-warning/10 px-2 py-1 text-warning">缺少：{externalMarket.data!.missing!.join('、')}</span>}</div></header>
+    <header className="mb-3 rounded-card border border-border bg-surface p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><h1 className="text-base font-semibold">每日行情推演 · 多维条件观察</h1><p className="mt-1 text-[11px] text-muted">技术面、资金面、情绪、新闻与外围数据共同参与；缺失数据会明确标注，不伪造。</p></div><span className="rounded border border-border px-2 py-1 text-xs text-muted">交易日 {day} · {minute.data?.source || (ledger.data?.items?.length ? 'MyAgent持仓底账 + 行情快照' : snapshot.data?.source || '数据读取中')}</span></div><div className="mt-2 flex flex-wrap gap-1 text-[10px] text-muted">{(externalMarket.data?.items || []).slice(0, 7).map(item => <span key={item.symbol} className="rounded bg-elevated px-2 py-1">{item.name} {item.change_pct == null ? '—' : `${Number(item.change_pct).toFixed(2)}%`} · 延迟 {item.delay_seconds == null ? '—' : `${item.delay_seconds}s`}</span>)}{(externalMarket.data?.missing || []).length > 0 && <span className="rounded bg-warning/10 px-2 py-1 text-warning">缺少：{externalMarket.data!.missing!.join('、')}</span>}</div></header>
     {(snapshot.isError || minute.isError) && <div className="mb-3 rounded border border-danger/40 bg-danger/10 p-2 text-xs text-danger">行情读取失败：{String((snapshot.error || minute.error) instanceof Error ? (snapshot.error || minute.error)?.message : '请检查登录和数据源')}</div>}
     {minute.data?.complete === false && <div className="mb-3 rounded border border-warning/40 bg-warning/10 p-2 text-xs text-warning">分钟行情不完整：缺少 {minute.data.missing_symbols?.length || 0} 个标的，当前页面已停止使用异常数据。请检查 TickFlow 权限、连接状态或交易日。</div>}
     {selected && decision.data && <div className="mb-3 rounded-card border border-warning/40 bg-warning/5 p-3 text-xs"><div className="flex flex-wrap items-center justify-between gap-2"><b>决策辅助 · {selected.item.name}</b><span className="text-warning">{decision.data.rating} · {decision.data.action}</span></div><div className="mt-2 grid gap-2 sm:grid-cols-4"><span>触发价<br /><b>{decision.data.trigger_price == null ? '—' : px(decision.data.trigger_price)}</b></span><span>失效价<br /><b>{decision.data.invalidation_price == null ? '—' : px(decision.data.invalidation_price)}</b></span><span>建议数量<br /><b>{decision.data.suggested_qty.toLocaleString()}</b></span><span>最大风险<br /><b>¥{decision.data.max_risk_yuan.toFixed(2)}</b></span></div><p className="mt-2 text-muted">账户：{decision.data.account_verified ? `已核验（${decision.data.account_source || 'broker'}）` : '未核验'} · 有效至 {decision.data.valid_until.slice(11, 16)}{decision.data.evidence?.context_missing?.length ? ` · 缺少上下文：${decision.data.evidence.context_missing.join('、')}` : ''}</p><p className="mt-1">{decision.data.reasons.join('；')}</p></div>}
