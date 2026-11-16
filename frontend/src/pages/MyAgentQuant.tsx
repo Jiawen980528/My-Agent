@@ -7,19 +7,18 @@ type Holding = { symbol: string; name: string; sector: string; quantity: number;
 type Sector = { sector: string; theme: string; anchors: string[]; watch: string[] }
 type Tab = 'history' | 'holdings' | 'sectors' | 'guide'
 const SCREENSHOT_HOLDINGS = [
-  { symbol: '159558.SZ', name: '半导体设备ETF易方达', quantity: 43700, cost: 1.144, sector: '半导体设备' },
-  { symbol: '588000.SH', name: '科创50ETF', quantity: 16500, cost: 1.704, sector: '科创50' },
+  { symbol: '159558.SZ', name: '半导体设备ETF易方达', quantity: 112400, cost: 0.952, sector: '半导体设备' },
+  { symbol: '588080.SH', name: '科创板50ETF', quantity: 22100, cost: 1.615, sector: '科创50' },
   { symbol: '159246.SZ', name: '创业板人工智能ETF富国', quantity: 9500, cost: 1.068, sector: '人工智能' },
   { symbol: '510210.SH', name: '上证指数ETF富国', quantity: 7800, cost: 0.994, sector: '上证指数' },
   { symbol: '000938.SZ', name: '紫光股份', quantity: 200, cost: 39.694, sector: '算力' },
-  { symbol: '600939.SH', name: '重庆建工', quantity: 1000, cost: 2.745, sector: '其他' },
-  { symbol: '515880.SH', name: '通信ETF', quantity: 5300, cost: 1.265, sector: '通信' },
+  { symbol: '515880.SH', name: '通信ETF', quantity: 16700, cost: 0.700, sector: '通信' },
 ]
 function ScreenshotHoldingImport({ visible, onSaved }: { visible: boolean; onSaved: () => void }) {
   const [busy, setBusy] = useState(false); const [message, setMessage] = useState('')
   if (!visible) return null
   async function save() { setBusy(true); setMessage(''); try { const results = await Promise.all(SCREENSHOT_HOLDINGS.map(row => fetch(`${API}/holdings/${row.symbol.slice(0, 6)}`, { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...row, source: 'screenshot_2026-11' }) }))); const failed = results.filter(result => !result.ok).length; if (failed) throw Error(`${failed} 条导入失败`); setMessage('截图底账已导入，可在下方继续编辑'); onSaved() } catch (e) { setMessage((e as Error).message) } finally { setBusy(false) } }
-  return <div className="mb-3 rounded-card border border-warning/30 bg-warning/5 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><b className="text-sm text-warning">导入你提供的持仓截图</b><p className="mt-1 text-[11px] text-muted">7 只：数量和成本取自截图；代码与名称可在导入后修改。不会连接或操作券商账户。</p></div><button type="button" disabled={busy} onClick={() => void save()} className="rounded border border-warning/60 px-3 py-1.5 text-xs text-warning disabled:opacity-50">{busy ? '导入中…' : '一键导入截图底账'}</button></div>{message && <p className="mt-2 text-xs text-secondary">{message}</p>}</div>
+  return <div className="mb-3 rounded-card border border-warning/30 bg-warning/5 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><b className="text-sm text-warning">导入最新持仓截图</b><p className="mt-1 text-[11px] text-muted">6 只：数量和成本取自最新截图；代码与名称可在导入后修改。不会连接或操作券商账户。</p></div><button type="button" disabled={busy} onClick={() => void save()} className="rounded border border-warning/60 px-3 py-1.5 text-xs text-warning disabled:opacity-50">{busy ? '导入中…' : '按最新截图更新底账'}</button></div>{message && <p className="mt-2 text-xs text-secondary">{message}</p>}</div>
 }
 function ManualHoldingForm({ visible, onSaved }: { visible: boolean; onSaved: () => void }) {
   const [form, setForm] = useState({ symbol: '', name: '', quantity: '', cost: '', sector: '' })
