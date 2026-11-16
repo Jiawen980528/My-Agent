@@ -24,10 +24,18 @@ type RecRow = {
     reason?: string;
     symbol?: string;
     score?: number;
+    order_id?: string;
   };
   items: RecItem[];
 };
 type Quote = { symbol: string; price?: number };
+type PaperStatus = {
+  status?: string;
+  reason?: string;
+  order_type?: string;
+  filled_at?: string;
+  fill_price?: number;
+};
 type Auction = {
   state?: string;
   trade_date?: string;
@@ -78,6 +86,9 @@ export function RecommendationPage() {
   const [refreshSec, setRefreshSec] = useState(5);
   const [stage, setStage] = useState("全部");
   const [message, setMessage] = useState("");
+  const [paperStatus, setPaperStatus] = useState<Record<string, PaperStatus>>(
+    {},
+  );
   const load = () => {
     fetch(`${API}/myagent/recommendations`, { credentials: "include" })
       .then(async (r) => {
@@ -120,6 +131,29 @@ export function RecommendationPage() {
         ),
       )
       .catch(() => setQuotes({}));
+  }, [rows]);
+  useEffect(() => {
+    const automated = rows.filter((row) => row.paper_auto?.order_id);
+    if (!automated.length) {
+      setPaperStatus({});
+      return;
+    }
+    Promise.all(
+      automated.map(async (row) => {
+        const response = await fetch(
+          `${API}/myagent/recommendations/${encodeURIComponent(row.id)}/paper-status?account=default`,
+          { credentials: "include" },
+        );
+        return [
+          row.id,
+          response.ok
+            ? await response.json()
+            : { status: "unavailable", reason: "订单状态读取失败" },
+        ] as const;
+      }),
+    )
+      .then((entries) => setPaperStatus(Object.fromEntries(entries)))
+      .catch(() => setPaperStatus({}));
   }, [rows]);
   const today = new Date().toLocaleDateString("sv-SE");
   const visible = rows.filter(
@@ -390,6 +424,15 @@ export function RecommendationPage() {
                 {row.paper_auto.status === "submitted"
                   ? `已提交 ${row.paper_auto.symbol}（评分 ${row.paper_auto.score}）`
                   : `未执行 · ${row.paper_auto.reason || "无原因"}`}
+                {paperStatus[row.id]
+                  ? paperStatus[row.id].status === "pending"
+                    ? " · 待下一交易日开盘撮合"
+                    : paperStatus[row.id].status === "filled"
+                      ? ` · 已成交 @ ${paperStatus[row.id].fill_price ?? "—"}`
+                      : ` · ${paperStatus[row.id].status || "未知"}${paperStatus[row.id].reason ? `：${paperStatus[row.id].reason}` : ""}`
+                  : row.paper_auto.order_id
+                    ? " · 订单状态读取中"
+                    : ""}
               </p>
             )}
             <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">

@@ -257,6 +257,31 @@ async def execute_recommendation_paper(request: Request, recommendation_id: str,
     return {"ok": True, "account": account_id, "recommendation_id": recommendation_id, "orders": created, "skipped": skipped}
 
 
+@router.get("/recommendations/{recommendation_id}/paper-status")
+def recommendation_paper_status(request: Request, recommendation_id: str, account: str = Query("default")):
+    """Return the paper order lifecycle for an automated recommendation snapshot."""
+    record = next((row for row in _load_recommendations(request.app.state.repo.store.data_dir)
+                   if row.get("id") == recommendation_id), None)
+    if record is None:
+        raise HTTPException(status_code=404, detail="推荐记录不存在")
+    auto = record.get("paper_auto") if isinstance(record.get("paper_auto"), dict) else {}
+    order_id = str(auto.get("order_id") or "")
+    if not order_id:
+        return {"status": "not_submitted", "reason": auto.get("reason") or "该快照没有自动模拟委托"}
+    from app.strategy import paper
+    try:
+        account_id = paper.validate_account_id(account)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    order = paper.get_order(request.app.state.repo.store.data_dir, order_id, account_id)
+    if order is None:
+        return {"status": "not_found", "reason": "模拟订单不存在或账户已变更", "order_id": order_id}
+    return {"status": order.get("status"), "order_id": order_id, "symbol": order.get("symbol"),
+            "order_type": order.get("order_type"), "created_at": order.get("created_at"),
+            "filled_at": order.get("filled_at"), "fill_price": order.get("fill_price"),
+            "reason": order.get("reason")}
+
+
 @router.get("/research-pool")
 def get_research_pool(request: Request):
     return research_pool.load(request.app.state.repo.store.data_dir)
