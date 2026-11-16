@@ -6,6 +6,7 @@ type Scan = { id: number; model_name: string; match_count: number; generated_at:
 type Holding = { symbol: string; name: string; sector: string; quantity: number; cost: number; price?: number; profit?: number; profit_pct?: number }
 type Sector = { sector: string; theme: string; anchors: string[]; watch: string[] }
 type Tab = 'history' | 'holdings' | 'sectors' | 'guide'
+type OcrCandidate = { code: string; symbol?: string | null; name?: string | null; matched?: boolean }
 const SCREENSHOT_HOLDINGS = [
   { symbol: '159558.SZ', name: '半导体设备ETF易方达', quantity: 112400, cost: 0.952, sector: '半导体设备' },
   { symbol: '588080.SH', name: '科创板50ETF', quantity: 22100, cost: 1.615, sector: '科创50' },
@@ -40,6 +41,37 @@ function ManualHoldingForm({ visible, onSaved }: { visible: boolean; onSaved: ()
     } catch (e) { setMessage((e as Error).message) } finally { setSaving(false) }
   }
   return <div className="mb-3 rounded-card border border-accent/30 bg-accent/5 p-3"><div className="mb-2 flex flex-wrap items-center justify-between gap-2"><b className="text-sm">手动维护 MyAgent 持仓</b><span className="text-[11px] text-muted">数量和成本只保存到 MyAgent，不连接券商</span></div><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5"><input value={form.symbol} onChange={e => setForm({ ...form, symbol: e.target.value })} placeholder="代码，如 159995" className="rounded border border-border bg-base px-2 py-1.5 text-xs" /><input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="名称" className="rounded border border-border bg-base px-2 py-1.5 text-xs" /><input value={form.quantity} onChange={e => setForm({ ...form, quantity: e.target.value })} placeholder="持仓数量" type="number" min="0" className="rounded border border-border bg-base px-2 py-1.5 text-xs" /><input value={form.cost} onChange={e => setForm({ ...form, cost: e.target.value })} placeholder="持仓成本" type="number" min="0" step="0.001" className="rounded border border-border bg-base px-2 py-1.5 text-xs" /><input value={form.sector} onChange={e => setForm({ ...form, sector: e.target.value })} placeholder="板块（可选）" className="rounded border border-border bg-base px-2 py-1.5 text-xs" /></div><div className="mt-2 flex items-center gap-2"><button type="button" disabled={saving} onClick={() => void save()} className="rounded bg-accent px-3 py-1.5 text-xs text-white disabled:opacity-50">{saving ? '保存中…' : '保存持仓'}</button>{message && <span className="text-xs text-secondary">{message}</span>}</div></div>
+}
+function OcrHoldingImport({ visible, onSaved }: { visible: boolean; onSaved: () => void }) {
+  const [rows, setRows] = useState<Array<{ symbol: string; name: string; quantity: string; cost: string; sector: string }>>([])
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+  if (!visible) return null
+  async function read(file?: File) {
+    if (!file) return
+    setBusy(true); setMessage('')
+    try {
+      const body = new FormData(); body.append('file', file)
+      const response = await fetch('/quant/api/watchlist/import-image', { method: 'POST', credentials: 'include', body })
+      const payload = await response.json().catch(() => ({})) as { candidates?: OcrCandidate[]; detail?: string; provider?: string }
+      if (!response.ok) throw Error(payload.detail || `识别失败 ${response.status}`)
+      const candidates = (payload.candidates || []).filter(item => item.matched && item.symbol && item.name)
+      setRows(candidates.map(item => ({ symbol: item.symbol!, name: item.name!, quantity: '', cost: '', sector: '' })))
+      setMessage(candidates.length ? `已识别 ${candidates.length} 只代码；请补全数量和成本后再保存。` : '没有识别到可核验代码；请用下方手工录入。')
+    } catch (error) { setMessage(error instanceof Error ? error.message : '截图识别失败') } finally { setBusy(false) }
+  }
+  async function save() {
+    const valid = rows.filter(row => /^\d{6}\.(SH|SZ|BJ)$/.test(row.symbol) && row.name && Number(row.quantity) > 0 && Number(row.cost) > 0)
+    if (!valid.length) { setMessage('至少填写一只股票的有效数量和成本后才能保存。'); return }
+    setBusy(true); setMessage('')
+    try {
+      const results = await Promise.all(valid.map(row => fetch(`${API}/holdings/${row.symbol.slice(0, 6)}`, { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...row, quantity: Number(row.quantity), cost: Number(row.cost), source: 'screenshot_ocr_confirmed' }) })))
+      const failed = results.filter(result => !result.ok).length
+      if (failed) throw Error(`${failed} 条保存失败`)
+      setRows([]); setMessage(`已保存 ${valid.length} 只确认后的持仓到底账。`); onSaved()
+    } catch (error) { setMessage(error instanceof Error ? error.message : '保存失败') } finally { setBusy(false) }
+  }
+  return <details className="mb-3 rounded-card border border-border bg-surface p-3"><summary className="cursor-pointer text-sm font-medium">从持仓截图辅助录入 <span className="ml-2 text-[11px] font-normal text-muted">只识别代码/名称，数量与成本必须人工确认</span></summary><div className="mt-3"><label className="inline-flex cursor-pointer rounded border border-accent/60 px-3 py-1.5 text-xs text-accent">{busy ? '处理中…' : '选择持仓截图'}<input type="file" accept="image/png,image/jpeg,image/webp,image/bmp,image/gif" className="hidden" disabled={busy} onChange={event => { void read(event.target.files?.[0]); event.currentTarget.value = '' }} /></label>{message && <p className="mt-2 text-xs text-secondary">{message}</p>}{rows.length > 0 && <><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[680px] text-xs"><thead className="text-left text-muted"><tr><th className="pb-1">代码</th><th className="pb-1">名称</th><th className="pb-1">数量（需确认）</th><th className="pb-1">成本（需确认）</th><th className="pb-1">板块</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row.symbol} className="border-t border-border"><td className="py-1.5">{row.symbol}</td><td>{row.name}</td><td><input type="number" min="0" value={row.quantity} onChange={event => setRows(current => current.map((item, i) => i === index ? { ...item, quantity: event.target.value } : item))} className="w-28 rounded border border-border bg-base px-2 py-1" /></td><td><input type="number" min="0" step="0.001" value={row.cost} onChange={event => setRows(current => current.map((item, i) => i === index ? { ...item, cost: event.target.value } : item))} className="w-28 rounded border border-border bg-base px-2 py-1" /></td><td><input value={row.sector} onChange={event => setRows(current => current.map((item, i) => i === index ? { ...item, sector: event.target.value } : item))} className="w-28 rounded border border-border bg-base px-2 py-1" placeholder="可选" /></td></tr>)}</tbody></table></div><button type="button" disabled={busy} onClick={() => void save()} className="mt-3 rounded bg-accent px-3 py-1.5 text-xs text-white disabled:opacity-50">确认并写入持仓底账</button></>}</div></details>
 }
 function HoldingRecoveryCalculator({ holding }: { holding: Holding }) {
   const [addPrice, setAddPrice] = useState(String(holding.price ?? holding.cost ?? ''))
@@ -103,6 +135,7 @@ export function MyAgentQuant() {
   async function openSector(name: string) { try { setError(''); setSector(name); const d = await get<{items: any[]}>(`/sector/${encodeURIComponent(name)}`); setMembers(d.items) } catch (e) { setError((e as Error).message) } }
   return <div className="h-full overflow-auto bg-base p-3 text-foreground">
     <ScreenshotHoldingImport visible={tab === 'holdings'} onSaved={() => setReloadKey(v => v + 1)} />
+    <OcrHoldingImport visible={tab === 'holdings'} onSaved={() => setReloadKey(v => v + 1)} />
     <ManualHoldingForm visible={tab === 'holdings'} onSaved={() => setReloadKey(v => v + 1)} />
     <div className="mb-3 rounded-card border border-border bg-surface p-3"><h1 className="text-base font-semibold">MyAgent 量化</h1><p className="mt-1 text-xs text-muted">筛选记录、持仓、项目板块库和研究规则，直接在 TickFlow 内查看。行情使用各自标注的数据源。</p></div>
     <nav className="mb-3 flex flex-wrap gap-2">{([['history','筛选历史'],['holdings','持仓跟踪'],['sectors','板块库'],['guide','模型说明']] as const).map(([key,label]) => <button key={key} onClick={() => { setTab(key); setSearchParams(key === 'holdings' ? { tab: 'holdings' } : {}) }} className={`rounded-btn border px-3 py-1.5 text-xs ${tab === key ? 'border-accent bg-accent/15 text-accent' : 'border-border bg-surface text-muted'}`}>{label}</button>)}<Link to="/pick-model" className="rounded-btn border border-border bg-surface px-3 py-1.5 text-xs text-accent">打开拾贝模型</Link><Link to="/fund-flow" className="rounded-btn border border-border bg-surface px-3 py-1.5 text-xs text-accent">查看资金流向</Link></nav>

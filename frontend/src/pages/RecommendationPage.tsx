@@ -603,7 +603,9 @@ export function RecommendationPage() {
                             {i.score_detail.news ?? "—"}
                           </div>
                           <div className="mt-0.5">
-                            新闻：{i.score_detail.news_detail?.status || "旧记录未采集"}
+                            新闻：
+                            {i.score_detail.news_detail?.status ||
+                              "旧记录未采集"}
                           </div>
                           {!!i.score_detail.news_detail?.titles?.length && (
                             <div className="mt-0.5 line-clamp-2">
