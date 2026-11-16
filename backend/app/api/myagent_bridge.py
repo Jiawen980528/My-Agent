@@ -30,6 +30,10 @@ def _recommendations_path(data_dir):
     return data_dir / "user_data" / "myagent_recommendations.json"
 
 
+def _recommendation_reviews_path(data_dir):
+    return data_dir / "user_data" / "myagent_recommendation_reviews.json"
+
+
 def _load_recommendations(data_dir) -> list[dict]:
     path = _recommendations_path(data_dir)
     try:
@@ -50,6 +54,67 @@ def _save_recommendation_record(data_dir, record: dict) -> dict:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(rows[:500], ensure_ascii=False, indent=2), encoding="utf-8")
     return record
+
+
+def _summarize_returns(values: list[float]) -> dict:
+    if not values:
+        return {"tracked": 0, "wins": 0, "win_rate": None, "average_pct": None,
+                "best_pct": None, "worst_pct": None}
+    wins = sum(value >= 0 for value in values)
+    return {"tracked": len(values), "wins": wins, "win_rate": round(wins / len(values) * 100, 2),
+            "average_pct": round(sum(values) / len(values), 3), "best_pct": round(max(values), 3),
+            "worst_pct": round(min(values), 3)}
+
+
+def finalize_recommendation_review(app_state, target: date | None = None) -> dict:
+    """Freeze a daily recommendation review against the actual daily close.
+
+    It is a signal-performance review, not a claim of trade P&L: commissions,
+    slippage, fills and T+1 are separately accounted by the paper ledger.
+    """
+    from app.strategy import paper
+    target = target or datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    day = target.isoformat()
+    data_dir = app_state.repo.store.data_dir
+    records = [row for row in _load_recommendations(data_dir) if row.get("date") == day]
+    evaluated: list[dict] = []
+    returns: list[float] = []
+    by_stage: dict[str, list[float]] = {}
+    for record in records:
+        reviewed_items: list[dict] = []
+        for item in record.get("items") or []:
+            symbol = str(item.get("symbol") or "")
+            try:
+                entry = float(item.get("price") or 0)
+            except (TypeError, ValueError):
+                entry = 0.0
+            code = _symbol_key(symbol)
+            asset_type = "etf" if code.startswith(("51", "56", "58", "15")) else "stock"
+            bar = paper.read_daily_bar(data_dir, symbol, asset_type, day) if symbol and entry > 0 else None
+            close = float(bar["close"]) if bar and bar.get("close") is not None else None
+            change = round((close / entry - 1) * 100, 3) if close and entry > 0 else None
+            reviewed_items.append({"symbol": symbol, "name": item.get("name"), "entry_price": entry or None,
+                                   "close_price": close, "close_return_pct": change})
+            if change is not None:
+                returns.append(change)
+                by_stage.setdefault(str(record.get("stage") or "未分类"), []).append(change)
+        evaluated.append({"id": record.get("id"), "stage": record.get("stage"),
+                          "created_at": record.get("createdAt"), "items": reviewed_items})
+    review = {"date": day, "reviewed_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
+              "method": "推荐价至当日真实日线收盘价；不等同模拟盘成交收益",
+              "summary": _summarize_returns(returns),
+              "by_stage": {stage: _summarize_returns(values) for stage, values in by_stage.items()},
+              "records": evaluated}
+    path = _recommendation_reviews_path(data_dir)
+    try:
+        existing = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    except (OSError, ValueError):
+        existing = []
+    existing = [row for row in existing if isinstance(row, dict) and row.get("date") != day] if isinstance(existing, list) else []
+    existing.insert(0, review)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(existing[:500], ensure_ascii=False, indent=2), encoding="utf-8")
+    return review
 
 
 def _symbol_key(value: object) -> str:
@@ -197,6 +262,26 @@ def get_recommendations(request: Request, date: str | None = Query(default=None)
     if date:
         rows = [row for row in rows if row.get("date") == date]
     return {"items": rows[:500], "source": "server"}
+
+
+@router.get("/recommendations/reviews")
+def get_recommendation_reviews(request: Request, limit: int = Query(default=60, ge=1, le=500)):
+    path = _recommendation_reviews_path(request.app.state.repo.store.data_dir)
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    except (OSError, ValueError):
+        rows = []
+    rows = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+    return {"items": rows[:limit], "source": "server_daily_close"}
+
+
+@router.post("/recommendations/reviews/finalize")
+def finalize_recommendation_review_now(request: Request, date: str | None = Query(default=None)):
+    try:
+        target = datetime.strptime(date, "%Y-%m-%d").date() if date else None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="date 必须为 YYYY-MM-DD") from exc
+    return finalize_recommendation_review(request.app.state, target)
 
 
 @router.post("/recommendations")
