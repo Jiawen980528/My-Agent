@@ -36,6 +36,20 @@ type PaperStatus = {
   filled_at?: string;
   fill_price?: number;
 };
+type DailyReview = {
+  date: string;
+  summary?: {
+    tracked?: number;
+    win_rate?: number | null;
+    average_pct?: number | null;
+    best_pct?: number | null;
+    worst_pct?: number | null;
+  };
+  by_stage?: Record<
+    string,
+    { tracked?: number; win_rate?: number | null; average_pct?: number | null }
+  >;
+};
 type Auction = {
   state?: string;
   trade_date?: string;
@@ -89,6 +103,7 @@ export function RecommendationPage() {
   const [paperStatus, setPaperStatus] = useState<Record<string, PaperStatus>>(
     {},
   );
+  const [reviews, setReviews] = useState<DailyReview[]>([]);
   const load = () => {
     fetch(`${API}/myagent/recommendations`, { credentials: "include" })
       .then(async (r) => {
@@ -101,6 +116,12 @@ export function RecommendationPage() {
       .then((r) => (r.ok ? r.json() : null))
       .then(setAuction)
       .catch(() => setAuction(null));
+    fetch(`${API}/myagent/recommendations/reviews?limit=20`, {
+      credentials: "include",
+    })
+      .then((r) => (r.ok ? r.json() : { items: [] }))
+      .then((body) => setReviews(Array.isArray(body.items) ? body.items : []))
+      .catch(() => setReviews([]));
   };
   useEffect(() => {
     load();
@@ -386,6 +407,71 @@ export function RecommendationPage() {
         ) : (
           <p className="mt-2 text-muted">
             当前没有同时具备推荐价和最新报价的股票，暂不计算胜率。
+          </p>
+        )}
+      </section>
+      <section className="mb-3 rounded-card border border-border bg-surface p-3 text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <b>历史日归档表现</b>
+          <span className="text-[10px] text-muted">
+            推荐价至当日真实收盘价；不等同模拟盘成交盈亏。
+          </span>
+        </div>
+        {reviews.length ? (
+          <div className="mt-2 overflow-auto">
+            <table className="w-full min-w-[760px] text-left">
+              <thead className="text-muted">
+                <tr>
+                  <th className="py-1">日期</th>
+                  <th>跟踪</th>
+                  <th>胜率</th>
+                  <th>平均</th>
+                  <th>最佳 / 最差</th>
+                  <th>阶段拆分</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reviews.map((review) => (
+                  <tr key={review.date} className="border-t border-border/60">
+                    <td className="py-1.5">{review.date}</td>
+                    <td>{review.summary?.tracked ?? 0}</td>
+                    <td>
+                      {review.summary?.win_rate == null
+                        ? "—"
+                        : `${review.summary.win_rate.toFixed(1)}%`}
+                    </td>
+                    <td
+                      className={
+                        Number(review.summary?.average_pct) >= 0
+                          ? "text-bull"
+                          : "text-bear"
+                      }
+                    >
+                      {review.summary?.average_pct == null
+                        ? "—"
+                        : `${review.summary.average_pct >= 0 ? "+" : ""}${review.summary.average_pct.toFixed(2)}%`}
+                    </td>
+                    <td>
+                      {review.summary?.best_pct == null
+                        ? "—"
+                        : `${review.summary.best_pct.toFixed(2)}% / ${review.summary.worst_pct?.toFixed(2)}%`}
+                    </td>
+                    <td className="text-[10px] text-muted">
+                      {Object.entries(review.by_stage || {})
+                        .map(
+                          ([name, stat]) =>
+                            `${name} ${stat.tracked || 0}只/${stat.win_rate == null ? "—" : `${stat.win_rate.toFixed(0)}%`}`,
+                        )
+                        .join(" · ") || "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="mt-2 text-muted">
+            尚无盘后冻结记录；首次将在收盘后日线数据可用时生成。
           </p>
         )}
       </section>
