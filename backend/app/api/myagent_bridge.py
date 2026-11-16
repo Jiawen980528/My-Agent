@@ -82,6 +82,42 @@ def _score_intraday_candidate(row: dict, pool_items: list[dict], emotion: dict |
     return score, detail, score >= 65 and not blocked
 
 
+def _auto_execute_paper_candidate(data_dir, record: dict) -> dict:
+    """Submit at most one high-conviction paper order per symbol/day.
+
+    This is deliberately paper-only and conservative: incomplete signals can be
+    researched and recorded, but only a score of 80+ may open a simulated layer.
+    """
+    from app.strategy import paper
+    account_id = "default"
+    account = paper.get_account(data_dir, account_id)
+    if account is None:
+        return {"status": "skipped", "reason": "模拟账户不存在"}
+    day = str(record.get("date") or "")
+    existing = paper.load_orders(data_dir, account_id)
+    for item in sorted(record.get("items") or [], key=lambda row: float(row.get("score") or 0), reverse=True):
+        symbol = str(item.get("symbol") or "").strip()
+        score = float(item.get("score") or 0)
+        price = float(item.get("price") or 0)
+        if not item.get("eligible_for_paper") or score < 80 or not symbol or price <= 0:
+            continue
+        marker = f"auto-recommendation:{day}:{symbol}"
+        if any(str(order.get("source") or "").startswith(marker) for order in existing):
+            return {"status": "skipped", "reason": "该标的今日已自动模拟", "symbol": symbol}
+        amount = float(account.get("initial_cash", 100000.0)) * 0.04
+        qty = int(amount / price / 100) * 100
+        if qty < 100:
+            return {"status": "skipped", "reason": "单层资金不足一手", "symbol": symbol}
+        order, error = paper.create_order(
+            data_dir, symbol, "buy", account_id=account_id, qty=qty,
+            order_type="next_open", ref_price=price, source=marker,
+        )
+        if error:
+            return {"status": "skipped", "reason": error, "symbol": symbol}
+        return {"status": "submitted", "symbol": symbol, "score": score, "order_id": order.get("id")}
+    return {"status": "skipped", "reason": "没有达到自动模拟阈值的候选"}
+
+
 def capture_recommendation_snapshot(app_state) -> dict:
     """Persist auditable auction/intraday candidates without a browser being open.
 
@@ -146,10 +182,12 @@ def capture_recommendation_snapshot(app_state) -> dict:
     record = {"id": f"auto-intraday-{day}-{bucket}", "date": day, "stage": "盘中推荐",
               "createdAt": now.isoformat(timespec="seconds"), "source": "后端定时·盘中异动",
               "marketEmotion": f"{(emotion or {}).get('label', '缺失')} {(emotion or {}).get('score', '—')}",
-              "model_status": "准入评分：技术/量能/情绪/资料池；新闻、资金流、外围仍缺失，不自动下单",
+              "model_status": "准入评分：技术/量能/情绪/资料池；新闻、资金流、外围仍缺失。仅分数≥80的候选允许自动模拟一层",
               "items": items}
+    # 模拟盘独立运行：只对高阈值候选下单；失败/跳过同样写入记录，方便复盘胜率。
+    record["paper_auto"] = _auto_execute_paper_candidate(data_dir, record)
     _save_recommendation_record(data_dir, record)
-    return {"status": "saved", "stage": record["stage"], "count": len(items)}
+    return {"status": "saved", "stage": record["stage"], "count": len(items), "paper_auto": record["paper_auto"]}
 
 
 @router.get("/recommendations")

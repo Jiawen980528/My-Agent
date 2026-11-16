@@ -19,6 +19,12 @@ type RecRow = {
   marketEmotion?: string;
   source?: string;
   model_status?: string;
+  paper_auto?: {
+    status?: string;
+    reason?: string;
+    symbol?: string;
+    score?: number;
+  };
   items: RecItem[];
 };
 type Quote = { symbol: string; price?: number };
@@ -372,6 +378,20 @@ export function RecommendationPage() {
             <p className="mt-1 text-[10px] text-warning">
               {row.model_status || "请展开个股查看依据；推荐不等于买入指令。"}
             </p>
+            {row.paper_auto && (
+              <p
+                className={
+                  row.paper_auto.status === "submitted"
+                    ? "mt-1 text-[10px] text-bull"
+                    : "mt-1 text-[10px] text-muted"
+                }
+              >
+                暗黑模拟盘：
+                {row.paper_auto.status === "submitted"
+                  ? `已提交 ${row.paper_auto.symbol}（评分 ${row.paper_auto.score}）`
+                  : `未执行 · ${row.paper_auto.reason || "无原因"}`}
+              </p>
+            )}
             <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
               {row.items.map((i) =>
                 (() => {
