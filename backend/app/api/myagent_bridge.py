@@ -52,6 +52,36 @@ def _save_recommendation_record(data_dir, record: dict) -> dict:
     return record
 
 
+def _symbol_key(value: object) -> str:
+    return str(value or "").strip().upper().split(".", 1)[0]
+
+
+def _score_intraday_candidate(row: dict, pool_items: list[dict], emotion: dict | None) -> tuple[int, dict, bool]:
+    """Deterministic admission score.  Every point maps to an observable field."""
+    signals = set(str(value) for value in row.get("signals") or [])
+    technical = 15
+    technical += 25 if "limit_up" in signals else 0
+    technical += 15 if "new_high" in signals else 0
+    technical += 5 if "recovery" in signals else 0
+    technical -= 25 if "broken" in signals else 0
+    technical -= 35 if "limit_down" in signals else 0
+    volume_ratio = float(row.get("vol_ratio_5d") or 0)
+    volume = min(20, max(0, round(volume_ratio * 5)))
+    key, name = _symbol_key(row.get("symbol")), str(row.get("name") or "")
+    matched = [item for item in pool_items if _symbol_key(item.get("symbol")) == key or (name and item.get("name") == name)]
+    pool = 15 if matched else 0
+    emotion_score = int((emotion or {}).get("score") or 50)
+    sentiment = max(0, min(15, round((emotion_score - 35) / 4)))
+    score = max(0, min(100, technical + volume + pool + sentiment + 25))
+    blocked = bool({"broken", "limit_down"} & signals)
+    detail = {
+        "technical": technical, "volume": volume, "sentiment": sentiment, "research_pool": pool,
+        "market_emotion": emotion_score, "pool_match": bool(matched),
+        "missing": ["新闻催化", "个股资金流", "外围/A50"] ,
+    }
+    return score, detail, score >= 65 and not blocked
+
+
 def capture_recommendation_snapshot(app_state) -> dict:
     """Persist auditable auction/intraday candidates without a browser being open.
 
@@ -92,14 +122,32 @@ def capture_recommendation_snapshot(app_state) -> dict:
     rows = payload.get("rows") or []
     if not rows:
         return {"status": "skipped", "reason": "no_verified_intraday_signal"}
-    items = [{
-        "symbol": str(row.get("symbol") or ""), "name": str(row.get("name") or row.get("symbol") or ""),
-        "price": row.get("close"), "score": row.get("vol_ratio_5d"),
-        "signals": row.get("signals") or [], "change_pct": row.get("change_pct"),
-    } for row in rows[:5] if row.get("symbol")]
+    pool_items = research_pool.load(data_dir).get("items", [])
+    try:
+        from app.services.market_overview_builder import build_market_overview
+        overview = build_market_overview(app_state.repo, getattr(app_state, "quote_service", None),
+                                         getattr(app_state, "depth_service", None))
+        emotion = overview.get("emotion") or {}
+    except Exception as exc:  # market overview failure must not suppress a verifiable intraday record
+        logger.warning("recommendation market emotion unavailable: %s", exc)
+        emotion = None
+    scored = []
+    for row in rows:
+        if not row.get("symbol"):
+            continue
+        score, detail, eligible = _score_intraday_candidate(row, pool_items, emotion)
+        scored.append({
+            "symbol": str(row.get("symbol")), "name": str(row.get("name") or row.get("symbol")),
+            "price": row.get("close"), "score": score, "signals": row.get("signals") or [],
+            "change_pct": row.get("change_pct"), "score_detail": detail,
+            "eligible_for_paper": eligible,
+        })
+    items = sorted(scored, key=lambda item: (not item["eligible_for_paper"], -item["score"]))[:5]
     record = {"id": f"auto-intraday-{day}-{bucket}", "date": day, "stage": "盘中推荐",
               "createdAt": now.isoformat(timespec="seconds"), "source": "后端定时·盘中异动",
-              "model_status": "仅量价异动，未做完整多维复核", "items": items}
+              "marketEmotion": f"{(emotion or {}).get('label', '缺失')} {(emotion or {}).get('score', '—')}",
+              "model_status": "准入评分：技术/量能/情绪/资料池；新闻、资金流、外围仍缺失，不自动下单",
+              "items": items}
     _save_recommendation_record(data_dir, record)
     return {"status": "saved", "stage": record["stage"], "count": len(items)}
 
