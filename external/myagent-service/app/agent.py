@@ -28,10 +28,20 @@ def get_client(provider_name=None):
     opts={"api_key":profile.api_key,"timeout":settings.model_timeout_seconds,"max_retries":1}
     if profile.base_url: opts["base_url"]=profile.base_url
     return OpenAI(**opts)
-def _public_model_error(exc):
+def _public_model_error(exc, profile=None):
+    label = getattr(profile, "label", "AI 服务")
+    model = getattr(profile, "model", "")
+    target = f"（{label}{' / ' + model if model else ''}）"
     if isinstance(exc,(APITimeoutError,APIConnectionError)): return "模型服务网络连接或超时，请稍后重试。"
     if isinstance(exc,RateLimitError): return "模型服务限流或额度不足，请检查 API 账户后重试。"
-    if isinstance(exc,APIStatusError): return f"模型服务返回错误（HTTP {exc.status_code}）。"
+    if isinstance(exc,APIStatusError):
+        if exc.status_code == 404:
+            return f"AI 模型或接口不存在{target}；请在统一 AI 设置检查 Base URL、协议和模型名称。"
+        if exc.status_code in (401, 403):
+            return f"AI 服务鉴权失败{target}；请在统一 AI 设置检查密钥或权限。"
+        if exc.status_code == 429:
+            return f"AI 服务限流或额度不足{target}；请稍后重试或检查额度。"
+        return f"模型服务返回错误{target}（HTTP {exc.status_code}）。"
     return "模型调用失败，请查看已脱敏审计日志。"
 
 def _response_with_fallback(messages, require_vision=False, model_selection="auto"):
@@ -44,6 +54,7 @@ def _response_with_fallback(messages, require_vision=False, model_selection="aut
             raise AgentError("请先配置支持图片的千问 DashScope API Key；图片未发送给纯文本模型。")
         raise AgentError("未配置可用模型 API Key；模型调用未发生。")
     last_error=None
+    last_profile=None
     for name in names:
         profile=settings.providers()[name]
         try:
@@ -52,8 +63,9 @@ def _response_with_fallback(messages, require_vision=False, model_selection="aut
             return response
         except Exception as exc:
             last_error=exc
+            last_profile=profile
             db.log_event("WARNING","model_provider_failed",f"provider={name}, error={type(exc).__name__}")
-    raise AgentError(_public_model_error(last_error)) from last_error
+    raise AgentError(_public_model_error(last_error, last_profile)) from last_error
 
 def run_agent(user_message, client_factory=get_client, attachment_context="", image_data_urls=None, model_selection="auto"):
     started=time.monotonic(); db.save_conversation("user",user_message); db.log_event("INFO","user_message",user_message[:500],actor="admin")
