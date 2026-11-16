@@ -190,7 +190,64 @@ def _public_market_context() -> dict:
     return context
 
 
-def _score_intraday_candidate(row: dict, pool_items: list[dict], emotion: dict | None, market_context: dict) -> tuple[int, dict, bool]:
+def _myagent_news_context() -> dict:
+    """Read the existing MyAgent public-news cache for scheduled scoring.
+
+    The endpoint is protected by the same service token as the browser bridge.
+    Missing credentials, an unavailable service, or malformed data are all
+    recorded as a data gap; a headline is never invented by this scorer.
+    """
+    token = os.getenv("MYAGENT_ADMIN_TOKEN", "").strip()
+    if not token:
+        return {"items": [], "missing": ["新闻源未配置"]}
+    base_url = os.getenv("MYAGENT_BRIDGE_URL", "http://myagent:8000").rstrip("/")
+    try:
+        with httpx.Client(timeout=8.0, follow_redirects=True) as client:
+            response = client.get(f"{base_url}/api/quant/news", params={"interval": 5},
+                                  headers={"X-Admin-Token": token})
+            response.raise_for_status()
+            payload = response.json()
+        items = payload.get("items") if isinstance(payload, dict) else []
+        if not isinstance(items, list):
+            return {"items": [], "missing": ["新闻源返回异常"]}
+        return {"items": [item for item in items[:300] if isinstance(item, dict)], "missing": []}
+    except (httpx.HTTPError, ValueError, TypeError):
+        return {"items": [], "missing": ["新闻源暂不可用"]}
+
+
+def _news_score_for_candidate(row: dict, pool_items: list[dict], news_items: list[dict]) -> tuple[int, dict]:
+    """Use only matched, inspectable headlines as a bounded catalyst signal."""
+    name = str(row.get("name") or "").strip()
+    symbol = _symbol_key(row.get("symbol"))
+    matched_pool = [item for item in pool_items if _symbol_key(item.get("symbol")) == symbol or
+                    (name and item.get("name") == name)]
+    themes = {str(item.get("theme") or "").strip() for item in matched_pool}
+    themes.update(str(item.get("segment") or "").strip() for item in matched_pool)
+    themes.discard("")
+    matches: list[dict] = []
+    for item in news_items:
+        title = str(item.get("title") or "")
+        sectors = {str(value).strip() for value in item.get("sector_names") or [] if str(value).strip()}
+        exact = bool(name and len(name) >= 2 and name in title) or bool(symbol and symbol in title)
+        thematic = bool(themes & sectors) or any(theme and theme in title for theme in themes)
+        if exact or thematic:
+            matches.append(item)
+    positive = sum(item.get("bias") == "可能利好" for item in matches)
+    negative = sum(item.get("bias") == "可能利空" for item in matches)
+    # Headlines are only title-level clues, so cap their impact tightly.
+    score = min(10, positive * 5) - min(10, negative * 5)
+    return score, {
+        "score": score,
+        "matched_count": len(matches),
+        "positive_count": positive,
+        "negative_count": negative,
+        "titles": [str(item.get("title") or "")[:120] for item in matches[:3]],
+        "status": "已匹配标题级公开新闻" if matches else "新闻源正常，但未命中该股/资料池主题",
+    }
+
+
+def _score_intraday_candidate(row: dict, pool_items: list[dict], emotion: dict | None, market_context: dict,
+                              news_context: dict) -> tuple[int, dict, bool]:
     """Deterministic admission score.  Every point maps to an observable field."""
     signals = set(str(value) for value in row.get("signals") or [])
     technical = 15
@@ -208,13 +265,15 @@ def _score_intraday_candidate(row: dict, pool_items: list[dict], emotion: dict |
     sentiment = max(0, min(15, round((emotion_score - 35) / 4)))
     market_flow = int(market_context.get("market_flow_score") or 0)
     external = int(market_context.get("external_score") or 0)
-    score = max(0, min(100, technical + volume + pool + sentiment + market_flow + external + 25))
+    news, news_detail = _news_score_for_candidate(row, pool_items, news_context.get("items") or [])
+    score = max(0, min(100, technical + volume + pool + sentiment + market_flow + external + news + 25))
     blocked = bool({"broken", "limit_down"} & signals)
+    missing = ["个股资金流", *market_context.get("missing", []), *news_context.get("missing", [])]
     detail = {
         "technical": technical, "volume": volume, "sentiment": sentiment, "research_pool": pool,
-        "market_flow": market_flow, "external": external,
+        "market_flow": market_flow, "external": external, "news": news, "news_detail": news_detail,
         "market_emotion": emotion_score, "pool_match": bool(matched),
-        "missing": ["新闻催化", "个股资金流", *market_context.get("missing", [])] ,
+        "missing": missing,
     }
     return score, detail, score >= 65 and not blocked
 
@@ -373,6 +432,7 @@ def capture_recommendation_snapshot(app_state) -> dict:
         return {"status": "skipped", "reason": "no_verified_intraday_signal"}
     pool_items = research_pool.load(data_dir).get("items", [])
     market_context = _public_market_context()
+    news_context = _myagent_news_context()
     try:
         from app.services.market_overview_builder import build_market_overview
         overview = build_market_overview(app_state.repo, getattr(app_state, "quote_service", None),
@@ -385,7 +445,7 @@ def capture_recommendation_snapshot(app_state) -> dict:
     for row in rows:
         if not row.get("symbol"):
             continue
-        score, detail, eligible = _score_intraday_candidate(row, pool_items, emotion, market_context)
+        score, detail, eligible = _score_intraday_candidate(row, pool_items, emotion, market_context, news_context)
         scored.append({
             "symbol": str(row.get("symbol")), "name": str(row.get("name") or row.get("symbol")),
             "price": row.get("close"), "score": score, "signals": row.get("signals") or [],
@@ -396,7 +456,7 @@ def capture_recommendation_snapshot(app_state) -> dict:
     record = {"id": f"auto-intraday-{day}-{bucket}", "date": day, "stage": "盘中推荐",
               "createdAt": now.isoformat(timespec="seconds"), "source": "后端定时·盘中异动",
               "marketEmotion": f"{(emotion or {}).get('label', '缺失')} {(emotion or {}).get('score', '—')}",
-              "model_status": "准入评分：技术/量能/情绪/资料池/全市场资金流/外围；新闻催化和个股资金流若缺失会标注。仅分数≥80的候选允许自动模拟一层",
+              "model_status": "准入评分：技术/量能/情绪/资料池/全市场资金流/外围/新闻标题匹配；个股资金流或不可用来源会明确标注。仅分数≥80的候选允许自动模拟一层",
               "items": items}
     # 模拟盘独立运行：只对高阈值候选下单；失败/跳过同样写入记录，方便复盘胜率。
     record["paper_auto"] = _auto_execute_paper_candidate(data_dir, record)

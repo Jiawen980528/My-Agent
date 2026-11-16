@@ -9,7 +9,24 @@ type RecItem = {
   signals?: string[];
   change_pct?: number;
   eligible_for_paper?: boolean;
-  score_detail?: { pool_match?: boolean; missing?: string[] };
+  score_detail?: {
+    pool_match?: boolean;
+    technical?: number;
+    volume?: number;
+    sentiment?: number;
+    research_pool?: number;
+    market_flow?: number;
+    external?: number;
+    news?: number;
+    missing?: string[];
+    news_detail?: {
+      matched_count?: number;
+      positive_count?: number;
+      negative_count?: number;
+      titles?: string[];
+      status?: string;
+    };
+  };
 };
 type RecRow = {
   id: string;
@@ -574,6 +591,32 @@ export function RecommendationPage() {
                         {i.eligible_for_paper ? " · 可进模拟池" : " · 仅观察"}
                         {i.score_detail?.pool_match ? " · 资料池命中" : ""}
                       </div>
+                      {i.score_detail && (
+                        <div className="mt-1 border-t border-border pt-1 text-[10px] text-muted">
+                          <div>
+                            评分：技{i.score_detail.technical ?? "—"} / 量
+                            {i.score_detail.volume ?? "—"} / 情绪
+                            {i.score_detail.sentiment ?? "—"} / 资料池
+                            {i.score_detail.research_pool ?? "—"} / 资金
+                            {i.score_detail.market_flow ?? "—"} / 外围
+                            {i.score_detail.external ?? "—"} / 新闻
+                            {i.score_detail.news ?? "—"}
+                          </div>
+                          <div className="mt-0.5">
+                            新闻：{i.score_detail.news_detail?.status || "旧记录未采集"}
+                          </div>
+                          {!!i.score_detail.news_detail?.titles?.length && (
+                            <div className="mt-0.5 line-clamp-2">
+                              {i.score_detail.news_detail.titles.join("；")}
+                            </div>
+                          )}
+                          {!!i.score_detail.missing?.length && (
+                            <div className="mt-0.5 text-warning">
+                              缺口：{i.score_detail.missing.join("、")}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </Link>
                   );
                 })(),
