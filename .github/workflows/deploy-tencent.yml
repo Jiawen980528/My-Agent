@@ -76,3 +76,29 @@ jobs:
           ssh "${opts[@]}" "$target" "mkdir -p /home/myagent-deploy/releases/$GITHUB_SHA"
           scp "${opts[@]}" code.tar.gz code.tar.gz.sha256 "$target:/home/myagent-deploy/releases/$GITHUB_SHA/"
           ssh "${opts[@]}" "$target" "sudo -n /usr/local/sbin/myagent-deploy $GITHUB_SHA"
+
+      - name: Collect deployment diagnostics on failure
+        if: failure()
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -uo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          opts=(-i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15)
+          ssh "${opts[@]}" "$target" 'sudo -n systemctl --no-pager --full status tick-stock-panel myagent 2>&1 || true; sudo -n journalctl -u tick-stock-panel -u myagent --no-pager -n 180 2>&1 || true; df -h 2>&1 || true' > deploy-diagnostics.txt 2>&1 || true
+
+      - name: Upload deployment diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-diagnostics-${{ github.sha }}
+          path: deploy-diagnostics.txt
+          if-no-files-found: warn
