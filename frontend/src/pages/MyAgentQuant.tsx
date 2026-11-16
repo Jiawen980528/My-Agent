@@ -6,6 +6,21 @@ type Scan = { id: number; model_name: string; match_count: number; generated_at:
 type Holding = { symbol: string; name: string; sector: string; quantity: number; cost: number; price?: number; profit?: number; profit_pct?: number }
 type Sector = { sector: string; theme: string; anchors: string[]; watch: string[] }
 type Tab = 'history' | 'holdings' | 'sectors' | 'guide'
+const SCREENSHOT_HOLDINGS = [
+  { symbol: '159558.SZ', name: '半导体设备ETF易方达', quantity: 43700, cost: 1.144, sector: '半导体设备' },
+  { symbol: '588000.SH', name: '科创50ETF', quantity: 16500, cost: 1.704, sector: '科创50' },
+  { symbol: '159246.SZ', name: '创业板人工智能ETF富国', quantity: 9500, cost: 1.068, sector: '人工智能' },
+  { symbol: '510210.SH', name: '上证指数ETF富国', quantity: 7800, cost: 0.994, sector: '上证指数' },
+  { symbol: '000938.SZ', name: '紫光股份', quantity: 200, cost: 39.694, sector: '算力' },
+  { symbol: '600939.SH', name: '重庆建工', quantity: 1000, cost: 2.745, sector: '其他' },
+  { symbol: '515880.SH', name: '通信ETF', quantity: 5300, cost: 1.265, sector: '通信' },
+]
+function ScreenshotHoldingImport({ visible, onSaved }: { visible: boolean; onSaved: () => void }) {
+  const [busy, setBusy] = useState(false); const [message, setMessage] = useState('')
+  if (!visible) return null
+  async function save() { setBusy(true); setMessage(''); try { const results = await Promise.all(SCREENSHOT_HOLDINGS.map(row => fetch(`${API}/holdings/${row.symbol.slice(0, 6)}`, { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...row, source: 'screenshot_2026-11' }) }))); const failed = results.filter(result => !result.ok).length; if (failed) throw Error(`${failed} 条导入失败`); setMessage('截图底账已导入，可在下方继续编辑'); onSaved() } catch (e) { setMessage((e as Error).message) } finally { setBusy(false) } }
+  return <div className="mb-3 rounded-card border border-warning/30 bg-warning/5 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><b className="text-sm text-warning">导入你提供的持仓截图</b><p className="mt-1 text-[11px] text-muted">7 只：数量和成本取自截图；代码与名称可在导入后修改。不会连接或操作券商账户。</p></div><button type="button" disabled={busy} onClick={() => void save()} className="rounded border border-warning/60 px-3 py-1.5 text-xs text-warning disabled:opacity-50">{busy ? '导入中…' : '一键导入截图底账'}</button></div>{message && <p className="mt-2 text-xs text-secondary">{message}</p>}</div>
+}
 function ManualHoldingForm({ visible, onSaved }: { visible: boolean; onSaved: () => void }) {
   const [form, setForm] = useState({ symbol: '', name: '', quantity: '', cost: '', sector: '' })
   const [saving, setSaving] = useState(false)
@@ -73,6 +88,7 @@ export function MyAgentQuant() {
   async function openScan(id: number) { try { setError(''); setSelected(await get<any>(`/history/${id}`)) } catch (e) { setError((e as Error).message) } }
   async function openSector(name: string) { try { setError(''); setSector(name); const d = await get<{items: any[]}>(`/sector/${encodeURIComponent(name)}`); setMembers(d.items) } catch (e) { setError((e as Error).message) } }
   return <div className="h-full overflow-auto bg-base p-3 text-foreground">
+    <ScreenshotHoldingImport visible={tab === 'holdings'} onSaved={() => setReloadKey(v => v + 1)} />
     <ManualHoldingForm visible={tab === 'holdings'} onSaved={() => setReloadKey(v => v + 1)} />
     <div className="mb-3 rounded-card border border-border bg-surface p-3"><h1 className="text-base font-semibold">MyAgent 量化</h1><p className="mt-1 text-xs text-muted">筛选记录、持仓、项目板块库和研究规则，直接在 TickFlow 内查看。行情使用各自标注的数据源。</p></div>
     <nav className="mb-3 flex flex-wrap gap-2">{([['history','筛选历史'],['holdings','持仓跟踪'],['sectors','板块库'],['guide','模型说明']] as const).map(([key,label]) => <button key={key} onClick={() => { setTab(key); setSearchParams(key === 'holdings' ? { tab: 'holdings' } : {}) }} className={`rounded-btn border px-3 py-1.5 text-xs ${tab === key ? 'border-accent bg-accent/15 text-accent' : 'border-border bg-surface text-muted'}`}>{label}</button>)}<Link to="/pick-model" className="rounded-btn border border-border bg-surface px-3 py-1.5 text-xs text-accent">打开拾贝模型</Link><Link to="/fund-flow" className="rounded-btn border border-border bg-surface px-3 py-1.5 text-xs text-accent">查看资金流向</Link></nav>
