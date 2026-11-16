@@ -66,6 +66,38 @@ def _summarize_returns(values: list[float]) -> dict:
             "worst_pct": round(min(values), 3)}
 
 
+def _adaptive_paper_threshold(data_dir, stage: str) -> tuple[int, dict]:
+    """Learn conservatively from frozen prior-day reviews, never lowering risk gates."""
+    path = _recommendation_reviews_path(data_dir)
+    try:
+        reviews = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    except (OSError, ValueError):
+        reviews = []
+    tracked = wins = 0
+    weighted_return = 0.0
+    for review in reviews if isinstance(reviews, list) else []:
+        stat = (review.get("by_stage") or {}).get(stage) if isinstance(review, dict) else None
+        if not isinstance(stat, dict):
+            continue
+        count = int(stat.get("tracked") or 0)
+        if count <= 0:
+            continue
+        tracked += count
+        wins += int(stat.get("wins") or 0)
+        weighted_return += count * float(stat.get("average_pct") or 0)
+    average = weighted_return / tracked if tracked else None
+    win_rate = wins / tracked * 100 if tracked else None
+    threshold = 80
+    reason = "样本不足，使用基础高分门槛"
+    if tracked >= 30 and (average is not None and average < 0 or win_rate is not None and win_rate < 50):
+        threshold = 85
+        reason = "历史同类信号表现偏弱，提高模拟准入门槛"
+    elif tracked >= 30:
+        reason = "历史同类信号未恶化，维持基础高分门槛"
+    return threshold, {"sample_size": tracked, "win_rate": round(win_rate, 2) if win_rate is not None else None,
+                       "average_pct": round(average, 3) if average is not None else None, "reason": reason}
+
+
 def finalize_recommendation_review(app_state, target: date | None = None) -> dict:
     """Freeze a daily recommendation review against the actual daily close.
 
@@ -160,25 +192,26 @@ def _auto_execute_paper_candidate(data_dir, record: dict) -> dict:
         return {"status": "skipped", "reason": "模拟账户不存在"}
     day = str(record.get("date") or "")
     existing = paper.load_orders(data_dir, account_id)
+    threshold, learning = _adaptive_paper_threshold(data_dir, str(record.get("stage") or "盘中推荐"))
     for item in sorted(record.get("items") or [], key=lambda row: float(row.get("score") or 0), reverse=True):
         symbol = str(item.get("symbol") or "").strip()
         score = float(item.get("score") or 0)
         price = float(item.get("price") or 0)
-        if not item.get("eligible_for_paper") or score < 80 or not symbol or price <= 0:
+        if not item.get("eligible_for_paper") or score < threshold or not symbol or price <= 0:
             continue
         marker = f"auto-recommendation:{day}:{symbol}"
         if any(str(order.get("source") or "").startswith(marker) for order in existing):
-            return {"status": "skipped", "reason": "该标的今日已自动模拟", "symbol": symbol}
+            return {"status": "skipped", "reason": "该标的今日已自动模拟", "symbol": symbol, "threshold": threshold, "learning": learning}
         amount = float(account.get("initial_cash", 100000.0)) * 0.04
         qty = int(amount / price / 100) * 100
         if qty < 100:
-            return {"status": "skipped", "reason": "单层资金不足一手", "symbol": symbol}
+            return {"status": "skipped", "reason": "单层资金不足一手", "symbol": symbol, "threshold": threshold, "learning": learning}
         order, error = paper.create_order(
             data_dir, symbol, "buy", account_id=account_id, qty=qty,
             order_type="next_open", ref_price=price, source=marker,
         )
         if error:
-            return {"status": "skipped", "reason": error, "symbol": symbol}
+            return {"status": "skipped", "reason": error, "symbol": symbol, "threshold": threshold, "learning": learning}
         try:
             from app.services import alert_store
             alert_store.append_many(data_dir, [{
@@ -189,8 +222,8 @@ def _auto_execute_paper_candidate(data_dir, record: dict) -> dict:
             }])
         except Exception as exc:  # alert persistence must never block the paper order itself
             logger.warning("paper recommendation alert write failed: %s", exc)
-        return {"status": "submitted", "symbol": symbol, "score": score, "order_id": order.get("id")}
-    return {"status": "skipped", "reason": "没有达到自动模拟阈值的候选"}
+        return {"status": "submitted", "symbol": symbol, "score": score, "threshold": threshold, "learning": learning, "order_id": order.get("id")}
+    return {"status": "skipped", "reason": f"没有达到自动模拟阈值（当前 {threshold}）的候选", "threshold": threshold, "learning": learning}
 
 
 def evaluate_auto_paper_risk(app_state) -> dict:

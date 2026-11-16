@@ -25,6 +25,13 @@ type RecRow = {
     symbol?: string;
     score?: number;
     order_id?: string;
+    threshold?: number;
+    learning?: {
+      sample_size?: number;
+      win_rate?: number | null;
+      average_pct?: number | null;
+      reason?: string;
+    };
   };
   items: RecItem[];
 };
@@ -508,7 +515,7 @@ export function RecommendationPage() {
               >
                 暗黑模拟盘：
                 {row.paper_auto.status === "submitted"
-                  ? `已提交 ${row.paper_auto.symbol}（评分 ${row.paper_auto.score}）`
+                  ? `已提交 ${row.paper_auto.symbol}（评分 ${row.paper_auto.score} / 门槛 ${row.paper_auto.threshold ?? 80}）`
                   : `未执行 · ${row.paper_auto.reason || "无原因"}`}
                 {paperStatus[row.id]
                   ? paperStatus[row.id].status === "pending"
@@ -519,6 +526,15 @@ export function RecommendationPage() {
                   : row.paper_auto.order_id
                     ? " · 订单状态读取中"
                     : ""}
+              </p>
+            )}
+            {row.paper_auto?.learning && (
+              <p className="mt-1 text-[10px] text-muted">
+                模型学习：样本 {row.paper_auto.learning.sample_size ?? 0} · 胜率{" "}
+                {row.paper_auto.learning.win_rate == null
+                  ? "待积累"
+                  : `${row.paper_auto.learning.win_rate.toFixed(1)}%`}{" "}
+                · {row.paper_auto.learning.reason || "—"}
               </p>
             )}
             <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
