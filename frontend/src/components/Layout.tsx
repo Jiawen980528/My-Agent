@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { useQuoteStream, useQuoteStreamStatus } from '@/lib/useQuoteStream'
 import { ToastContainer, toast } from '@/components/Toast'
-import { AlertToastContainer } from '@/components/AlertToast'
+import { AlertToastContainer, pushAlertToasts } from '@/components/AlertToast'
 import { AiAnalysisHost } from '@/components/financials/AiAnalysisHost'
 import { AiReportBubble } from '@/components/financials/AiReportBubble'
 import { DailyDataHealthNotice } from '@/components/data/DailyDataHealthNotice'
@@ -591,6 +591,25 @@ export function Layout() {
   const alertsTotal = alertsTotalQuery.data
   useEffect(() => {
     if (alertsTotal != null) setAlertTotal(alertsTotal)
+  }, [alertsTotal])
+  // 定时任务产生的 MyAgent/模拟盘事件不经过行情 SSE；在布局层补拉并只分发这两类，
+  // 避免策略 SSE 已推送的告警再弹一次。
+  const scheduledAlertWatermark = useRef<number | null>(null)
+  useEffect(() => {
+    let active = true
+    api.alertsList({ days: 2, limit: 30 }).then(data => {
+      if (!active) return
+      const events = (data.alerts || []).filter(event => event.source === 'myagent' || event.source === 'paper')
+      const latest = Math.max(...events.map(event => Number(event.ts) || 0), 0)
+      if (scheduledAlertWatermark.current == null) {
+        scheduledAlertWatermark.current = latest
+        return
+      }
+      const fresh = events.filter(event => Number(event.ts) > (scheduledAlertWatermark.current || 0))
+      if (fresh.length) pushAlertToasts(fresh.reverse())
+      scheduledAlertWatermark.current = Math.max(scheduledAlertWatermark.current, latest)
+    }).catch(() => undefined)
+    return () => { active = false }
   }, [alertsTotal])
 
   // 合并内置页面 + 可见的扩展分析菜单
