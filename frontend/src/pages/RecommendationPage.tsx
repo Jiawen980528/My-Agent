@@ -570,6 +570,21 @@ export function RecommendationPage() {
                         {row.createdAt.slice(11, 16)} 推荐 {i.price ?? "—"} ·
                         当前 {currentPrice ?? "—"}
                       </div>
+                      <div
+                        className={
+                          i.change_pct == null
+                            ? "text-[10px] text-muted"
+                            : Number(i.change_pct) >= 0
+                              ? "text-[10px] text-bull"
+                              : "text-[10px] text-bear"
+                        }
+                      >
+                        触发时涨跌：
+                        {i.change_pct == null
+                          ? "数据未返回"
+                          : `${Number(i.change_pct) >= 0 ? "+" : ""}${Number(i.change_pct).toFixed(2)}%`}
+                        {" · "}{row.createdAt.replace("T", " ").slice(0, 16)}
+                      </div>
                       <div className="text-accent">
                         信号 {i.signals?.join(" · ") || "拾贝评分"}{" "}
                         {i.signals?.length ? "" : (i.score ?? "—")}
