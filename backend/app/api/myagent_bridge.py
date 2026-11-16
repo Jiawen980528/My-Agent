@@ -179,6 +179,16 @@ def _auto_execute_paper_candidate(data_dir, record: dict) -> dict:
         )
         if error:
             return {"status": "skipped", "reason": error, "symbol": symbol}
+        try:
+            from app.services import alert_store
+            alert_store.append_many(data_dir, [{
+                "ts": int(time.time() * 1000), "source": "myagent", "type": "paper_order_submitted",
+                "rule_id": None, "rule_name": "高分候选自动模拟", "strategy_id": None,
+                "symbol": symbol, "name": str(item.get("name") or symbol), "price": price,
+                "message": f"暗黑模拟盘已提交 {symbol} 一层买入委托（评分 {score:.0f}，待下一交易日开盘撮合；不影响真实持仓）",
+            }])
+        except Exception as exc:  # alert persistence must never block the paper order itself
+            logger.warning("paper recommendation alert write failed: %s", exc)
         return {"status": "submitted", "symbol": symbol, "score": score, "order_id": order.get("id")}
     return {"status": "skipped", "reason": "没有达到自动模拟阈值的候选"}
 
