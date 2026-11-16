@@ -119,18 +119,39 @@ export function RecommendationPage() {
   const visible = rows.filter(
     (r) => r.date === today && (stage === "全部" || r.stage === stage),
   );
-  const tracked = useMemo(
-    () =>
-      visible
-        .flatMap((r) =>
-          r.items.map((i) => ({ item: i, quote: quotes[i.symbol] })),
-        )
-        .filter((x) => x.item.price && x.quote?.price),
-    [visible, quotes],
-  );
-  const wins = tracked.filter(
-    (x) => Number(x.quote!.price) >= Number(x.item.price),
-  ).length;
+  const performance = useMemo(() => {
+    const points = visible
+      .flatMap((row) =>
+        row.items.map((item) => ({
+          stage: row.stage,
+          change: recommendationReturn(item.price, quotes[item.symbol]?.price),
+        })),
+      )
+      .filter(
+        (item): item is { stage: string; change: number } =>
+          item.change != null,
+      );
+    const summarize = (values: number[]) => ({
+      count: values.length,
+      wins: values.filter((value) => value >= 0).length,
+      average: values.length
+        ? values.reduce((sum, value) => sum + value, 0) / values.length
+        : null,
+      best: values.length ? Math.max(...values) : null,
+      worst: values.length ? Math.min(...values) : null,
+    });
+    const byStage = ["集合竞价", "盘中推荐", "其他时间轮动"]
+      .map((stageName) => ({
+        stage: stageName,
+        ...summarize(
+          points
+            .filter((point) => point.stage === stageName)
+            .map((point) => point.change),
+        ),
+      }))
+      .filter((item) => item.count > 0);
+    return { ...summarize(points.map((point) => point.change)), byStage };
+  }, [visible, quotes]);
   const execute = async (id: string) => {
     setMessage("正在提交到暗黑模拟盘…");
     try {
@@ -265,12 +286,69 @@ export function RecommendationPage() {
         </Link>
       </div>
       {message && <p className="mb-2 text-xs text-accent">{message}</p>}
-      <div className="mb-3 text-xs text-muted">
-        推荐跟踪：{tracked.length} 只已取当前价 · 浮动胜率{" "}
-        {tracked.length
-          ? `${((wins / tracked.length) * 100).toFixed(1)}%`
-          : "待取"}
-      </div>
+      <section className="mb-3 rounded-card border border-border bg-surface p-3 text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <b>今日推荐效果</b>
+          <span className="text-muted">
+            以推荐价到最新报价计算，未成交、手续费和隔夜风险不计入。
+          </span>
+        </div>
+        {performance.count ? (
+          <>
+            <div className="mt-2 grid gap-2 sm:grid-cols-4">
+              <span className="rounded bg-elevated p-2">
+                已跟踪
+                <br />
+                <b>{performance.count} 只</b>
+              </span>
+              <span className="rounded bg-elevated p-2">
+                浮动胜率
+                <br />
+                <b>
+                  {((performance.wins / performance.count) * 100).toFixed(1)}%
+                </b>
+              </span>
+              <span className="rounded bg-elevated p-2">
+                平均涨跌
+                <br />
+                <b
+                  className={
+                    Number(performance.average) >= 0 ? "text-bull" : "text-bear"
+                  }
+                >
+                  {Number(performance.average) >= 0 ? "+" : ""}
+                  {performance.average!.toFixed(2)}%
+                </b>
+              </span>
+              <span className="rounded bg-elevated p-2">
+                最佳 / 最差
+                <br />
+                <b>
+                  {performance.best!.toFixed(2)}% /{" "}
+                  {performance.worst!.toFixed(2)}%
+                </b>
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted">
+              {performance.byStage.map((item) => (
+                <span
+                  key={item.stage}
+                  className="rounded border border-border px-2 py-1"
+                >
+                  {item.stage}：{item.count} 只 · 胜率{" "}
+                  {((item.wins / item.count) * 100).toFixed(0)}% · 均值{" "}
+                  {item.average! >= 0 ? "+" : ""}
+                  {item.average!.toFixed(2)}%
+                </span>
+              ))}
+            </div>
+          </>
+        ) : (
+          <p className="mt-2 text-muted">
+            当前没有同时具备推荐价和最新报价的股票，暂不计算胜率。
+          </p>
+        )}
+      </section>
       <div className="space-y-2">
         {visible.map((row) => (
           <section
