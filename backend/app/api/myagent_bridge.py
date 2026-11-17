@@ -56,6 +56,25 @@ def _save_recommendation_record(data_dir, record: dict) -> dict:
     return record
 
 
+def _remove_recommendation_record(data_dir, record_id: str) -> None:
+    """Remove a transient no-candidate status once a real snapshot exists."""
+    rows = [row for row in _load_recommendations(data_dir) if row.get("id") != record_id]
+    path = _recommendations_path(data_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(rows[:500], ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _save_recommendation_status(data_dir, *, day: str, stage: str, source: str,
+                                created_at: str, reason: str) -> dict:
+    """Keep one transparent no-candidate status per stage/day, never a fake pick."""
+    record = {
+        "id": f"auto-{stage}-status-{day}", "date": day, "stage": stage,
+        "createdAt": created_at, "source": source, "items": [],
+        "model_status": f"本时段没有输出个股推荐：{reason}。系统没有以其他模型、旧数据或随机标的补位。",
+    }
+    return _save_recommendation_record(data_dir, record)
+
+
 def _summarize_returns(values: list[float]) -> dict:
     if not values:
         return {"tracked": 0, "wins": 0, "win_rate": None, "average_pct": None,
@@ -331,18 +350,27 @@ def _capture_rotation_recommendation_snapshot(app_state, now: datetime, rows: li
     """
     if now.minute not in {0, 30}:
         return {"status": "skipped", "reason": "rotation_not_due"}
+    day, bucket, data_dir = now.date().isoformat(), now.strftime("%H%M"), app_state.repo.store.data_dir
+
+    def skipped(reason: str) -> dict:
+        _save_recommendation_status(
+            data_dir, day=day, stage="其他时间轮动", source="后端定时·板块轮动+个股异动确认",
+            created_at=now.isoformat(timespec="seconds"), reason=reason,
+        )
+        return {"status": "skipped", "reason": reason}
+
     try:
         from app.services.rps_rotation import _load_concept_map_df
         from app.services.sector_rotation import build_sector_rotation
 
         payload = build_sector_rotation(app_state.repo, kind="concept", top=12, bucket_minutes=5)
         if payload.get("status") != "ok":
-            return {"status": "skipped", "reason": f"rotation_{payload.get('reason') or payload.get('status')}"}
+            return skipped(f"板块轮动数据不可用（{payload.get('reason') or payload.get('status')}）")
         sectors = payload.get("sectors") or []
         leaders = [str(item.get("name") or "") for item in sectors
                    if float(item.get("pct_now") or 0) > 0][:3]
         if not leaders:
-            return {"status": "skipped", "reason": "rotation_no_positive_leader"}
+            return skipped("没有确认的正向领涨板块")
         map_df, _ = _load_concept_map_df(app_state.repo, "concept")
         memberships: dict[str, set[str]] = {}
         for item in map_df.iter_rows(named=True):
@@ -355,10 +383,9 @@ def _capture_rotation_recommendation_snapshot(app_state, now: datetime, rows: li
                                      news_context, rotation)
     except Exception as exc:  # data gaps must not break the normal intraday snapshot
         logger.warning("rotation recommendation unavailable: %s", exc)
-        return {"status": "skipped", "reason": f"rotation_unavailable:{type(exc).__name__}"}
+        return skipped(f"轮动计算暂不可用（{type(exc).__name__}）")
     if not items:
-        return {"status": "skipped", "reason": "no_stock_level_rotation_confirmation"}
-    day, bucket, data_dir = now.date().isoformat(), now.strftime("%H%M"), app_state.repo.store.data_dir
+        return skipped("领涨板块没有同时出现可核验异动的成分股")
     record = {
         "id": f"auto-rotation-{day}-{bucket}", "date": day, "stage": "其他时间轮动",
         "createdAt": now.isoformat(timespec="seconds"), "source": "后端定时·板块轮动+个股异动确认",
@@ -369,6 +396,7 @@ def _capture_rotation_recommendation_snapshot(app_state, now: datetime, rows: li
         "items": items,
     }
     record["paper_auto"] = _auto_execute_paper_candidate(data_dir, record)
+    _remove_recommendation_record(data_dir, f"auto-其他时间轮动-status-{day}")
     _save_recommendation_record(data_dir, record)
     return {"status": "saved", "stage": record["stage"], "count": len(items), "paper_auto": record["paper_auto"]}
 
@@ -503,6 +531,11 @@ def capture_recommendation_snapshot(app_state) -> dict:
         from app.services import auction_benchmark
         payload = auction_benchmark.get_auction_benchmark(data_dir, now.date())
         if payload.get("state") != "ok" or not payload.get("items"):
+            _save_recommendation_status(
+                data_dir, day=day, stage="集合竞价", source="后端定时·竞价风向标",
+                created_at=now.isoformat(timespec="seconds"),
+                reason=f"竞价数据未达到可验证状态（{payload.get('state', 'auction_unavailable')}）",
+            )
             return {"status": "skipped", "reason": payload.get("state", "auction_unavailable")}
         items = [{
             "symbol": str(item.get("thscode") or item.get("ticker") or ""),
@@ -514,6 +547,7 @@ def capture_recommendation_snapshot(app_state) -> dict:
         record = {"id": f"auto-auction-{day}-{bucket}", "date": day, "stage": "集合竞价",
                   "createdAt": now.isoformat(timespec="seconds"), "source": "后端定时·竞价风向标",
                   "model_status": "仅竞价信号，未做完整多维复核", "items": items}
+        _remove_recommendation_record(data_dir, f"auto-集合竞价-status-{day}")
         _save_recommendation_record(data_dir, record)
         return {"status": "saved", "stage": record["stage"], "count": len(items)}
     # 盘中：读取已有 enriched 异动列，五分钟一档，避免写入每分钟重复的同一批信号。
@@ -524,6 +558,11 @@ def capture_recommendation_snapshot(app_state) -> dict:
     payload = build_intraday(app_state.repo, limit=20)
     rows = payload.get("rows") or []
     if not rows:
+        _save_recommendation_status(
+            data_dir, day=day, stage="盘中推荐", source="后端定时·盘中异动",
+            created_at=now.isoformat(timespec="seconds"),
+            reason="当前未检测到可核验的个股异动信号",
+        )
         return {"status": "skipped", "reason": "no_verified_intraday_signal"}
     pool_items = research_pool.load(data_dir).get("items", [])
     market_context = _public_market_context()
@@ -560,6 +599,7 @@ def capture_recommendation_snapshot(app_state) -> dict:
               "items": items}
     # 模拟盘独立运行：只对高阈值候选下单；失败/跳过同样写入记录，方便复盘胜率。
     record["paper_auto"] = _auto_execute_paper_candidate(data_dir, record)
+    _remove_recommendation_record(data_dir, f"auto-盘中推荐-status-{day}")
     _save_recommendation_record(data_dir, record)
     return {"status": "saved", "stage": record["stage"], "count": len(items),
             "paper_auto": record["paper_auto"], "rotation_capture": rotation_capture}

@@ -1,6 +1,12 @@
 """Recommendation news evidence must remain bounded and inspectable."""
 
-from app.api.myagent_bridge import _news_score_for_candidate, _rotation_candidates
+from app.api.myagent_bridge import (
+    _load_recommendations,
+    _news_score_for_candidate,
+    _remove_recommendation_record,
+    _rotation_candidates,
+    _save_recommendation_status,
+)
 
 
 def test_news_match_uses_pool_theme_and_caps_positive_score():
@@ -62,3 +68,17 @@ def test_rotation_candidates_require_both_sector_membership_and_stock_signal():
     assert result[0]["signals"][0] == "板块轮动"
     assert result[0]["score_detail"]["rotation_leaders"] == ["半导体设备"]
     assert result[0]["score_detail"]["rotation_index"] == 0.4
+
+
+def test_no_candidate_status_is_visible_then_removed_by_real_snapshot(tmp_path):
+    _save_recommendation_status(
+        tmp_path, day="2026-11-17", stage="集合竞价", source="test",
+        created_at="2026-11-17T09:20:00+08:00", reason="竞价数据不足",
+    )
+    rows = _load_recommendations(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["items"] == []
+    assert "没有输出个股推荐" in rows[0]["model_status"]
+
+    _remove_recommendation_record(tmp_path, "auto-集合竞价-status-2026-11-17")
+    assert _load_recommendations(tmp_path) == []
