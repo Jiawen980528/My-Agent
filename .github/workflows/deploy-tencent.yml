@@ -1,4 +1,5 @@
 name: Deploy Tencent
+# Server sudo access was verified on 2026-11-17; this revision triggers a full deployment.
 on:
   workflow_dispatch:
   push:
