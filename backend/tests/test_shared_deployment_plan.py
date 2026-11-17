@@ -67,6 +67,18 @@ def test_plan_preserves_deployment_and_keeps_tokens_out_of_logs(server):
     assert json.loads((backup / 'rollback.yml').read_text())['services']['app']['image'] == 'old-stock'
 
 
+def test_plan_ignores_pruned_historical_compose_backup(server):
+    root, context, agent = server
+    compose = agent['Config']['Labels']['com.docker.compose.project.config_files']
+    agent['Config']['Labels']['com.docker.compose.project.config_files'] = compose + ',/missing/old-release.yml'
+    (root / 'agent.json').write_text(json.dumps([agent]))
+
+    result = subprocess.run(['python', '-c', inline('PLANPY'), str(context), 'a' * 40], capture_output=True, text=True)
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads((context / 'myagent-plan.json').read_text())['files'] == [compose]
+
+
 @pytest.mark.parametrize('invalid', ['data', 'compose', 'dependencies'])
 def test_plan_rejects_missing_mount_config_or_runtime_change(server, invalid):
     root, context, agent = server
