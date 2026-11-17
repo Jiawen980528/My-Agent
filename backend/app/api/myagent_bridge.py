@@ -278,6 +278,101 @@ def _score_intraday_candidate(row: dict, pool_items: list[dict], emotion: dict |
     return score, detail, score >= 65 and not blocked
 
 
+def _rotation_candidates(rows: list[dict], memberships: dict[str, set[str]], leaders: list[str],
+                         pool_items: list[dict], emotion: dict | None, market_context: dict,
+                         news_context: dict, rotation: float | None) -> list[dict]:
+    """Turn a verified sector leader into stock candidates without guessing.
+
+    A sector leaderboard alone is not a stock recommendation.  A constituent is
+    admitted only when it also appears in the existing real-time anomaly feed;
+    this keeps the separate rotation tab auditable and prevents a broad sector
+    label from producing arbitrary constituents.
+    """
+    leader_set = {str(name).strip() for name in leaders if str(name).strip()}
+    if not leader_set:
+        return []
+    picked: list[dict] = []
+    for row in rows:
+        symbol = str(row.get("symbol") or "").strip().upper()
+        symbol_keys = {symbol, _symbol_key(symbol)}
+        sectors: set[str] = set()
+        for key in symbol_keys:
+            sectors.update(memberships.get(key, set()))
+        hit = sorted(sectors & leader_set)
+        if not hit:
+            continue
+        score, detail, eligible = _score_intraday_candidate(
+            row, pool_items, emotion, market_context, news_context,
+        )
+        # Rotation is supporting evidence only, bounded so it cannot turn a
+        # weak stock into an automatic simulated trade by itself.
+        score = min(100, score + 8)
+        detail["rotation"] = 8
+        detail["rotation_leaders"] = hit
+        detail["rotation_index"] = rotation
+        picked.append({
+            "symbol": str(row.get("symbol")), "name": str(row.get("name") or row.get("symbol")),
+            "price": row.get("close"), "score": score,
+            "signals": ["板块轮动", *list(row.get("signals") or [])],
+            "change_pct": row.get("change_pct"), "score_detail": detail,
+            "eligible_for_paper": eligible and score >= 65,
+        })
+    return sorted(picked, key=lambda item: -float(item.get("score") or 0))[:5]
+
+
+def _capture_rotation_recommendation_snapshot(app_state, now: datetime, rows: list[dict],
+                                              pool_items: list[dict], emotion: dict | None,
+                                              market_context: dict, news_context: dict) -> dict:
+    """Persist a separately-labelled, periodic sector-rotation recommendation.
+
+    Runs on the half hour during continuous auction.  It deliberately saves
+    nothing when sector mapping or an auditable stock-level confirmation is
+    unavailable, rather than filling the page with generic sector names.
+    """
+    if now.minute not in {0, 30}:
+        return {"status": "skipped", "reason": "rotation_not_due"}
+    try:
+        from app.services.rps_rotation import _load_concept_map_df
+        from app.services.sector_rotation import build_sector_rotation
+
+        payload = build_sector_rotation(app_state.repo, kind="concept", top=12, bucket_minutes=5)
+        if payload.get("status") != "ok":
+            return {"status": "skipped", "reason": f"rotation_{payload.get('reason') or payload.get('status')}"}
+        sectors = payload.get("sectors") or []
+        leaders = [str(item.get("name") or "") for item in sectors
+                   if float(item.get("pct_now") or 0) > 0][:3]
+        if not leaders:
+            return {"status": "skipped", "reason": "rotation_no_positive_leader"}
+        map_df, _ = _load_concept_map_df(app_state.repo, "concept")
+        memberships: dict[str, set[str]] = {}
+        for item in map_df.iter_rows(named=True):
+            key, sector = str(item.get("_sym_up") or "").upper(), str(item.get("concept") or "")
+            if key and sector:
+                memberships.setdefault(key, set()).add(sector)
+        timeline = payload.get("timeline") or []
+        rotation = timeline[-1].get("rotation") if timeline else None
+        items = _rotation_candidates(rows, memberships, leaders, pool_items, emotion, market_context,
+                                     news_context, rotation)
+    except Exception as exc:  # data gaps must not break the normal intraday snapshot
+        logger.warning("rotation recommendation unavailable: %s", exc)
+        return {"status": "skipped", "reason": f"rotation_unavailable:{type(exc).__name__}"}
+    if not items:
+        return {"status": "skipped", "reason": "no_stock_level_rotation_confirmation"}
+    day, bucket, data_dir = now.date().isoformat(), now.strftime("%H%M"), app_state.repo.store.data_dir
+    record = {
+        "id": f"auto-rotation-{day}-{bucket}", "date": day, "stage": "其他时间轮动",
+        "createdAt": now.isoformat(timespec="seconds"), "source": "后端定时·板块轮动+个股异动确认",
+        "marketEmotion": f"{(emotion or {}).get('label', '缺失')} {(emotion or {}).get('score', '—')}",
+        "model_status": "先确认领涨概念，再要求个股同时出现可核验盘中异动；板块强弱本身不等于买入。"
+                        "缺个股确认或概念映射时不输出。",
+        "rotation_context": {"leaders": leaders, "rotation_index": rotation},
+        "items": items,
+    }
+    record["paper_auto"] = _auto_execute_paper_candidate(data_dir, record)
+    _save_recommendation_record(data_dir, record)
+    return {"status": "saved", "stage": record["stage"], "count": len(items), "paper_auto": record["paper_auto"]}
+
+
 def _auto_execute_paper_candidate(data_dir, record: dict) -> dict:
     """Submit at most one high-conviction paper order per symbol/day.
 
@@ -441,6 +536,11 @@ def capture_recommendation_snapshot(app_state) -> dict:
     except Exception as exc:  # market overview failure must not suppress a verifiable intraday record
         logger.warning("recommendation market emotion unavailable: %s", exc)
         emotion = None
+    # 独立的半小时轮动记录：和普通盘中异动同时运行，但绝不以盘中推荐
+    # 冒充轮动推荐。失败只留下状态，不影响正常推荐快照。
+    rotation_capture = _capture_rotation_recommendation_snapshot(
+        app_state, now, rows, pool_items, emotion, market_context, news_context,
+    )
     scored = []
     for row in rows:
         if not row.get("symbol"):
@@ -461,7 +561,8 @@ def capture_recommendation_snapshot(app_state) -> dict:
     # 模拟盘独立运行：只对高阈值候选下单；失败/跳过同样写入记录，方便复盘胜率。
     record["paper_auto"] = _auto_execute_paper_candidate(data_dir, record)
     _save_recommendation_record(data_dir, record)
-    return {"status": "saved", "stage": record["stage"], "count": len(items), "paper_auto": record["paper_auto"]}
+    return {"status": "saved", "stage": record["stage"], "count": len(items),
+            "paper_auto": record["paper_auto"], "rotation_capture": rotation_capture}
 
 
 @router.get("/recommendations")

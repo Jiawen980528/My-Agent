@@ -1,6 +1,6 @@
 """Recommendation news evidence must remain bounded and inspectable."""
 
-from app.api.myagent_bridge import _news_score_for_candidate
+from app.api.myagent_bridge import _news_score_for_candidate, _rotation_candidates
 
 
 def test_news_match_uses_pool_theme_and_caps_positive_score():
@@ -41,3 +41,24 @@ def test_negative_headline_reduces_score_only_with_a_match():
 
     assert score == -5
     assert detail["negative_count"] == 1
+
+
+def test_rotation_candidates_require_both_sector_membership_and_stock_signal():
+    rows = [
+        {"symbol": "688001.SH", "name": "华兴源创", "close": 20.0, "change_pct": 3.0,
+         "vol_ratio_5d": 2.0, "signals": ["volume_surge"]},
+        {"symbol": "000001.SZ", "name": "平安银行", "close": 10.0, "change_pct": 1.0,
+         "vol_ratio_5d": 2.0, "signals": ["volume_surge"]},
+    ]
+    memberships = {"688001.SH": {"半导体设备"}, "000001.SZ": {"银行"}}
+
+    result = _rotation_candidates(
+        rows, memberships, ["半导体设备"], [], {"score": 60},
+        {"market_flow_score": 0, "external_score": 0, "missing": []},
+        {"items": [], "missing": []}, 0.4,
+    )
+
+    assert [item["symbol"] for item in result] == ["688001.SH"]
+    assert result[0]["signals"][0] == "板块轮动"
+    assert result[0]["score_detail"]["rotation_leaders"] == ["半导体设备"]
+    assert result[0]["score_detail"]["rotation_index"] == 0.4
