@@ -25,6 +25,29 @@ from app.tickflow.capabilities import Cap
 
 router = APIRouter(prefix="/api/myagent", tags=["myagent-bridge"])
 
+# User-controlled manual simulation and the agent's autonomous paper account
+# must never share a ledger.  The latter is created lazily and idempotently.
+MYAGENT_PAPER_ACCOUNT_ID = "myagent_auto"
+MYAGENT_PAPER_INITIAL_CASH = 100_000.0
+MYAGENT_PAPER_COMMISSION_PCT = 0.000085  # 万 0.85；最低 5 元由 paper 域统一执行
+
+
+def _ensure_myagent_paper_account(data_dir) -> dict:
+    """Return the isolated 10 万元 MyAgent paper account, creating it once.
+
+    This never touches a user's manual/default paper account and never connects
+    to a broker.  The immutable ledger remains the source of truth.
+    """
+    from app.strategy import paper
+    account = paper.get_account(data_dir, MYAGENT_PAPER_ACCOUNT_ID)
+    if account is not None:
+        return account
+    return paper.create_account(
+        data_dir, MYAGENT_PAPER_INITIAL_CASH, account_id=MYAGENT_PAPER_ACCOUNT_ID,
+        name="MyAgent 暗黑模拟盘", commission_pct=MYAGENT_PAPER_COMMISSION_PCT,
+        stamp_tax_pct=0.001, slippage_bps=5.0, max_tranches_per_symbol=4,
+    )
+
 
 def _recommendations_path(data_dir):
     return data_dir / "user_data" / "myagent_recommendations.json"
@@ -408,10 +431,8 @@ def _auto_execute_paper_candidate(data_dir, record: dict) -> dict:
     researched and recorded, but only a score of 80+ may open a simulated layer.
     """
     from app.strategy import paper
-    account_id = "default"
-    account = paper.get_account(data_dir, account_id)
-    if account is None:
-        return {"status": "skipped", "reason": "模拟账户不存在"}
+    account_id = MYAGENT_PAPER_ACCOUNT_ID
+    account = _ensure_myagent_paper_account(data_dir)
     day = str(record.get("date") or "")
     existing = paper.load_orders(data_dir, account_id)
     threshold, learning = _adaptive_paper_threshold(data_dir, str(record.get("stage") or "盘中推荐"))
@@ -459,10 +480,10 @@ def evaluate_auto_paper_risk(app_state) -> dict:
     now = datetime.now(ZoneInfo("Asia/Shanghai"))
     if now.weekday() >= 5:
         return {"status": "skipped", "reason": "non_trading_weekday"}
-    data_dir, account_id, day = app_state.repo.store.data_dir, "default", now.date().isoformat()
+    data_dir, account_id, day = app_state.repo.store.data_dir, MYAGENT_PAPER_ACCOUNT_ID, now.date().isoformat()
     account = paper.get_account(data_dir, account_id)
     if account is None:
-        return {"status": "skipped", "reason": "模拟账户不存在"}
+        return {"status": "skipped", "reason": "MyAgent 模拟账户尚未创建"}
     try:
         from app.services.market_overview_builder import build_market_overview
         emotion = int((build_market_overview(app_state.repo, getattr(app_state, "quote_service", None),
@@ -648,7 +669,9 @@ async def save_recommendation(request: Request):
 
 
 @router.post("/recommendations/{recommendation_id}/paper-execute")
-async def execute_recommendation_paper(request: Request, recommendation_id: str, account: str = Query("default")):
+async def execute_recommendation_paper(
+    request: Request, recommendation_id: str, account: str = Query(MYAGENT_PAPER_ACCOUNT_ID),
+):
     """将已保存推荐按固定小仓位提交到暗黑模拟盘；绝不连接真实券商。"""
     rows = _load_recommendations(request.app.state.repo.store.data_dir)
     record = next((row for row in rows if isinstance(row, dict) and row.get("id") == recommendation_id), None)
@@ -659,8 +682,13 @@ async def execute_recommendation_paper(request: Request, recommendation_id: str,
         account_id = paper.validate_account_id(account)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Compatibility for the existing recommendation-page button, which used to
+    # send account=default before the autonomous account was isolated.
+    if account_id == "default":
+        account_id = MYAGENT_PAPER_ACCOUNT_ID
     data_dir = request.app.state.repo.store.data_dir
-    acc = paper.get_account(data_dir, account_id)
+    acc = (_ensure_myagent_paper_account(data_dir)
+           if account_id == MYAGENT_PAPER_ACCOUNT_ID else paper.get_account(data_dir, account_id))
     if acc is None:
         raise HTTPException(status_code=400, detail="模拟账户不存在，请先创建暗黑模拟账户")
     amount = float(acc.get("initial_cash", 100000.0)) * 0.04
@@ -693,7 +721,9 @@ async def execute_recommendation_paper(request: Request, recommendation_id: str,
 
 
 @router.get("/recommendations/{recommendation_id}/paper-status")
-def recommendation_paper_status(request: Request, recommendation_id: str, account: str = Query("default")):
+def recommendation_paper_status(
+    request: Request, recommendation_id: str, account: str = Query(MYAGENT_PAPER_ACCOUNT_ID),
+):
     """Return the paper order lifecycle for an automated recommendation snapshot."""
     record = next((row for row in _load_recommendations(request.app.state.repo.store.data_dir)
                    if row.get("id") == recommendation_id), None)
@@ -708,6 +738,8 @@ def recommendation_paper_status(request: Request, recommendation_id: str, accoun
         account_id = paper.validate_account_id(account)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if account_id == "default":
+        account_id = MYAGENT_PAPER_ACCOUNT_ID
     order = paper.get_order(request.app.state.repo.store.data_dir, order_id, account_id)
     if order is None:
         return {"status": "not_found", "reason": "模拟订单不存在或账户已变更", "order_id": order_id}

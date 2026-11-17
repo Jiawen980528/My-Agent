@@ -1,6 +1,8 @@
 """Recommendation news evidence must remain bounded and inspectable."""
 
 from app.api.myagent_bridge import (
+    MYAGENT_PAPER_ACCOUNT_ID,
+    _ensure_myagent_paper_account,
     _load_recommendations,
     _news_score_for_candidate,
     _remove_recommendation_record,
@@ -82,3 +84,15 @@ def test_no_candidate_status_is_visible_then_removed_by_real_snapshot(tmp_path):
 
     _remove_recommendation_record(tmp_path, "auto-集合竞价-status-2026-11-17")
     assert _load_recommendations(tmp_path) == []
+
+
+def test_myagent_auto_paper_account_is_isolated_and_idempotent(tmp_path):
+    first = _ensure_myagent_paper_account(tmp_path)
+    again = _ensure_myagent_paper_account(tmp_path)
+
+    assert first["id"] == MYAGENT_PAPER_ACCOUNT_ID
+    assert first["name"] == "MyAgent 暗黑模拟盘"
+    assert first["initial_cash"] == 100_000.0
+    assert first["commission_pct"] == 0.000085
+    assert first["max_tranches_per_symbol"] == 4
+    assert again == first
