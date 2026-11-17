@@ -129,6 +129,13 @@ async def _application_lifespan(app: FastAPI):
         repo = KlineRepository(store)
     app.state.datastore = store
     app.state.repo = repo
+    # MyAgent 自动模拟盘与用户手动模拟盘严格分账。启动时即创建专属的
+    # 10 万元账户，避免首个推荐因“账户不存在”被静默跳过；不接券商。
+    try:
+        with startup_phase(logger, "MyAgent paper account initialization"):
+            myagent_bridge._ensure_myagent_paper_account(store.data_dir)  # noqa: SLF001
+    except Exception as e:  # noqa: BLE001 -- 模拟盘初始化不可阻断行情服务启动
+        logger.warning("MyAgent paper account initialization failed: %s", e)
     # 去内置化种子迁移必须赶在下方 refresh_cache 之前: enriched 缓存构建时
     # 编译自定义信号表达式, 晚种会让本次启动的看板/梯队引用的 signal_limit_*
     # 列缺失 (跌停恒 0、连板梯队无数据), 直到下一次缓存刷新才自愈。
