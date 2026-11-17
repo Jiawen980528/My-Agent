@@ -80,11 +80,17 @@ workdir = pathlib.Path(labels.get('com.docker.compose.project.working_dir', ''))
 label_files = labels.get('com.docker.compose.project.config_files', '').split(',')
 # Compose labels retain historical override paths after backups are pruned.
 # Trust only the verified primary config in the declared working directory.
-primary_file = workdir / 'docker-compose.yml'
-if (not service or not project or not workdir.is_absolute() or not workdir.is_dir()
-        or str(primary_file) not in label_files or not primary_file.is_file()):
+valid_primary_files = []
+if workdir.is_absolute() and workdir.is_dir():
+    resolved_workdir = workdir.resolve()
+    for value in label_files:
+        candidate = pathlib.Path(value.strip())
+        # Ignore stale backup labels; use exactly one real project config.
+        if candidate.is_absolute() and candidate.is_file() and candidate.resolve().parent == resolved_workdir:
+            valid_primary_files.append(candidate)
+if not service or not project or len(valid_primary_files) != 1:
     raise SystemExit('Cannot safely identify the MyAgent Compose deployment')
-files = [str(primary_file)]
+files = [str(valid_primary_files[0])]
 data = next((m['Source'] for m in agent['Mounts'] if m['Destination'] == '/app/data'), '')
 if not data or data == '/' or not pathlib.Path(data).is_dir():
     raise SystemExit('MyAgent persistent data mount missing')
