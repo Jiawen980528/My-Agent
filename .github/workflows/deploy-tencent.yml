@@ -76,7 +76,10 @@ jobs:
           opts=(-i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ServerAliveInterval=30)
           ssh "${opts[@]}" "$target" "mkdir -p /home/myagent-deploy/releases/$GITHUB_SHA"
           scp "${opts[@]}" code.tar.gz code.tar.gz.sha256 "$target:/home/myagent-deploy/releases/$GITHUB_SHA/"
-          ssh "${opts[@]}" "$target" "sudo -n /usr/local/sbin/myagent-deploy $GITHUB_SHA"
+          if ! ssh "${opts[@]}" "$target" "sudo -n /usr/local/sbin/myagent-deploy $GITHUB_SHA" > deploy-output.txt 2>&1; then
+            cat deploy-output.txt
+            exit 1
+          fi
 
       - name: Collect deployment diagnostics on failure
         if: failure()
@@ -94,7 +97,12 @@ jobs:
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           target="$DEPLOY_USER@$DEPLOY_HOST"
           opts=(-i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15)
-          ssh "${opts[@]}" "$target" 'sudo -n systemctl --no-pager --full status tick-stock-panel myagent 2>&1 || true; sudo -n journalctl -u tick-stock-panel -u myagent --no-pager -n 180 2>&1 || true; df -h 2>&1 || true' > deploy-diagnostics.txt 2>&1 || true
+          {
+            echo '=== Primary deployment output ==='
+            test -f deploy-output.txt && cat deploy-output.txt || true
+            echo '=== Remote process and disk summary ==='
+            ssh "${opts[@]}" "$target" 'docker ps -a 2>&1 || true; df -h 2>&1 || true' || true
+          } > deploy-diagnostics.txt 2>&1
 
       - name: Upload deployment diagnostics
         if: failure()
