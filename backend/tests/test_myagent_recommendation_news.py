@@ -2,6 +2,7 @@
 
 from app.api.myagent_bridge import (
     MYAGENT_PAPER_ACCOUNT_ID,
+    _auto_execute_paper_candidate,
     _ensure_myagent_paper_account,
     _load_recommendations,
     _news_score_for_candidate,
@@ -96,3 +97,19 @@ def test_myagent_auto_paper_account_is_isolated_and_idempotent(tmp_path):
     assert first["commission_pct"] == 0.000085
     assert first["max_tranches_per_symbol"] == 4
     assert again == first
+
+
+def test_intraday_auto_recommendation_fills_at_visible_snapshot_price(tmp_path):
+    result = _auto_execute_paper_candidate(tmp_path, {
+        "date": "2026-11-18", "stage": "盘中推荐",
+        "items": [{"symbol": "000001.SZ", "name": "测试股", "price": 10.0,
+                   "score": 90, "eligible_for_paper": True}],
+    })
+
+    from app.strategy import paper
+    order = paper.get_order(tmp_path, result["order_id"], MYAGENT_PAPER_ACCOUNT_ID)
+    assert result["status"] == "submitted"
+    assert result["order_type"] == "market"
+    assert result["execution_status"] == "filled"
+    assert order["status"] == "filled"
+    assert order["fill_price"] > 10.0  # 买入滑点被计入，绝非事后收盘价回填

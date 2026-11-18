@@ -449,23 +449,35 @@ def _auto_execute_paper_candidate(data_dir, record: dict) -> dict:
         qty = int(amount / price / 100) * 100
         if qty < 100:
             return {"status": "skipped", "reason": "单层资金不足一手", "symbol": symbol, "threshold": threshold, "learning": learning}
+        stage = str(record.get("stage") or "")
+        # 盘中/轮动信号的价格在生成快照时已经可见，直接按该快照进入
+        # 模拟撮合；集合竞价没有连续交易成交价，仍由下一交易日开盘撮合。
+        order_type = "market" if stage in {"盘中推荐", "其他时间轮动"} else "next_open"
         order, error = paper.create_order(
             data_dir, symbol, "buy", account_id=account_id, qty=qty,
-            order_type="next_open", ref_price=price, source=marker,
+            order_type=order_type, ref_price=price, source=marker,
         )
         if error:
             return {"status": "skipped", "reason": error, "symbol": symbol, "threshold": threshold, "learning": learning}
+        if order_type == "market":
+            # evaluate_intraday uses the same observed price and applies the
+            # account's slippage/fees/limit rules before marking it filled.
+            paper.evaluate_intraday(data_dir, {symbol: price}, account_id=account_id)
+            order = paper.get_order(data_dir, order["id"], account_id) or order
         try:
+            timing = "已按当前可见报价模拟成交" if order.get("status") == "filled" else "即时委托待行情撮合"
             from app.services import alert_store
             alert_store.append_many(data_dir, [{
                 "ts": int(time.time() * 1000), "source": "myagent", "type": "paper_order_submitted",
                 "rule_id": None, "rule_name": "高分候选自动模拟", "strategy_id": None,
                 "symbol": symbol, "name": str(item.get("name") or symbol), "price": price,
-                "message": f"暗黑模拟盘已提交 {symbol} 一层买入委托（评分 {score:.0f}，待下一交易日开盘撮合；不影响真实持仓）",
+                "message": f"暗黑模拟盘 {timing}：{symbol} 一层买入（评分 {score:.0f}；不影响真实持仓）",
             }])
         except Exception as exc:  # alert persistence must never block the paper order itself
             logger.warning("paper recommendation alert write failed: %s", exc)
-        return {"status": "submitted", "symbol": symbol, "score": score, "threshold": threshold, "learning": learning, "order_id": order.get("id")}
+        return {"status": "submitted", "symbol": symbol, "score": score, "threshold": threshold,
+                "learning": learning, "order_id": order.get("id"), "order_type": order.get("order_type"),
+                "execution_status": order.get("status"), "fill_price": order.get("fill_price")}
     return {"status": "skipped", "reason": f"没有达到自动模拟阈值（当前 {threshold}）的候选", "threshold": threshold, "learning": learning}
 
 
