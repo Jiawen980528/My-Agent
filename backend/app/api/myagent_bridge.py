@@ -94,6 +94,7 @@ def _save_recommendation_status(data_dir, *, day: str, stage: str, source: str,
         "id": f"auto-{stage}-status-{day}", "date": day, "stage": stage,
         "createdAt": created_at, "source": source, "items": [],
         "model_status": f"本时段没有输出个股推荐：{reason}。系统没有以其他模型、旧数据或随机标的补位。",
+        "paper_auto": {"status": "skipped", "reason": f"未自动买入：{reason}"},
     }
     return _save_recommendation_record(data_dir, record)
 
@@ -436,11 +437,19 @@ def _auto_execute_paper_candidate(data_dir, record: dict) -> dict:
     day = str(record.get("date") or "")
     existing = paper.load_orders(data_dir, account_id)
     threshold, learning = _adaptive_paper_threshold(data_dir, str(record.get("stage") or "盘中推荐"))
+    skipped_candidates: list[dict] = []
     for item in sorted(record.get("items") or [], key=lambda row: float(row.get("score") or 0), reverse=True):
         symbol = str(item.get("symbol") or "").strip()
         score = float(item.get("score") or 0)
         price = float(item.get("price") or 0)
-        if not item.get("eligible_for_paper") or score < threshold or not symbol or price <= 0:
+        if not symbol or price <= 0:
+            skipped_candidates.append({"symbol": symbol or "—", "score": score, "reason": "缺少有效推荐价"})
+            continue
+        if not item.get("eligible_for_paper"):
+            skipped_candidates.append({"symbol": symbol, "score": score, "reason": "未通过盘中异动准入"})
+            continue
+        if score < threshold:
+            skipped_candidates.append({"symbol": symbol, "score": score, "reason": f"评分低于自动门槛 {threshold}"})
             continue
         marker = f"auto-recommendation:{day}:{symbol}"
         if any(str(order.get("source") or "").startswith(marker) for order in existing):
@@ -478,7 +487,13 @@ def _auto_execute_paper_candidate(data_dir, record: dict) -> dict:
         return {"status": "submitted", "symbol": symbol, "score": score, "threshold": threshold,
                 "learning": learning, "order_id": order.get("id"), "order_type": order.get("order_type"),
                 "execution_status": order.get("status"), "fill_price": order.get("fill_price")}
-    return {"status": "skipped", "reason": f"没有达到自动模拟阈值（当前 {threshold}）的候选", "threshold": threshold, "learning": learning}
+    if skipped_candidates:
+        top = skipped_candidates[0]
+        reason = f"未自动买入：{top['symbol']} 评分 {top['score']:.0f}，{top['reason']}"
+    else:
+        reason = f"未自动买入：本轮没有可交易候选（当前自动门槛 {threshold}）"
+    return {"status": "skipped", "reason": reason, "threshold": threshold,
+            "learning": learning, "candidates": skipped_candidates[:5]}
 
 
 def evaluate_auto_paper_risk(app_state) -> dict:
@@ -579,7 +594,8 @@ def capture_recommendation_snapshot(app_state) -> dict:
         } for item in payload["items"][:5] if item.get("thscode") or item.get("ticker")]
         record = {"id": f"auto-auction-{day}-{bucket}", "date": day, "stage": "集合竞价",
                   "createdAt": now.isoformat(timespec="seconds"), "source": "后端定时·竞价风向标",
-                  "model_status": "仅竞价信号，未做完整多维复核", "items": items}
+                  "model_status": "仅竞价信号，未做完整多维复核", "items": items,
+                  "paper_auto": {"status": "skipped", "reason": "集合竞价只生成风向标；等待连续竞价的可验证报价后才允许模拟买入"}}
         _remove_recommendation_record(data_dir, f"auto-集合竞价-status-{day}")
         _save_recommendation_record(data_dir, record)
         return {"status": "saved", "stage": record["stage"], "count": len(items)}

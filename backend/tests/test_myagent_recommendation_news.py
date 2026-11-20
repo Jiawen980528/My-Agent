@@ -113,3 +113,16 @@ def test_intraday_auto_recommendation_fills_at_visible_snapshot_price(tmp_path):
     assert result["execution_status"] == "filled"
     assert order["status"] == "filled"
     assert order["fill_price"] > 10.0  # 买入滑点被计入，绝非事后收盘价回填
+
+
+def test_auto_skip_explains_top_candidate_and_threshold(tmp_path):
+    result = _auto_execute_paper_candidate(tmp_path, {
+        "date": "2026-11-20", "stage": "盘中推荐",
+        "items": [{"symbol": "000001.SZ", "name": "测试股", "price": 10.0,
+                   "score": 72, "eligible_for_paper": True}],
+    })
+
+    assert result["status"] == "skipped"
+    assert "000001.SZ 评分 72" in result["reason"]
+    assert "低于自动门槛" in result["reason"]
+    assert result["candidates"][0]["reason"].startswith("评分低于")
