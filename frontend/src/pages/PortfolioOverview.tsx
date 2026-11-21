@@ -40,6 +40,15 @@ type Recommendation = {
   };
 };
 
+type DailyPick = RecommendationItem & {
+  stage: string;
+  createdAt?: string;
+  source?: string;
+  paperReason?: string;
+};
+
+const DAILY_PICK_LIMIT = 5;
+
 function chinaTradeDate() {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Shanghai",
@@ -118,7 +127,29 @@ export function PortfolioOverview() {
   const availableDays = [...new Set(rows.map((row) => row.date).filter(Boolean))].sort().reverse();
   const shownDay = availableDays.includes(marketDay) ? marketDay : availableDays[0];
   const recommendations = shownDay ? rows.filter((row) => row.date === shownDay) : [];
-  const itemCount = recommendations.reduce((total, row) => total + (row.items?.length || 0), 0);
+  // 盘中每个时段都会留下审计快照。首页只呈现每日最终候选：先按最新
+  // 快照去重，再按评分取前五；旧快照仍在完整推荐页供复盘，不会被删掉。
+  const dailyPicks = useMemo(() => {
+    const newestFirst = [...recommendations].sort((a, b) =>
+      String(b.createdAt || b.id).localeCompare(String(a.createdAt || a.id)),
+    );
+    const latestBySymbol = new Map<string, DailyPick>();
+    newestFirst.forEach((row) => {
+      (row.items || []).forEach((item) => {
+        if (!item.symbol || latestBySymbol.has(item.symbol)) return;
+        latestBySymbol.set(item.symbol, {
+          ...item,
+          stage: row.stage,
+          createdAt: row.createdAt,
+          source: row.source,
+          paperReason: row.paper_auto?.reason,
+        });
+      });
+    });
+    return [...latestBySymbol.values()]
+      .sort((a, b) => Number(b.score ?? -1) - Number(a.score ?? -1))
+      .slice(0, DAILY_PICK_LIMIT);
+  }, [recommendations]);
 
   return (
     <div className="h-full overflow-auto bg-base p-3 text-foreground">
@@ -182,36 +213,29 @@ export function PortfolioOverview() {
       <section>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="text-sm font-semibold">每日推荐 <span className="text-muted">({itemCount} 只)</span></h2>
+            <h2 className="text-sm font-semibold">每日推荐 <span className="text-muted">({dailyPicks.length}/{DAILY_PICK_LIMIT} 只)</span></h2>
             <p className="mt-0.5 text-[11px] text-muted">
               {shownDay ? (shownDay === marketDay ? `中国交易日 ${shownDay}` : `今日暂无记录，展示最近一次 ${shownDay}`) : "暂未生成推荐记录"}
             </p>
           </div>
-          <Link to="/recommendations" className="text-xs text-accent">查看完整推荐、涨幅与复盘 →</Link>
+          <Link to="/recommendations" className="text-xs text-accent">查看完整快照、涨幅与复盘 →</Link>
         </div>
-        <div className="grid gap-2 lg:grid-cols-2">
-          {recommendations.map((row) => (
-            <article key={row.id} className="rounded-card border border-border bg-surface p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div><b className="text-sm">{row.stage}</b><span className="ml-2 text-[11px] text-muted">{row.source || "后端推荐快照"}</span></div>
-                {row.paper_auto && <span className="text-[11px] text-muted">模拟盘：{row.paper_auto.status || row.paper_auto.execution_status || "已评估"}</span>}
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {dailyPicks.map((item, index) => (
+            <article key={item.symbol} className="rounded-card border border-border bg-surface p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div><span className="mr-2 text-xs text-muted">#{index + 1}</span><b className="text-sm">{item.name}</b><p className="mt-0.5 text-[11px] text-muted">{item.symbol} · {item.stage}</p></div>
+                <span className="text-xs text-accent">评分 {item.score ?? "—"}</span>
               </div>
-              {row.items?.length ? (
-                <div className="mt-3 space-y-2">
-                  {row.items.map((item) => (
-                    <div key={item.symbol} className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2 text-xs first:border-t-0 first:pt-0">
-                      <div><b>{item.name}</b><span className="ml-2 text-muted">{item.symbol}</span><span className="ml-2 text-muted">评分 {item.score ?? "—"}</span></div>
-                      <div className="text-right"><span>推荐价 {number(item.price, 3)}</span><span className={`ml-2 ${Number(item.change_pct) >= 0 ? "text-up" : "text-down"}`}>{percent(item.change_pct)}</span></div>
-                    </div>
-                  ))}
-                </div>
-              ) : <p className="mt-3 text-xs text-muted">本时段未达到推荐门槛。{row.paper_auto?.reason ? ` ${row.paper_auto.reason}` : ""}</p>}
-              {row.paper_auto?.reason && row.items?.length ? <p className="mt-2 text-[11px] text-muted">模拟盘判断：{row.paper_auto.reason}</p> : null}
+              <div className="mt-3 flex flex-wrap justify-between gap-2 text-xs text-secondary"><span>推荐价 <b className="text-foreground">{number(item.price, 3)}</b></span><span className={Number(item.change_pct) >= 0 ? "text-up" : "text-down"}>{percent(item.change_pct)}</span></div>
+              {item.signals?.length ? <p className="mt-2 text-[11px] text-muted">{item.signals.slice(0, 3).join(" · ")}</p> : null}
+              {item.paperReason ? <p className="mt-2 text-[11px] text-muted">模拟盘：{item.paperReason}</p> : null}
+              <Link to={`/stock-analysis?symbol=${encodeURIComponent(item.symbol)}&name=${encodeURIComponent(item.name)}`} className="mt-3 inline-block text-xs text-accent">查看详细分析 →</Link>
             </article>
           ))}
         </div>
-        {!loading && recommendations.length === 0 && (
-          <div className="rounded-card border border-border bg-surface p-4 text-xs text-muted">当前尚无已保存的推荐快照。开盘后由后端定时任务写入集合竞价、盘中或轮动记录；这里会直接显示，不依赖浏览器本地日期。</div>
+        {!loading && dailyPicks.length === 0 && (
+          <div className="rounded-card border border-border bg-surface p-4 text-xs text-muted">当前尚无达到每日候选标准的推荐。开盘后由后端定时任务写入集合竞价、盘中或轮动快照；这里最多显示 5 只去重后的最终候选，不依赖浏览器本地日期。</div>
         )}
       </section>
     </div>
