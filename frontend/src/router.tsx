@@ -24,6 +24,7 @@ const SentimentMonitor = lazy(() => import('./pages/SentimentMonitor').then(m =>
 const RecommendationPage = lazy(() => import('./pages/RecommendationPage').then(m => ({ default: m.RecommendationPage })))
 const StrongSectors = lazy(() => import('./pages/PickModel').then(m => ({ default: m.PickModel })))
 const MyAgentQuant = lazy(() => import('./pages/MyAgentQuant').then(m => ({ default: m.MyAgentQuant })))
+const PortfolioOverview = lazy(() => import('./pages/PortfolioOverview').then(m => ({ default: m.PortfolioOverview })))
 const FundFlow = lazy(() => import('./pages/FundFlow').then(m => ({ default: m.FundFlow })))
 const MarketNews = lazy(() => import('./pages/MarketNews').then(m => ({ default: m.MarketNews })))
 const DecisionGuide = lazy(() => import('./pages/DecisionGuide').then(m => ({ default: m.DecisionGuide })))
@@ -174,7 +175,7 @@ export const router = createBrowserRouter([
       { path: 'recommendations', element: <RecommendationPage /> },
       { path: 'strong-sectors', element: <StrongSectors /> },
       { path: 'myagent-quant', element: <MyAgentQuant /> },
-      { path: 'holdings', element: <MyAgentQuant /> },
+      { path: 'holdings', element: <PortfolioOverview /> },
       { path: 'fund-flow', element: <FundFlow /> },
       { path: 'overview', element: <Navigate to="/" replace /> },
       { path: 'analysis', element: <Navigate to="/settings?tab=pages&section=ext-pages" replace /> },
