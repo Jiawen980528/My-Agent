@@ -505,6 +505,16 @@ async def _fetch_local_index_history(request: Request, code: str, days: int) -> 
 @router.get("/fund-flow/sectors")
 async def fund_flow_sectors(q: str = Query("", max_length=40), limit: int = Query(1200, ge=1, le=1200)):
     """Search THS industry/concept boards first, then fall back to Eastmoney BK boards."""
+    # 同花顺指数代码可以脱离目录直接定位。目录未同步时也允许用户保存这个
+    # 代码，但名称保持“待核验”，后续曲线仍由扶摇接口验证，绝不把代码猜成板块名称。
+    direct = q.strip().upper()
+    if re.fullmatch(r"\d{6}(?:\.TI)?", direct):
+        code = direct if direct.endswith(".TI") else f"{direct}.TI"
+        return {"items": [{"code": code, "name": f"同花顺板块 {direct[:6]}（待核验）", "pct": None}], "total": 1,
+                "source": "用户输入的同花顺指数代码（待扶摇目录核验）"}
+    if re.fullmatch(r"\d{6}\.(?:SH|SZ)", direct):
+        return {"items": [{"code": direct, "name": direct, "pct": None}], "total": 1,
+                "source": "用户输入的指数代码（待行情缓存核验）"}
     global _fuyao_board_catalog_cache
     fuyao_cached = _fuyao_board_catalog_cache
     if not fuyao_cached or time.monotonic() - fuyao_cached[0] >= 1800:

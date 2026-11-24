@@ -220,8 +220,9 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
   const applyBoardSearch = () => {
     const raw = boardSearch.trim()
     if (!raw) { onLinkedBoardChange(''); setBoardChoiceError(''); return }
-    const code = raw.match(/(?:BK\d{4}|\d{6}\.(?:TI|SH|SZ))/i)?.[0]?.toUpperCase()
-    const match = boardOptions.find(option => option.code === code || option.name === raw || raw.includes(option.code))
+    const code = raw.match(/(?:BK\d{4}|\d{6}(?:\.(?:TI|SH|SZ))?)/i)?.[0]?.toUpperCase()
+    const normalizedCode = code && /^\d{6}$/.test(code) ? `${code}.TI` : code
+    const match = boardOptions.find(option => option.code === normalizedCode || option.name === raw || raw.includes(option.code))
       || boardOptions.find(option => option.name.includes(raw))
     if (!match) { setBoardChoiceError('未找到该板块，请输入名称、BK 代码或同花顺指数代码'); return }
     onLinkedBoardChange(match.code); setBoardSearch(`${match.name} (${match.code})`); setBoardChoiceError('')
@@ -662,12 +663,13 @@ export function PortfolioMonitorWidget() {
   const addBoard = (inputValue = boardInput) => {
     const raw = inputValue.trim()
     const directCode = raw.toUpperCase()
+    const normalizedDirect = /^\d{6}$/.test(directCode) ? `${directCode}.TI` : directCode
     const matched = [...(boardSearch.data?.items || []), ...(sectorCatalog.data?.items || [])]
-      .find(item => item.code.toUpperCase() === directCode || item.name === raw)
+      .find(item => item.code.toUpperCase() === normalizedDirect || item.name === raw)
     // Eastmoney 使用 BKxxxx；扶摇同花顺行业/概念目录可能使用 88xxxx/其它
     // 合法指数代码，必须以目录匹配结果为准，不能把代码格式硬编码成 BK。
-    const code = matched?.code || (/^BK\d{4}$/.test(directCode) ? directCode : boardMatches[0]?.code)
-    if (!code) { setBoardError('请输入板块名称或代码，例如“半导体芯片”或 BK1036'); return }
+    const code = matched?.code || (/^(?:BK\d{4}|\d{6}\.(?:TI|SH|SZ))$/.test(normalizedDirect) ? normalizedDirect : boardMatches[0]?.code)
+    if (!code) { setBoardError('请输入板块名称或代码，例如“半导体芯片”、931743 或 BK1036'); return }
     if (!extraBoards.includes(code)) {
       const next = [...extraBoards, code]
       setExtraBoards(next)
