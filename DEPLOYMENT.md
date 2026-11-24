@@ -13,9 +13,20 @@ Copy `.env.example` to `.env` on the server and set values there. Never commit `
 - `AI_API_KEY` and `AI_BASE_URL`: optional AI provider configuration.
 - `MYAGENT_BRIDGE_URL` and `MYAGENT_ADMIN_TOKEN`: optional adjacent MyAgent service.
 
-If `external/myagent-service` is deployed separately, configure its `.env` from
-`external/myagent-service/.env.example`. It requires a long `ADMIN_TOKEN`; never
-put that value in frontend code or logs.
+The React portfolio/decision pages use this bridge for the MyAgent read-only
+quant endpoints. If the bridge is not running, the pages intentionally show an
+explicit unavailable state instead of inventing holdings or prices. On Windows,
+when the MyAgent source is in the sibling folder `..\..\MyAgent`, start both
+services with:
+
+```powershell
+.\dev-integrated.ps1
+```
+
+Use `-MyAgentRoot` when the sibling source is elsewhere. Configure the bridge
+URL and the matching `MYAGENT_ADMIN_TOKEN` in the local `.env`; the token is
+never sent to the browser or printed by the launcher. The MyAgent service must
+have its own `.env` with `ADMIN_TOKEN`. Keep both `.env` files local.
 
 ## Docker deployment
 
