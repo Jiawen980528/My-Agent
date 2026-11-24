@@ -68,7 +68,10 @@ def build_router() -> APIRouter:
             root = data_dir / "user_data" / "extensions" / "paper_execution"
             root.mkdir(parents=True, exist_ok=True)
             # SQLite 的操作系统锁跨平台、随进程退出释放；禁止多个 worker 同时跟单。
-            lease = sqlite3.connect(root / "runner.sqlite", timeout=0)
+            # 启动时可能与上一个服务实例的关闭/SQLite checkpoint 短暂重叠；
+            # 给锁一个有界等待窗口，避免瞬时 database is locked 让整个
+            # 模拟执行扩展永久降级为 503。真正的第二个执行进程仍会在超时后失败。
+            lease = sqlite3.connect(root / "runner.sqlite", timeout=8)
             lease.execute("BEGIN EXCLUSIVE")
             service = ExecutionService(
                 data_dir, engine, ScreenerService(repo), getattr(app.state, "quote_service", None)

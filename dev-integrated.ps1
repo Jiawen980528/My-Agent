@@ -1,4 +1,4 @@
-# MyAgent + TickFlow 联合本机启动器（只读研究/提醒/模拟盘）
+﻿# MyAgent + TickFlow 联合本机启动器（只读研究/提醒/模拟盘）
 #
 # 用法：
 #   .\dev-integrated.ps1
@@ -61,7 +61,10 @@ if (-not $SkipMyAgent) {
 if (-not $SkipMyAgent) {
     $myAgentAdminToken = Read-DotEnvValue (Join-Path $MyAgentRoot '.env') 'ADMIN_TOKEN'
     if ([string]::IsNullOrWhiteSpace($myAgentAdminToken)) { throw 'MyAgent .env 未配置 ADMIN_TOKEN，无法建立本机只读桥接。' }
-    $bridgeToken = "local-readonly-$([Guid]::NewGuid().ToString('N'))"
+    # Windows PowerShell 5 对双引号字符串内的嵌套方法参数解析不稳定；
+    # 拆成两步保持令牌生成方式不变。
+    $bridgeId = [Guid]::NewGuid().ToString()
+    $bridgeToken = "local-readonly-$bridgeId"
     $env:MYAGENT_BRIDGE_URL = "http://127.0.0.1:$MyAgentPort"
     $env:MYAGENT_ADMIN_TOKEN = $myAgentAdminToken
     $env:TICKFLOW_BRIDGE_URL = "http://127.0.0.1:$TickFlowBackendPort"
