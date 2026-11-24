@@ -188,7 +188,7 @@ def _classify(rel: PurePosixPath, data_dir: Path) -> tuple[str, Path] | None:
             return "watchlist", data_dir / "user_data" / name
         if name == "research_candidates.json":
             return "research_candidates", data_dir / "user_data" / name
-        if name in ("alerts.jsonl", "assistant_sessions.json"):
+        if name in ("alerts.jsonl", "assistant_sessions.json", "forecast_reviews.json"):
             return "history", data_dir / "user_data" / name
     if len(parts) == 2 and parts[0] == "data_sources" and (_name_ok(parts[1], ".yaml") or _name_ok(parts[1], ".yml")):
         return "data_sources", data_dir / Path(*parts)
@@ -247,7 +247,7 @@ def _collect_backup_files(data_dir: Path) -> list[Path]:
     _glob(data_dir / "user_data" / "lots", "lot_*.json")
     for name in (
         "watchlist.parquet", "watchlist_groups.json", "preferences.json",
-        "research_candidates.json", "alerts.jsonl", "assistant_sessions.json", "auth.json",
+        "research_candidates.json", "forecast_reviews.json", "alerts.jsonl", "assistant_sessions.json", "auth.json",
     ):
         p = data_dir / "user_data" / name
         if p.is_file():
@@ -567,8 +567,8 @@ def _validate_payload(entry: _Entry, payload: bytes) -> None:
         if not isinstance(doc, dict):
             raise ConfigBackupError("自定义数据源配置必须是 YAML 对象")
         return
-    if entry.category in ("watchlist", "research_candidates") and (
-        name == "watchlist_groups.json" or name == "research_candidates.json"
+    if entry.category in ("watchlist", "research_candidates", "history") and (
+        name == "watchlist_groups.json" or name == "research_candidates.json" or name == "forecast_reviews.json"
     ):
         # 分组/候选清单是 JSON 数组, 只要求可解析。
         try:
