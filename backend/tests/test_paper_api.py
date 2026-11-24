@@ -160,7 +160,7 @@ def test_compare_accounts(client: TestClient):
     assert row["name"] == "甲" and row["initial_cash"] == 1000000
     assert row["total"] == pytest.approx(1000000)
     assert row["pnl_pct"] == 0.0
-    assert row["fees"]["commission_pct"] == pytest.approx(0.00025)
+    assert row["fees"]["commission_pct"] == pytest.approx(0.000085)
     assert row["rounds"] == 0 and row["win_rate"] == 0.0
     assert row["nav"] == []  # 尚无定版净值
     # 字段完整性 (对比表依赖)

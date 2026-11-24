@@ -171,8 +171,8 @@ function loadNewAccountDefaults(): Required<NewAccountDefaults> {
   try { last = JSON.parse(localStorage.getItem(NEW_ACCOUNT_DEFAULTS_KEY) || '{}') } catch { /* 忽略坏数据 */ }
   const src = { ...last, ...base }
   return {
-    cash: src.cash ?? '1000000',
-    commissionWan: src.commissionWan ?? '2.5',   // 万2.5
+    cash: src.cash ?? '100000',
+    commissionWan: src.commissionWan ?? '0.85',  // 万0.85
     stampQian: src.stampQian ?? '1',             // 千1 (仅卖出)
     slippageBps: src.slippageBps ?? '5',         // 5bps
   }
@@ -957,7 +957,7 @@ function BaseDefaultsModal({ onClose }: { onClose: () => void }) {
   }
   const reset = () => {
     try { localStorage.removeItem(PAPER_BASE_DEFAULTS_KEY) } catch { /* 静默 */ }
-    setCash('1000000'); setCommissionWan('2.5'); setStampQian('1'); setSlippageBps('5')
+    setCash('100000'); setCommissionWan('0.85'); setStampQian('1'); setSlippageBps('5')
   }
   const inputCls = 'mt-1 w-full rounded-btn border border-border bg-base px-2 py-1.5 font-mono text-sm outline-none focus:border-accent/50'
   return (

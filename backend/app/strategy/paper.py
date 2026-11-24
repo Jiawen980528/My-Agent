@@ -48,8 +48,8 @@ logger = logging.getLogger(__name__)
 # 单进程内全部写操作互斥 (API 下单 / 行情钩子撮合 / 盘后结算共用一把锁)
 PAPER_LOCK = threading.RLock()
 
-# 费用默认值 — 与回测 engine.py 一致
-DEFAULT_COMMISSION_PCT = 0.00025   # 双边佣金 万2.5
+# 费用默认值 — MyAgent 暗黑模拟盘口径；已有账户保存的费率不回写
+DEFAULT_COMMISSION_PCT = 0.000085  # 双边佣金 万0.85
 MIN_COMMISSION = 5.0               # 佣金最低 5 元
 DEFAULT_STAMP_TAX_PCT = 0.001      # 印花税, 仅卖出
 DEFAULT_SLIPPAGE_BPS = 5.0         # 滑点 (bps, 万分之5)
