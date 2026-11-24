@@ -136,7 +136,7 @@ export function DashboardGrid({ ctx, items, onItemsChange, editing, onAddWidget 
     const def = widgetDef(it.t)
     if (!def) return null
     // 独立窗口无需大盘总览；总览故障时仍可查看持仓、资金流及已有页面。
-    if (!ctx && !['fund-flow', 'holdings', 'portfolio-monitor', 'sector-watch', 'market-news', 'page-panel', 'ext-link'].includes(it.t)) {
+    if (!ctx && !['fund-flow', 'holdings', 'recommendations', 'portfolio-monitor', 'sector-watch', 'market-news', 'page-panel', 'ext-link'].includes(it.t)) {
       return <section className="h-full rounded-card border border-border bg-surface p-3 text-xs text-muted">{def.label}：市场总览暂不可用</section>
     }
     return def.render(ctx as WidgetCtx, it)

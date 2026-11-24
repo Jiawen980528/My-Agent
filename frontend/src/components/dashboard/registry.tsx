@@ -23,7 +23,7 @@ import {
 import type { DashboardItem, WidgetType } from './layout'
 import { ExternalLinkWidget } from './ExternalLinkWidget'
 import { FundFlowPanel } from '@/components/FundFlowPanel'
-import { HoldingsWidget, SectorWatchWidget, MarketNewsWidget } from './MyAgentWidgets'
+import { HoldingsWidget, RecommendationWidget, SectorWatchWidget, MarketNewsWidget } from './MyAgentWidgets'
 import { PortfolioMonitorWidget } from './PortfolioMonitorWidget'
 import { PageWidget } from './PageWidget'
 import { MarketOverviewWidget } from './MarketOverviewWidget'
@@ -312,6 +312,10 @@ export const WIDGET_DEFS: WidgetDef[] = [
     render: () => <HoldingsWidget />,
   },
   {
+    id: 'recommendations', label: '今日推荐 / 预测复盘', icon: Target, minW: 4, minH: 7, defW: 6, defH: 10,
+    render: () => <RecommendationWidget />,
+  },
+  {
     id: 'portfolio-monitor', label: '持仓·分时·板块·新闻', icon: LineChart, minW: 6, minH: 12, defW: 12, defH: 22,
     render: () => <PortfolioMonitorWidget />,
   },
@@ -373,5 +377,6 @@ export const DEFAULT_LAYOUT: DashboardItem[] = [
   { i: 'market-news', t: 'market-news', x: 0, y: 74, w: 6, h: 12 },
   { i: 'fund-flow', t: 'fund-flow', x: 0, y: 86, w: 6, h: 13 },
   { i: 'holdings', t: 'holdings', x: 6, y: 86, w: 6, h: 13 },
-  { i: 'page-panel-decision-guide', t: 'page-panel', x: 0, y: 99, w: 12, h: 18, p: { path: '/decision-guide' } },
+  { i: 'recommendations', t: 'recommendations', x: 0, y: 99, w: 6, h: 12 },
+  { i: 'page-panel-decision-guide', t: 'page-panel', x: 6, y: 99, w: 6, h: 18, p: { path: '/decision-guide' } },
 ]
