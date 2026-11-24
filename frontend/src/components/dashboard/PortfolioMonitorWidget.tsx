@@ -308,6 +308,15 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
     : stockMove != null && stockMove > 0 && boardMove > 0 && nearHigh ? '个股与板块同步走强，接近近20分钟高点；留意回落风险'
       : stockMove != null && stockMove < 0 && boardMove < 0 ? '个股与板块同步走弱；等待企稳确认'
         : '个股与板块未形成同步突破；等待下一分钟确认'
+  const impact = !last
+    ? { label: '无法判断', tone: 'text-muted', reasons: ['分钟行情不足'] }
+    : boardMove == null
+      ? { label: '无法判断', tone: 'text-muted', reasons: ['关联板块分钟行情不可用'] }
+      : stockMove != null && stockMove > 0 && boardMove > 0 && !nearHigh
+        ? { label: '偏利好', tone: 'text-bull', reasons: ['个股与板块同步走强', selectedFlow.data?.rows?.length ? '资金流有可核对记录' : '资金流数据未取得'] }
+        : stockMove != null && stockMove < 0 && boardMove < 0
+          ? { label: '风险偏高', tone: 'text-bear', reasons: ['个股与板块同步走弱', '需等待支撑和量价确认'] }
+          : { label: '观望', tone: 'text-warning', reasons: [nearHigh ? '个股接近近端高点，警惕冲高回落' : '个股与板块未形成同步突破', selectedFlow.data?.rows?.length ? '资金流可继续观察' : '资金流数据未取得'] }
   return <div className="min-w-0 space-y-1.5">
     <header className="flex flex-wrap items-center justify-between gap-2 rounded border border-border bg-base/70 px-2 py-1">
       <div><b className="text-sm">{item.name}</b><span className="ml-2 text-xs text-muted">{item.symbol}</span>
@@ -350,6 +359,11 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
       {visible.signal && <section className="rounded border border-border bg-base/50 p-2 text-xs"><b>做T观察</b>
         <p className="mt-1">{observation}</p><p className="text-[11px] text-muted">依据截至 {last?.datetime || '—'} 的分钟价和板块走势；下一分钟可能失效。非买卖指令。</p></section>}
     </div>
+    <section className="rounded border border-border bg-base/50 p-2 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2"><b>持仓影响评估</b><span className={`font-medium ${impact.tone}`}>{impact.label}</span></div>
+      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted"><span>个股区间 {pct(stockMove)}</span><span>板块区间 {pct(boardMove)}</span><span>关联板块 {boardName}</span><span>新闻 {relatedNews.length ? `${relatedNews.length} 条` : '暂无'}</span></div>
+      <p className="mt-1 text-[11px] text-secondary">依据：{impact.reasons.join('；')}。该结论只描述当前数据对手工持仓的影响，不替代交易决定。</p>
+    </section>
     {visible.news && <section className="rounded border border-border bg-base/50 p-2 text-xs"><b>{boardName} · 关联新闻</b>
       {relatedNews.length ? relatedNews.map(row => <a key={row.url} href={row.url} target="_blank" rel="noopener noreferrer"
         className="mt-1 block truncate text-accent" title={row.title}>{row.bias} · {row.title} · {row.source}</a>)
