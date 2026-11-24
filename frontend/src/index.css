@@ -93,6 +93,9 @@ html.dark {
 html, body, #root { height: 100%; }
 
 body {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  min-width: 0;
+  overflow-x: hidden;
   font-size: var(--tf-font-body, 16px);
   background: hsl(var(--base));
   color: hsl(var(--fg-primary));

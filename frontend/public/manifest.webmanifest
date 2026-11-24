@@ -1,0 +1,13 @@
+{
+  "name": "TickFlow Stock Panel · Quant Terminal",
+  "short_name": "TickFlow看盘",
+  "lang": "zh-CN",
+  "start_url": "/quant/",
+  "scope": "/quant/",
+  "display": "standalone",
+  "background_color": "#0f1117",
+  "theme_color": "#8B5CF6",
+  "icons": [
+    { "src": "/quant/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
