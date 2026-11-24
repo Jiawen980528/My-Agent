@@ -691,7 +691,33 @@ async def fund_flow_sector_member_quotes(request: Request, sector: str = Query(.
         quotes = {str(item.get("symbol")): item for item in snapshot.get("items", []) if item.get("symbol")}
         return {**members, "quotes": quotes, "quote_source": snapshot.get("source", "TickFlow")}
     except Exception as exc:
-        # 数据源权限/网络异常只影响成分股报价，不应让板块页面整体 500。
+        # TickFlow 无实时权限时，按项目既定路由回退到 MyAgent 的公开行情；
+        # 该数据只用于显示，必须明确标注非 TickFlow/可能延迟。
+        token = os.getenv("MYAGENT_ADMIN_TOKEN", "").strip()
+        base_url = os.getenv("MYAGENT_BRIDGE_URL", "").strip().rstrip("/")
+        if token and base_url:
+            try:
+                async with httpx.AsyncClient(timeout=20.0, trust_env=False) as client:
+                    response = await client.get(
+                        f"{base_url}/api/quant/quotes",
+                        params={"symbols": ",".join(symbol.split(".")[0] for symbol in symbols)},
+                        headers={"X-Admin-Token": token},
+                    )
+                response.raise_for_status()
+                fallback = response.json()
+                quotes = {}
+                for item in fallback.get("items", []):
+                    raw_symbol = str(item.get("symbol") or item.get("code") or "").strip().upper()
+                    digits = raw_symbol.split(".")[0]
+                    full_symbol = next((symbol for symbol in symbols if symbol.startswith(digits + ".")), raw_symbol)
+                    if full_symbol:
+                        quotes[full_symbol] = {**item, "symbol": full_symbol,
+                                               "change_pct": item.get("change_pct", item.get("pct"))}
+                return {**members, "quotes": quotes,
+                        "quote_source": "腾讯公开行情（非TickFlow，可能延迟）",
+                        "quote_reason": type(exc).__name__}
+            except Exception:
+                pass
         return {**members, "quotes": {}, "quote_source": "unavailable", "quote_reason": type(exc).__name__}
 
 
