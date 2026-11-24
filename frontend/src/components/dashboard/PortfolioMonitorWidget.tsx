@@ -368,8 +368,8 @@ function BoardDetail({ code, day, news, visible, onSelectSymbol }: { code: strin
   const rows = useMemo(() => (quote.data?.rows || []).map(row => ({ ...row, datetime: row.time })), [quote.data?.rows])
   const boardName = quote.data?.name || code
   const members = useQuery({ queryKey: ['portfolio-custom-board-members', code, boardName], queryFn: () =>
-    json<{ items: { symbol: string; name: string; labels?: string[] }[]; total: number; source: string; notice?: string }>(
-      `${PUBLIC_API}/fund-flow/sector-members?sector=${encodeURIComponent(code)}&name=${encodeURIComponent(boardName)}&limit=120`),
+    json<{ items: { symbol: string; name: string; labels?: string[] }[]; total: number; source: string; notice?: string; quotes?: Record<string, { price?: number | null; change_pct?: number | null }> ; quote_source?: string }>(
+      `${PUBLIC_API}/fund-flow/sector-member-quotes?sector=${encodeURIComponent(code)}&name=${encodeURIComponent(boardName)}&limit=100`),
     staleTime: 30 * 60_000 })
   const availableDay = quote.data?.latest_time?.slice(0, 10)
   const shownRows = day === availableDay ? rows : []
@@ -389,9 +389,10 @@ function BoardDetail({ code, day, news, visible, onSelectSymbol }: { code: strin
     </section>}
     <section className="rounded border border-border bg-base/50 p-2 text-xs">
       <div className="flex items-center justify-between gap-2"><b>板块成分股</b><span className="text-[10px] text-muted">{members.data?.source || '读取中'}</span></div>
-      {members.data?.items?.length ? <div className="mt-1 max-h-48 overflow-auto"><table className="w-full text-[11px]"><thead className="text-muted"><tr><th className="px-1 py-1 text-left">股票</th><th className="px-1 py-1 text-left">代码</th><th className="px-1 py-1 text-left">标签</th></tr></thead><tbody>{members.data.items.map(item => <tr key={item.symbol} className="border-t border-border/50 hover:bg-elevated"><td className="px-1 py-1"><button type="button" onClick={() => onSelectSymbol(item.symbol)} className="text-left text-accent hover:underline">{item.name}</button></td><td className="px-1 py-1 font-mono text-muted">{item.symbol}</td><td className="px-1 py-1 text-muted">{item.labels?.slice(0, 2).join('、') || '—'}</td></tr>)}</tbody></table></div>
+      {members.data?.items?.length ? <div className="mt-1 max-h-48 overflow-auto"><table className="w-full text-[11px]"><thead className="text-muted"><tr><th className="px-1 py-1 text-left">股票</th><th className="px-1 py-1 text-left">代码</th><th className="px-1 py-1 text-right">最新</th><th className="px-1 py-1 text-right">涨跌</th><th className="px-1 py-1 text-left">标签</th></tr></thead><tbody>{members.data.items.map(item => { const quote = members.data?.quotes?.[item.symbol]; const change = quote?.change_pct; return <tr key={item.symbol} className="border-t border-border/50 hover:bg-elevated"><td className="px-1 py-1"><button type="button" onClick={() => onSelectSymbol(item.symbol)} className="text-left text-accent hover:underline">{item.name}</button></td><td className="px-1 py-1 font-mono text-muted">{item.symbol}</td><td className="px-1 py-1 text-right font-mono">{quote?.price == null ? '—' : price(quote.price)}</td><td className={`px-1 py-1 text-right ${change == null ? 'text-muted' : change >= 0 ? 'text-bull' : 'text-bear'}`}>{change == null ? '—' : pct(change)}</td><td className="px-1 py-1 text-muted">{item.labels?.slice(0, 2).join('、') || '—'}</td></tr>})}</tbody></table></div>
         : <p className="mt-1 text-muted">{members.isLoading ? '正在读取真实成分映射…' : members.data?.notice || '暂无可核对的成分映射'}</p>}
       {members.isError && <p className="mt-1 text-warning">成分映射读取失败；不会用行情推测成分股。</p>}
+      {members.data?.quote_source && <p className="mt-1 text-[10px] text-muted">行情来源：{members.data.quote_source}；无权限时价格和涨跌显示为“—”。</p>}
     </section>
     {visible.news && <section className="rounded border border-border bg-base/50 p-2 text-xs"><b>关联新闻</b>
       {relatedNews.length ? relatedNews.map(row => <a key={row.url} href={row.url} target="_blank" rel="noopener noreferrer" className="mt-1 block truncate text-accent">{row.bias} · {row.title} · {row.source}</a>)

@@ -21,6 +21,7 @@ from app.services.decision_engine import build_decision
 from app.services.kline_sync import fetch_minute_single, selected_minute_source
 from app.services.volume_forecast import forecast_amount
 from app.services.market_volume_forecast import forecast_market_amount
+from app.services.market_data_service import quote_snapshot
 from app.services import forecast_reviews
 from app.tickflow.capabilities import Cap
 
@@ -674,6 +675,24 @@ async def fund_flow_sector_members(
         "board": {"code": code, "name": board_name},
         "notice": "成分关系是真实映射；价格、涨跌和资金流需另由行情/资金流数据源提供。",
     }
+
+
+@router.get("/fund-flow/sector-member-quotes")
+async def fund_flow_sector_member_quotes(request: Request, sector: str = Query(..., min_length=1, max_length=80),
+                                         name: str = Query("", max_length=80), limit: int = Query(100, ge=1, le=100)) -> dict[str, object]:
+    """Join real TickFlow snapshots to the real constituent mapping."""
+    members = await fund_flow_sector_members(sector=sector, name=name, limit=limit)
+    symbols = [str(item["symbol"]) for item in members["items"]]
+    if not symbols:
+        return {**members, "quotes": {}, "quote_source": "unavailable"}
+    try:
+        asset_types = {symbol: request.app.state.repo.resolve_asset_type(symbol) for symbol in symbols}
+        snapshot = await asyncio.to_thread(quote_snapshot, symbols, asset_types=asset_types)
+        quotes = {str(item.get("symbol")): item for item in snapshot.get("items", []) if item.get("symbol")}
+        return {**members, "quotes": quotes, "quote_source": snapshot.get("source", "TickFlow")}
+    except Exception as exc:
+        # 数据源权限/网络异常只影响成分股报价，不应让板块页面整体 500。
+        return {**members, "quotes": {}, "quote_source": "unavailable", "quote_reason": type(exc).__name__}
 
 
 @router.get("/fund-flow/live")
