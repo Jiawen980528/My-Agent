@@ -367,6 +367,10 @@ function BoardDetail({ code, day, news, visible }: { code: string; day: string; 
     refetchInterval: tradingNow() ? 60_000 : false })
   const rows = useMemo(() => (quote.data?.rows || []).map(row => ({ ...row, datetime: row.time })), [quote.data?.rows])
   const boardName = quote.data?.name || code
+  const members = useQuery({ queryKey: ['portfolio-custom-board-members', code, boardName], queryFn: () =>
+    json<{ items: { symbol: string; name: string; labels?: string[] }[]; total: number; source: string; notice?: string }>(
+      `${PUBLIC_API}/fund-flow/sector-members?sector=${encodeURIComponent(code)}&name=${encodeURIComponent(boardName)}&limit=120`),
+    staleTime: 30 * 60_000 })
   const availableDay = quote.data?.latest_time?.slice(0, 10)
   const shownRows = day === availableDay ? rows : []
   const relatedNews = news.filter(row => row.sector_names?.some(name => name === boardName || name.includes(boardName) || boardName.includes(name))).slice(0, 5)
@@ -383,6 +387,12 @@ function BoardDetail({ code, day, news, visible }: { code: string; day: string; 
         ? `${flow.data.rows.at(-1)!.main.toFixed(2)} 亿` : '该日期数据不可用'}</p>
       <p className="text-[11px] text-muted">{flow.data?.source || '资金流数据源未接入'} · {flow.data?.latest_time || '—'}</p>
     </section>}
+    <section className="rounded border border-border bg-base/50 p-2 text-xs">
+      <div className="flex items-center justify-between gap-2"><b>板块成分股</b><span className="text-[10px] text-muted">{members.data?.source || '读取中'}</span></div>
+      {members.data?.items?.length ? <div className="mt-1 max-h-48 overflow-auto"><table className="w-full text-[11px]"><thead className="text-muted"><tr><th className="px-1 py-1 text-left">股票</th><th className="px-1 py-1 text-left">代码</th><th className="px-1 py-1 text-left">标签</th></tr></thead><tbody>{members.data.items.map(item => <tr key={item.symbol} className="border-t border-border/50"><td className="px-1 py-1">{item.name}</td><td className="px-1 py-1 font-mono text-muted">{item.symbol}</td><td className="px-1 py-1 text-muted">{item.labels?.slice(0, 2).join('、') || '—'}</td></tr>)}</tbody></table></div>
+        : <p className="mt-1 text-muted">{members.isLoading ? '正在读取真实成分映射…' : members.data?.notice || '暂无可核对的成分映射'}</p>}
+      {members.isError && <p className="mt-1 text-warning">成分映射读取失败；不会用行情推测成分股。</p>}
+    </section>
     {visible.news && <section className="rounded border border-border bg-base/50 p-2 text-xs"><b>关联新闻</b>
       {relatedNews.length ? relatedNews.map(row => <a key={row.url} href={row.url} target="_blank" rel="noopener noreferrer" className="mt-1 block truncate text-accent">{row.bias} · {row.title} · {row.source}</a>)
         : <p className="mt-1 text-muted">暂无可核对的关联新闻</p>}</section>}

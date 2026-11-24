@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import asyncio
+import json
 import logging
 import re
 import sqlite3
@@ -38,6 +39,10 @@ _board_catalog_cache: tuple[float, list[dict]] | None = None
 _board_catalog_lock = asyncio.Lock()
 _fuyao_board_catalog_cache: tuple[float, list[dict]] | None = None
 _fuyao_board_catalog_lock = asyncio.Lock()
+_ths_members_cache: tuple[float, list[dict], list[dict]] | None = None
+_ths_members_lock = asyncio.Lock()
+_THS_INDUSTRIES_URL = "https://files.688798.xyz/ths/industries.json"
+_THS_CONCEPTS_URL = "https://files.688798.xyz/ths/concepts.json"
 
 # 本地仅保存已经在项目配置/历史接口结果中核验过的板块别名和代码。
 # 不填涨跌幅，也不把它当作实时目录；外部目录不可达时用于搜索和绑定，
@@ -89,6 +94,40 @@ def _board_keyword_match(item: dict, query: str) -> bool:
     # and “半导体材料”; return both related candidates instead of zero results.
     matched = sum(term in haystack for term in terms)
     return matched >= max(2, len(terms) - 1)
+
+
+async def _fetch_ths_member_maps() -> tuple[list[dict], list[dict]]:
+    """Read the user-provided THS constituent maps, without inventing prices."""
+    global _ths_members_cache
+    cached = _ths_members_cache
+    if cached and time.monotonic() - cached[0] < 1800:
+        return cached[1], cached[2]
+    async with _ths_members_lock:
+        cached = _ths_members_cache
+        if cached and time.monotonic() - cached[0] < 1800:
+            return cached[1], cached[2]
+        async with httpx.AsyncClient(timeout=20.0, trust_env=False) as client:
+            industry_response, concept_response = await asyncio.gather(
+                client.get(_THS_INDUSTRIES_URL), client.get(_THS_CONCEPTS_URL)
+            )
+        industry_response.raise_for_status()
+        concept_response.raise_for_status()
+        industries = json.loads(industry_response.text)
+        concepts = json.loads(concept_response.text)
+        if not isinstance(industries, list) or not isinstance(concepts, list):
+            raise ValueError("同花顺板块成分映射格式无效")
+        _ths_members_cache = (time.monotonic(), industries, concepts)
+        return industries, concepts
+
+
+def _member_terms(code: str, name: str) -> tuple[str, ...]:
+    aliases = {
+        "BK1036": ("半导体",), "BK1325": ("电子化学品",),
+        "BK1326": ("专用设备",), "BK0475": ("银行",),
+        "BK0474": ("保险",), "BK0427": ("公用事业",),
+        "BK0448": ("通信设备",), "BK0735": ("计算机设备",),
+    }
+    return aliases.get(code.upper(), (name.replace("Ⅱ", "").strip(),))
 logger = logging.getLogger(__name__)
 _ptrade_upload_times: dict[str, list[float]] = {}
 
@@ -596,6 +635,44 @@ async def fund_flow_status() -> dict[str, object]:
         "board_history": "fuyao" if provider is not None else "unavailable",
         "fund_flow": "provider_dependent",
         "message": "扶摇板块目录与历史曲线可用" if provider is not None else "请在设置→数据源配置扶摇 API Key；当前仅能搜索本地别名/使用公开兜底目录",
+    }
+
+
+@router.get("/fund-flow/sector-members")
+async def fund_flow_sector_members(
+    sector: str = Query(..., min_length=1, max_length=80),
+    name: str = Query("", max_length=80),
+    limit: int = Query(100, ge=1, le=500),
+) -> dict[str, object]:
+    """Return real THS industry/concept membership for a selected board."""
+    code = sector.strip().upper()
+    board_name = name.strip()
+    if not board_name:
+        board_name = next((row["name"] for row in _LOCAL_BOARD_CATALOG if row["code"] == code), code)
+    try:
+        industries, concepts = await _fetch_ths_member_maps()
+    except (OSError, httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=502, detail=f"板块成分映射暂不可用：{type(exc).__name__}") from exc
+    terms = tuple(term.casefold() for term in _member_terms(code, board_name) if term)
+    rows: dict[str, dict[str, object]] = {}
+    for dataset, field in ((industries, "industries"), (concepts, "concepts")):
+        for item in dataset:
+            symbol = str(item.get("symbol") or "").strip().upper()
+            stock_name = str(item.get("name") or "").strip()
+            labels = [str(label).strip() for label in (item.get(field) or []) if str(label).strip()]
+            if not symbol or not stock_name or not labels:
+                continue
+            normalized_labels = {label.casefold().replace("Ⅱ", "").strip() for label in labels}
+            if not any(term in normalized_labels for term in terms):
+                continue
+            rows[symbol] = {"symbol": symbol, "name": stock_name, "labels": labels}
+    items = sorted(rows.values(), key=lambda row: str(row["name"]))[:limit]
+    return {
+        "items": items,
+        "total": len(rows),
+        "source": "同花顺板块成分映射（files.688798.xyz）",
+        "board": {"code": code, "name": board_name},
+        "notice": "成分关系是真实映射；价格、涨跌和资金流需另由行情/资金流数据源提供。",
     }
 
 
