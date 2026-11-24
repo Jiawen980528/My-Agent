@@ -11,6 +11,16 @@ const periodOptions = [
   { value: '次日跟踪', label: '次日跟踪', hint: '记录候选，下一交易日再核对，不自动下单' },
 ]
 
+function actionFor(item: Candidate) {
+  switch (item.entry_status) {
+    case '回踩观察': return { label: '观察回踩确认', detail: '回到均线附近且缩量、板块不转弱后再复核；不追高。', invalid: '放量跌破支撑或板块同步转弱' }
+    case '等待回踩': return { label: '等待，不追高', detail: '异动刚发生，等价格和分时均线重新确认。', invalid: '继续冲高但量价背离' }
+    case '均线附近': return { label: '继续观察', detail: '只说明价格接近均线，不等于买入条件成立。', invalid: '有效跌破均线且成交放大' }
+    case '持续跟踪': return { label: '跟踪，不操作', detail: '保留在观察池，等待板块和资金确认。', invalid: '板块相对强度转弱' }
+    default: return { label: '暂不操作', detail: '当前只有初筛结果，缺少进场确认。', invalid: '数据源失效或样本过期' }
+  }
+}
+
 export function Recommendations() {
   const [result, setResult] = useState<ScanResult | null>(null)
   const [loading, setLoading] = useState(false)
@@ -133,6 +143,6 @@ export function Recommendations() {
     </div>
     {!result && !loading && <div className="rounded-card border border-dashed border-border bg-surface p-10 text-center text-xs text-muted">点击“生成今日候选”后才读取真实扫描结果。</div>}
     {result && !items.length && <div className="rounded-card border border-warning/30 bg-warning/5 p-6 text-center text-xs text-warning">当前没有满足条件的候选。请检查数据时间、TickFlow/公开行情权限和筛选条件；不会用虚构标的补足。</div>}
-    {!!items.length && <div className="grid gap-2">{items.map((item, index) => <article key={item.symbol} className="rounded-card border border-border bg-surface p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><span className="mr-2 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] text-accent">#{index + 1}</span><b>{item.name}</b><span className="ml-2 font-mono text-[11px] text-muted">{item.symbol}</span><div className="mt-1 text-[11px] text-muted">板块 {item.sector || '未识别'} · 生成日 {item.latest_date || '—'}</div></div><div className="text-right"><b className="font-mono">{item.price == null ? '—' : Number(item.price).toFixed(2)}</b><div className={Number(item.pct) >= 0 ? 'text-bull' : 'text-bear'}>{item.pct == null ? '—' : `${Number(item.pct) >= 0 ? '+' : ''}${Number(item.pct).toFixed(2)}%`}</div></div></div><div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4"><span>评分 <b className="text-accent">{item.score ?? '—'}</b></span><span>优先级 <b>{item.priority || '—'}</b></span><span>阶段 <b>{item.entry_status || '—'}</b></span><span>放量 <b>{item.volume_multiple == null ? '—' : `${item.volume_multiple}x`}</b></span></div><p className="mt-2 text-[11px] text-muted">形态：{item.pattern || '未提供'}。技术候选需进一步核对板块、资金、情绪和个股数据；缺少确认项时只观察，不生成下单动作。</p><button type="button" onClick={() => askAI(item)} className="mt-2 rounded border border-accent/60 px-2 py-1 text-[11px] text-accent">AI复核这只候选</button></article>)}</div>}
+    {!!items.length && <div className="grid gap-2">{items.map((item, index) => { const action = actionFor(item); return <article key={item.symbol} className="rounded-card border border-border bg-surface p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><span className="mr-2 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] text-accent">#{index + 1}</span><b>{item.name}</b><span className="ml-2 font-mono text-[11px] text-muted">{item.symbol}</span><div className="mt-1 text-[11px] text-muted">板块 {item.sector || '未识别'} · 生成日 {item.latest_date || '—'}</div></div><div className="text-right"><b className="font-mono">{item.price == null ? '—' : Number(item.price).toFixed(2)}</b><div className={Number(item.pct) >= 0 ? 'text-bull' : 'text-bear'}>{item.pct == null ? '—' : `${Number(item.pct) >= 0 ? '+' : ''}${Number(item.pct).toFixed(2)}%`}</div></div></div><div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4"><span>评分 <b className="text-accent">{item.score ?? '—'}</b></span><span>优先级 <b>{item.priority || '—'}</b></span><span>阶段 <b>{item.entry_status || '—'}</b></span><span>放量 <b>{item.volume_multiple == null ? '—' : `${item.volume_multiple}x`}</b></span></div><div className="mt-2 rounded border border-accent/20 bg-accent/5 p-2 text-[11px]"><div>条件式操作：<b className="text-accent">{action.label}</b></div><div className="mt-1 text-muted">触发依据：{action.detail}</div><div className="mt-1 text-muted">信号失效：{action.invalid}</div></div><p className="mt-2 text-[11px] text-muted">形态：{item.pattern || '未提供'}。技术候选需进一步核对板块、资金、情绪和个股数据；缺少确认项时只观察，不生成下单动作。</p><button type="button" onClick={() => askAI(item)} className="mt-2 rounded border border-accent/60 px-2 py-1 text-[11px] text-accent">AI复核这只候选</button></article>})}</div>}
   </div>
 }
