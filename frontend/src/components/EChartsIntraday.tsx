@@ -238,7 +238,26 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
       backgroundColor: 'transparent',
       borderWidth: 0,
       textStyle: { fontSize: 0 },
-      formatter: () => '',
+      // 不能留空：顶部摘要栏会同步更新，但桌面端和手机端都需要在
+      // 鼠标/触摸定位时看到独立悬浮明细。
+      formatter: (params: any) => {
+        const point = Array.isArray(params) ? params.find((item: any) => item?.seriesName !== '成交量') || params[0] : params
+        const fullDayIndex = Number(point?.dataIndex)
+        const time = Number.isFinite(fullDayIndex) ? FULL_DAY_TIMES[fullDayIndex] : ''
+        const row = data.find(item => formatMinuteTime(item.datetime) === time)
+        if (!row) return time ? `<div style="padding:4px 7px">${time}<br/><span style="color:#9ca3af">该时点暂无成交数据</span></div>` : ''
+        const avg = avgData[fullDayIndex]
+        return `<div style="padding:6px 8px;line-height:1.6;font-family:ui-monospace,monospace;font-size:11px">
+          <b>${time}</b><br/>
+          开 <span style="color:${lineColor}">${row.open == null ? '—' : Number(row.open).toFixed(3)}</span>
+          高 <span style="color:${lineColor}">${Number(row.high).toFixed(3)}</span>
+          低 <span style="color:${lineColor}">${Number(row.low).toFixed(3)}</span>
+          收 <span style="color:${lineColor}">${Number(row.close).toFixed(3)}</span><br/>
+          均价 <span style="color:${THEME.avgLine}">${avg == null ? '—' : Number(avg).toFixed(3)}</span>
+          · 量 ${Number(row.volume ?? 0).toLocaleString('zh-CN')}<br/>
+          成交额 ${fmtAmt(row.amount)}
+        </div>`
+      },
       axisPointer: {
         type: 'cross',
         label: {
