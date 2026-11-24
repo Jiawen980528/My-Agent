@@ -10,6 +10,8 @@ import { useReviewState } from '@/lib/useReviewStore'
 import { fmtBigNum } from '@/lib/format'
 import { cn } from '@/lib/cn'
 
+const FORECAST_REVIEW_API = '/quant/api/myagent/forecast-review'
+
 const INDEXES = [
   { symbol: '000001.SH', name: '上证指数' },
   { symbol: '399001.SZ', name: '深证成指' },
@@ -54,6 +56,16 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
     refetchInterval: 60_000,
     staleTime: 30_000,
   })
+  const forecastReviews = useQuery({
+    queryKey: ['dashboard-forecast-reviews'],
+    queryFn: async () => {
+      const response = await fetch(FORECAST_REVIEW_API, { credentials: 'include' })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      return response.json() as Promise<{ summary?: { resolved?: number; success_rate?: number | null; pending?: number } }>
+    },
+    staleTime: 60_000,
+  })
+  const [forecastReviewMessage, setForecastReviewMessage] = useState('')
   const portfolio = useQuery({
     queryKey: ['dashboard-portfolio-snapshot'],
     queryFn: () => api.portfolioSnapshot(),
@@ -81,6 +93,34 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
     if (generating) return
     void startReviewGeneration(undefined, '重点分析大盘走势、成交额、量能变化、科技成长与防守风格，并给出上行/震荡/下行条件。')
     setForecastTab('ai')
+  }
+
+  const saveForecastReview = async () => {
+    if (volume.data?.status !== 'ok' || !volume.data.forecast_amount) return
+    const reviewTradeDate = volume.data.trade_date ?? tradeDate ?? data.as_of
+    if (!reviewTradeDate) { setForecastReviewMessage('缺少交易日，未保存'); return }
+    setForecastReviewMessage('保存中…')
+    try {
+      const response = await fetch(FORECAST_REVIEW_API, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          trade_date: reviewTradeDate,
+          scope: '全市场',
+          forecast_amount: volume.data.forecast_amount,
+          forecast_low: volume.data.forecast_low,
+          forecast_high: volume.data.forecast_high,
+          current_cumulative_amount: volume.data.current_cumulative_amount,
+          as_of: volume.data.as_of,
+          source: volume.data.source,
+          method: volume.data.method,
+        }),
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      setForecastReviewMessage('已记录，收盘后可复盘')
+      await forecastReviews.refetch()
+    } catch (error) {
+      setForecastReviewMessage(error instanceof Error ? `保存失败：${error.message}` : '保存失败')
+    }
   }
 
   return (
@@ -139,7 +179,12 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
               {volume.data?.status === 'ok' ? <>
                 <div className="grid grid-cols-3 gap-1"><span className="rounded bg-base p-1.5">当前累计<br /><b>{forecastText(volume.data.current_cumulative_amount)}</b></span><span className="rounded bg-base p-1.5">预测全天<br /><b>{forecastText(volume.data.forecast_amount)}</b></span><span className="rounded bg-base p-1.5">进度<br /><b>{forecastRatio == null ? '—' : `${(forecastRatio * 100).toFixed(1)}%`}</b></span></div>
                 <p className="text-[10px] text-muted">区间 {forecastText(volume.data.forecast_low)} – {forecastText(volume.data.forecast_high)} · 样本 {volume.data.sample_days ?? '—'}日 · {volume.data.method ?? '历史同期比例中位数'}。</p>
-                <p className="text-[10px] text-muted">来源：{volume.data.source ?? '未标注'} · 覆盖 {volume.data.covered_symbol_count ?? '—'}/{volume.data.symbol_count ?? '—'}只 · 截至 {volume.data.as_of ?? '—'}。</p>
+                <p className="text-[10px] text-muted">来源：{volume.data.source ?? '未标注'} · 覆盖 {volume.data.covered_symbol_count ?? '—'}/{volume.data.symbol_count ?? '—'}只 · 截至 {volume.data.as_of ?? '—'} · 生成 {volume.data.generated_at ?? '—'}。</p>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px]">
+                  <button type="button" onClick={saveForecastReview} className="rounded border border-accent/50 px-1.5 py-0.5 text-accent hover:bg-accent/10">记录本次预测</button>
+                  <span className="text-muted">已复盘 {forecastReviews.data?.summary?.resolved ?? 0} 次 · 成功率 {forecastReviews.data?.summary?.success_rate == null ? '—' : `${forecastReviews.data.summary.success_rate}%`}</span>
+                  {forecastReviewMessage && <span className="text-secondary">{forecastReviewMessage}</span>}
+                </div>
               </> : <p className="text-[10px] text-muted">{volume.isLoading ? '正在读取真实分钟成交额…' : volume.data?.reason ?? '预测暂不可用，需要当前日和至少3个可比交易日的分钟成交额。'}</p>}
             </div>}
             {forecastTab === 'ai' && <div className="space-y-1.5 text-[11px]">

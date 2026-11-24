@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
+from pydantic import BaseModel, Field
 from app.config import settings
 from app.services import fund_flow_archive
 from app.services import ptrade_replay
@@ -19,6 +20,7 @@ from app.services.decision_engine import build_decision
 from app.services.kline_sync import fetch_minute_single, selected_minute_source
 from app.services.volume_forecast import forecast_amount
 from app.services.market_volume_forecast import forecast_market_amount
+from app.services import forecast_reviews
 from app.tickflow.capabilities import Cap
 
 router = APIRouter(prefix="/api/myagent", tags=["myagent-bridge"])
@@ -63,6 +65,23 @@ def _board_keyword_match(item: dict, query: str) -> bool:
     return matched >= max(2, len(terms) - 1)
 logger = logging.getLogger(__name__)
 _ptrade_upload_times: dict[str, list[float]] = {}
+
+
+class ForecastReviewIn(BaseModel):
+    trade_date: str = Field(min_length=10, max_length=10)
+    scope: str = Field(default="全市场", max_length=80)
+    forecast_amount: float = Field(gt=0)
+    forecast_low: float | None = Field(default=None, ge=0)
+    forecast_high: float | None = Field(default=None, ge=0)
+    current_cumulative_amount: float | None = Field(default=None, ge=0)
+    as_of: str | None = Field(default=None, max_length=40)
+    source: str = Field(default="未标注", max_length=120)
+    method: str = Field(default="真实分钟成交额历史同期比例", max_length=200)
+
+
+class ForecastResolveIn(BaseModel):
+    actual_amount: float = Field(gt=0)
+    note: str = Field(default="", max_length=300)
 
 
 def _previous_weekdays(day: date, count: int) -> list[date]:
@@ -167,6 +186,26 @@ async def market_volume_forecast(request: Request, trade_date: date | None = Que
         }
     except (OSError, ValueError, TypeError) as exc:
         raise HTTPException(status_code=502, detail=f"全市场分钟成交额读取失败：{type(exc).__name__}") from exc
+
+
+@router.get("/forecast-review")
+def forecast_review_list() -> dict[str, object]:
+    """返回预测快照及严格口径的已复盘成功率。"""
+    return {"items": forecast_reviews.list_reviews(), "summary": forecast_reviews.summary()}
+
+
+@router.post("/forecast-review")
+def forecast_review_create(req: ForecastReviewIn) -> dict[str, object]:
+    """保存一次真实预测快照；不写入行情、账户或交易表。"""
+    return {"ok": True, "review": forecast_reviews.save_prediction(req.model_dump())}
+
+
+@router.post("/forecast-review/{review_id}/resolve")
+def forecast_review_resolve(review_id: str, req: ForecastResolveIn) -> dict[str, object]:
+    review = forecast_reviews.resolve_review(review_id, req.actual_amount, note=req.note)
+    if review is None:
+        raise HTTPException(status_code=404, detail="预测复盘记录不存在")
+    return {"ok": True, "review": review, "summary": forecast_reviews.summary()}
 
 
 @router.post("/decision/assist")
