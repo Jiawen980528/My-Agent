@@ -93,7 +93,10 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
 
   const runAI = () => {
     if (generating) return
-    void startReviewGeneration(undefined, '重点分析大盘走势、成交额、量能变化、科技成长与防守风格，并给出上行/震荡/下行条件。')
+    const forecastHistory = forecastReviews.data?.summary
+      ? `历史成交额预测复盘：已复盘 ${forecastReviews.data.summary.resolved ?? 0} 次，成功率 ${forecastReviews.data.summary.success_rate == null ? '暂无' : `${forecastReviews.data.summary.success_rate}%`}，待复盘 ${forecastReviews.data.summary.pending ?? 0} 次。`
+      : '历史成交额预测复盘数据暂不可用。'
+    void startReviewGeneration(undefined, `重点分析大盘走势、成交额、量能变化、科技成长与防守风格，并给出上行/震荡/下行条件。${forecastHistory} 仅将历史复盘作为证据，不得把它当作实时数据，也不得据此编造交易信号。`)
     setForecastTab('ai')
   }
 
