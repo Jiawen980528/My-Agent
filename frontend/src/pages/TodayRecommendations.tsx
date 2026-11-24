@@ -5,7 +5,7 @@ const API = "/quant/api";
 const LIMIT = 5;
 type ScoreDetail = { pool_match?: boolean; technical?: number; volume?: number; sentiment?: number; market_flow?: number; external?: number; news?: number; missing?: string[] };
 type Item = { symbol: string; name: string; score?: number; price?: number; change_pct?: number; signals?: string[]; eligible_for_paper?: boolean; score_detail?: ScoreDetail };
-type Row = { id: string; date: string; stage: string; createdAt?: string; items?: Item[]; paper_auto?: { reason?: string } };
+type Row = { id: string; date: string; stage: string; createdAt?: string; items?: Item[]; model_status?: string; paper_auto?: { reason?: string } };
 type PoolItem = { symbol?: string | null; name?: string | null };
 type Holding = { symbol?: string | null; name?: string | null };
 type Quote = { symbol: string; price?: number };
@@ -78,6 +78,10 @@ export function TodayRecommendations() {
   const dates = [...new Set(rows.map(x => x.date).filter(Boolean))].sort().reverse();
   const shown = dates.includes(today) ? today : dates[0];
   const snapshots = shown ? rows.filter(x => x.date === shown) : [];
+  const stageStatus = useMemo(() => ["集合竞价", "盘中推荐", "其他时间轮动"].map(stage => {
+    const latest = [...snapshots].filter(row => row.stage === stage).sort((a, b) => String(b.createdAt || b.id).localeCompare(String(a.createdAt || a.id)))[0];
+    return { stage, latest };
+  }), [snapshots]);
   const poolKeys = useMemo(() => new Set(pool.flatMap(item => [itemKey(item), String(item.name || "").trim()]).filter(Boolean)), [pool]);
   const holdingKeys = useMemo(() => new Set(holdings.flatMap(item => [itemKey(item), String(item.name || "").trim()]).filter(Boolean)), [holdings]);
   const picks = useMemo(() => {
@@ -99,6 +103,7 @@ export function TodayRecommendations() {
   return <div className="h-full overflow-auto bg-base p-3 text-foreground">
     <section className="mb-3 rounded-card border border-border bg-surface p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-base font-semibold">今日推荐</h1><p className="mt-1 text-xs text-muted">最终候选严格最多 {LIMIT} 只。集合竞价、盘中、轮动只保留过程记录，不在这里重复塞入同一只股票。</p></div><div className="flex gap-2"><button type="button" onClick={() => void load()} className="rounded-btn border border-accent/50 px-3 py-1.5 text-xs text-accent">{loading ? "读取中…" : "刷新推荐"}</button><Link to="/recommendation-history" className="rounded-btn border border-border px-3 py-1.5 text-xs text-accent">推荐记录与复盘</Link></div></div>{error && <p className="mt-3 rounded border border-warning/40 bg-warning/5 p-2 text-xs text-warning">{error}</p>}</section>
     <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><div><h2 className="text-sm font-semibold">最终候选 <span className="text-muted">({picks.length}/{LIMIT} 只)</span></h2><p className="mt-0.5 text-[11px] text-muted">{shown ? (shown === today ? `中国交易日 ${shown}` : `今日暂无记录，展示最近一次 ${shown}`) : "暂无推荐记录"}</p></div><span className="text-[11px] text-muted">价格联动失败时会明确显示，不把推荐时涨跌当作推荐后收益</span></div>
+    <section className="mb-3 grid gap-2 md:grid-cols-3">{stageStatus.map(({ stage, latest }) => <article key={stage} className="rounded-card border border-border bg-surface p-3"><div className="flex items-center justify-between text-xs"><b>{stage}</b><span className={latest?.items?.length ? "text-up" : "text-warning"}>{latest ? (latest.items?.length ? `已记录 ${latest.items.length} 只` : "未输出候选") : "尚未到时段/无记录"}</span></div><p className="mt-1.5 text-[11px] leading-5 text-muted">{latest ? (latest.items?.length ? `${latest.createdAt || "已生成"} · 可在下方最终候选与“推荐记录与复盘”查看。` : (latest.model_status || latest.paper_auto?.reason || "本时段未满足可核验推荐条件。")) : "系统在对应交易时段由后端定时运行；不会用旧数据或随机股票补位。"}</p></article>)}</section>
     <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{picks.map((item, index) => {
       const current = quotes[item.symbol]?.price; const after = recommendationReturn(item.price, current);
       const missingFunds = item.score_detail?.missing?.some(x => /资金/.test(x));
