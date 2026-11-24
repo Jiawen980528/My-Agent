@@ -4,7 +4,7 @@ import { AlertTriangle, RefreshCw, Target } from 'lucide-react'
 const API = '/quant/api/myagent/quant'
 type Candidate = { symbol: string; name: string; sector?: string; price?: number; pct?: number; score?: number; priority?: string; entry_status?: string; pattern?: string; volume_multiple?: number; max_turnover?: number; latest_date?: string }
 type ScanResult = { items?: Candidate[]; count?: number; universe_count?: number; data_source?: string; generated_at?: string; history_id?: number }
-type Snapshot = { id: number | string; generated_at?: string; generatedAt?: string; period: string; valid_until?: string; validUntil?: string; scan_id?: number; historyId?: number; symbols: string[]; status: '待复盘' | '已复盘'; data_source?: string }
+type Snapshot = { id: number | string; generated_at?: string; generatedAt?: string; period: string; valid_until?: string; validUntil?: string; scan_id?: number; historyId?: number; symbols: string[]; status: '待复盘' | '已复盘'; data_source?: string; payload?: Candidate[] }
 const periodOptions = [
   { value: '盘中观察', label: '盘中观察', hint: '只用于当前交易时段的观察，不代表收盘预测' },
   { value: '当日收盘', label: '当日收盘', hint: '等待收盘数据后复盘当天表现' },
@@ -49,6 +49,30 @@ export function Recommendations() {
       setSnapshots(list.items || [])
     } catch (cause) { setError(cause instanceof Error ? cause.message : '推荐快照保存失败') }
   }
+  const reviewSnapshot = async (snapshot: Snapshot) => {
+    if (snapshot.status === '已复盘') return
+    setError('')
+    try {
+      const quoteResponse = await fetch(`${API}/quotes?symbols=${snapshot.symbols.join(',')}`, { credentials: 'include' })
+      const quoteBody = await quoteResponse.json() as { items?: Array<{ symbol?: string; code?: string; price?: number; change_pct?: number; pct?: number }>; source?: string; detail?: string }
+      if (!quoteResponse.ok) throw new Error(quoteBody.detail || `实时行情读取失败 ${quoteResponse.status}`)
+      const quotes = new Map((quoteBody.items || []).map(item => [String(item.code || item.symbol || '').replace(/\D/g, ''), item]))
+      const observedAt = new Date().toISOString()
+      const observations = snapshot.symbols.map(symbol => {
+        const code = symbol.replace(/\D/g, '')
+        const quote = quotes.get(code)
+        const original = (snapshot.payload || []).find(item => item.symbol === code)
+        const entry = Number(original?.price || 0)
+        const current = Number(quote?.price || 0)
+        return { symbol: code, name: original?.name || '', observed_price: current || null, reference_price: entry || null, observed_return_pct: entry > 0 && current > 0 ? Number(((current / entry - 1) * 100).toFixed(3)) : null, change_pct: quote?.change_pct ?? quote?.pct ?? null, observed_at: observedAt, source: quoteBody.source || '未标注' }
+      })
+      if (observations.every(item => item.observed_price == null)) throw new Error('当前没有读取到可用于复盘的真实行情，未改变快照状态')
+      const response = await fetch(`${API}/recommendation-snapshots/${snapshot.id}/review`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ observations, note: '使用复盘时刻真实行情记录表现；未将表现直接解释为策略命中率。' }) })
+      const body = await response.json() as { detail?: string }
+      if (!response.ok) throw new Error(body.detail || `复盘保存失败 ${response.status}`)
+      setSnapshots(current => current.map(item => item.id === snapshot.id ? { ...item, status: '已复盘' } : item))
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '推荐复盘失败') }
+  }
   return <div className="h-full overflow-auto bg-base p-3 text-foreground">
     <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-card border border-border bg-surface p-3">
       <div><div className="flex items-center gap-2 text-sm font-semibold"><Target className="h-4 w-4 text-accent" />今日推荐 · 规则候选</div><p className="mt-1 text-[11px] text-muted">最多展示 5 只。它是可追溯的研究候选，不是几分钟后或全天必然走势，也不会自动下单。</p></div>
@@ -64,7 +88,7 @@ export function Recommendations() {
     <div className="mb-3 rounded-card border border-border bg-surface p-3 text-[11px]">
       <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">推荐复盘</span><span className="text-muted">当前快照：{latestSnapshot ? `${latestSnapshot.period} · ${latestSnapshot.status}` : '尚未保存'}</span></div>
       <p className="mt-1 text-muted">保存后只记录当时的候选、生成时间和数据源；收盘或下一交易日再用真实行情核对，命中率不会在未复盘前提前计算。</p>
-      {!!snapshots.length && <div className="mt-2 grid gap-1 text-muted">{snapshots.slice(0, 3).map(snapshot => <div key={snapshot.id} className="flex flex-wrap justify-between gap-2 border-t border-border/60 pt-1"><span>{snapshot.generated_at || snapshot.generatedAt || '—'} · {snapshot.period} · {snapshot.symbols.join('、')}</span><span>{snapshot.status} · 有效至 {snapshot.valid_until || snapshot.validUntil || '—'}</span></div>)}</div>}
+      {!!snapshots.length && <div className="mt-2 grid gap-1 text-muted">{snapshots.slice(0, 3).map(snapshot => <div key={snapshot.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-1"><span>{snapshot.generated_at || snapshot.generatedAt || '—'} · {snapshot.period} · {snapshot.symbols.join('、')}</span><span className="flex items-center gap-2">{snapshot.status} · 有效至 {snapshot.valid_until || snapshot.validUntil || '—'}{snapshot.status === '待复盘' && <button type="button" onClick={() => reviewSnapshot(snapshot)} className="rounded border border-accent/60 px-1.5 py-0.5 text-accent">用当前真实行情复盘</button>}</span></div>)}</div>}
     </div>
     {!result && !loading && <div className="rounded-card border border-dashed border-border bg-surface p-10 text-center text-xs text-muted">点击“生成今日候选”后才读取真实扫描结果。</div>}
     {result && !items.length && <div className="rounded-card border border-warning/30 bg-warning/5 p-6 text-center text-xs text-warning">当前没有满足条件的候选。请检查数据时间、TickFlow/公开行情权限和筛选条件；不会用虚构标的补足。</div>}
