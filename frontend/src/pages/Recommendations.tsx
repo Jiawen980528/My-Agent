@@ -4,7 +4,7 @@ import { AlertTriangle, RefreshCw, Target } from 'lucide-react'
 const API = '/quant/api/myagent/quant'
 type Candidate = { symbol: string; name: string; sector?: string; price?: number; pct?: number; score?: number; priority?: string; entry_status?: string; pattern?: string; volume_multiple?: number; max_turnover?: number; latest_date?: string }
 type ScanResult = { items?: Candidate[]; count?: number; universe_count?: number; data_source?: string; generated_at?: string; history_id?: number }
-type Snapshot = { id: number | string; generated_at?: string; generatedAt?: string; period: string; valid_until?: string; validUntil?: string; scan_id?: number; historyId?: number; symbols: string[]; status: '待复盘' | '已复盘'; data_source?: string; payload?: Candidate[] }
+type Snapshot = { id: number | string; generated_at?: string; generatedAt?: string; period: string; valid_until?: string; validUntil?: string; scan_id?: number; historyId?: number; symbols: string[]; status: '待复盘' | '已复盘'; data_source?: string; payload?: Candidate[]; review?: { observations?: Array<{ observed_return_pct?: number | null }>; note?: string } | null }
 const periodOptions = [
   { value: '盘中观察', label: '盘中观察', hint: '只用于当前交易时段的观察，不代表收盘预测' },
   { value: '当日收盘', label: '当日收盘', hint: '等待收盘数据后复盘当天表现' },
@@ -36,6 +36,13 @@ export function Recommendations() {
   const items = useMemo(() => [...(result?.items || [])].sort((a, b) => Number(b.score || 0) - Number(a.score || 0)).slice(0, 5), [result])
   const selectedPeriod = periodOptions.find(item => item.value === period) || periodOptions[0]
   const latestSnapshot = snapshots[0]
+  const reviewSummary = (snapshot: Snapshot) => {
+    const values = (snapshot.review?.observations || []).map(item => Number(item.observed_return_pct)).filter(value => Number.isFinite(value))
+    if (!values.length) return ''
+    const average = values.reduce((sum, value) => sum + value, 0) / values.length
+    const positive = values.filter(value => value > 0).length
+    return `真实表现均值 ${average >= 0 ? '+' : ''}${average.toFixed(2)}% · 上涨 ${positive}/${values.length}`
+  }
   const saveSnapshot = async () => {
     if (!result || !items.length) return
     const validUntil = period === '次日跟踪' ? '下一交易日收盘后' : period === '当日收盘' ? '今日收盘后' : '本次盘中观察结束'
@@ -88,7 +95,7 @@ export function Recommendations() {
     <div className="mb-3 rounded-card border border-border bg-surface p-3 text-[11px]">
       <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">推荐复盘</span><span className="text-muted">当前快照：{latestSnapshot ? `${latestSnapshot.period} · ${latestSnapshot.status}` : '尚未保存'}</span></div>
       <p className="mt-1 text-muted">保存后只记录当时的候选、生成时间和数据源；收盘或下一交易日再用真实行情核对，命中率不会在未复盘前提前计算。</p>
-      {!!snapshots.length && <div className="mt-2 grid gap-1 text-muted">{snapshots.slice(0, 3).map(snapshot => <div key={snapshot.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-1"><span>{snapshot.generated_at || snapshot.generatedAt || '—'} · {snapshot.period} · {snapshot.symbols.join('、')}</span><span className="flex items-center gap-2">{snapshot.status} · 有效至 {snapshot.valid_until || snapshot.validUntil || '—'}{snapshot.status === '待复盘' && <button type="button" onClick={() => reviewSnapshot(snapshot)} className="rounded border border-accent/60 px-1.5 py-0.5 text-accent">用当前真实行情复盘</button>}</span></div>)}</div>}
+      {!!snapshots.length && <div className="mt-2 grid gap-1 text-muted">{snapshots.slice(0, 3).map(snapshot => <div key={snapshot.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-1"><span>{snapshot.generated_at || snapshot.generatedAt || '—'} · {snapshot.period} · {snapshot.symbols.join('、')}{reviewSummary(snapshot) && <span className="ml-2 text-foreground">{reviewSummary(snapshot)}</span>}</span><span className="flex items-center gap-2">{snapshot.status} · 有效至 {snapshot.valid_until || snapshot.validUntil || '—'}{snapshot.status === '待复盘' && <button type="button" onClick={() => reviewSnapshot(snapshot)} className="rounded border border-accent/60 px-1.5 py-0.5 text-accent">用当前真实行情复盘</button>}</span></div>)}</div>}
     </div>
     {!result && !loading && <div className="rounded-card border border-dashed border-border bg-surface p-10 text-center text-xs text-muted">点击“生成今日候选”后才读取真实扫描结果。</div>}
     {result && !items.length && <div className="rounded-card border border-warning/30 bg-warning/5 p-6 text-center text-xs text-warning">当前没有满足条件的候选。请检查数据时间、TickFlow/公开行情权限和筛选条件；不会用虚构标的补足。</div>}
