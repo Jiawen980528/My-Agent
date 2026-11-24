@@ -357,7 +357,7 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
   </div>
 }
 
-function BoardDetail({ code, day, news, visible }: { code: string; day: string; news: News['items']; visible: Record<Panel, boolean> }) {
+function BoardDetail({ code, day, news, visible, onSelectSymbol }: { code: string; day: string; news: News['items']; visible: Record<Panel, boolean>; onSelectSymbol: (symbol: string) => void }) {
   const quote = useQuery({ queryKey: ['portfolio-custom-board', code], queryFn: () =>
     json<{ name: string; rows: { time: string; close: number; high: number; low: number; volume: number }[]; source: string; latest_time: string }>(
       `${PUBLIC_API}/fund-flow/sector-kline?sector=${code}&period=1m`),
@@ -389,7 +389,7 @@ function BoardDetail({ code, day, news, visible }: { code: string; day: string; 
     </section>}
     <section className="rounded border border-border bg-base/50 p-2 text-xs">
       <div className="flex items-center justify-between gap-2"><b>板块成分股</b><span className="text-[10px] text-muted">{members.data?.source || '读取中'}</span></div>
-      {members.data?.items?.length ? <div className="mt-1 max-h-48 overflow-auto"><table className="w-full text-[11px]"><thead className="text-muted"><tr><th className="px-1 py-1 text-left">股票</th><th className="px-1 py-1 text-left">代码</th><th className="px-1 py-1 text-left">标签</th></tr></thead><tbody>{members.data.items.map(item => <tr key={item.symbol} className="border-t border-border/50"><td className="px-1 py-1">{item.name}</td><td className="px-1 py-1 font-mono text-muted">{item.symbol}</td><td className="px-1 py-1 text-muted">{item.labels?.slice(0, 2).join('、') || '—'}</td></tr>)}</tbody></table></div>
+      {members.data?.items?.length ? <div className="mt-1 max-h-48 overflow-auto"><table className="w-full text-[11px]"><thead className="text-muted"><tr><th className="px-1 py-1 text-left">股票</th><th className="px-1 py-1 text-left">代码</th><th className="px-1 py-1 text-left">标签</th></tr></thead><tbody>{members.data.items.map(item => <tr key={item.symbol} className="border-t border-border/50 hover:bg-elevated"><td className="px-1 py-1"><button type="button" onClick={() => onSelectSymbol(item.symbol)} className="text-left text-accent hover:underline">{item.name}</button></td><td className="px-1 py-1 font-mono text-muted">{item.symbol}</td><td className="px-1 py-1 text-muted">{item.labels?.slice(0, 2).join('、') || '—'}</td></tr>)}</tbody></table></div>
         : <p className="mt-1 text-muted">{members.isLoading ? '正在读取真实成分映射…' : members.data?.notice || '暂无可核对的成分映射'}</p>}
       {members.isError && <p className="mt-1 text-warning">成分映射读取失败；不会用行情推测成分股。</p>}
     </section>
@@ -728,7 +728,7 @@ export function PortfolioMonitorWidget() {
       </aside>}
       {layoutMode === 'side' && <div role="separator" aria-label="拖动调整持仓列表宽度" aria-orientation="vertical" title="拖动调整持仓列表宽度"
         onPointerDown={event => resizePane('left', event)} className="portfolio-split-handle cursor-ew-resize touch-none bg-border/60 hover:bg-accent active:bg-accent" />}
-      {selectedBoard ? <BoardDetail code={selectedBoard} day={day} news={news.data?.items || []} visible={visible} />
+      {selectedBoard ? <BoardDetail code={selectedBoard} day={day} news={news.data?.items || []} visible={visible} onSelectSymbol={symbol => { setSelected(symbol); setSelectedBoard('') }} />
         : active ? <Detail item={active} day={day} latestBars={usableMinuteData[active.symbol] || []} minuteSource={minute.data?.source} news={news.data?.items || []} visible={visible}
           trades={(tradeHistory.data?.trades || []).filter(trade => trade.symbol === active.symbol)} linkedBoardCode={linkedBoards[active.symbol] || ''} boardOptions={boardOptions} onLinkedBoardChange={code => setLinkedBoard(active.symbol, code)} />
         : <p className="p-4 text-xs text-muted">暂无监控标的</p>}
