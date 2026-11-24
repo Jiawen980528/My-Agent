@@ -806,7 +806,10 @@ async def proxy_myagent(path: str, request: Request):
     if content_type:
         headers["Content-Type"] = content_type
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        # This is a local service-to-service hop.  Do not inherit the user's
+        # desktop HTTP proxy settings: on Windows they can route 127.0.0.1
+        # through a proxy and turn a healthy MyAgent response into a 502.
+        async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
             upstream = await client.request(request.method, url, content=body, headers=headers)
         return Response(content=upstream.content, status_code=upstream.status_code,
                         media_type=upstream.headers.get("content-type", "application/json"))
