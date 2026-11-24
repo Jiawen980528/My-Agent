@@ -235,7 +235,10 @@ const THEME = {
   bearAlpha: 'rgba(18,183,106,0.7)',
   ma5: '#A1A1AA',
   ma10: '#3B82F6',
+  ma15: '#14B8A6',
   ma20: '#F97316',
+  ma30: '#EAB308',
+  ma45: '#EC4899',
   ma60: '#8B5CF6',
   bg: 'transparent',
 }
@@ -367,7 +370,7 @@ function buildOption(
 ): EChartsOption {
   const candleData = data.map(d => [d.open, d.close, d.low, d.high])
 
-  const hasMA = showMA && data.some(d => d.ma5 != null || d.ma10 != null || d.ma20 != null || d.ma60 != null)
+  const hasMA = showMA && data.length >= 5
 
   const markPointData: any[] = []
   if (markers && markers.length > 0) {
@@ -573,17 +576,25 @@ function buildOption(
   })
 
   if (hasMA) {
-    const maLine = (key: keyof OHLC, color: string, name: string) => ({
+    const maLine = (period: number, key: keyof OHLC | undefined, color: string, name: string) => ({
       name, type: 'line',
-      data: data.map(d => (d[key] != null ? Number(d[key]) : '-')),
+      data: data.map((d, index) => {
+        if (key && d[key] != null) return Number(d[key])
+        if (index + 1 < period) return '-'
+        const closes = data.slice(index + 1 - period, index + 1).map(row => Number(row.close))
+        return closes.every(Number.isFinite) ? closes.reduce((sum, value) => sum + value, 0) / period : '-'
+      }),
       smooth: true, symbol: 'none', animation: false,
       silent: true,
       lineStyle: { width: 1, color }, itemStyle: { color },
     })
-    series.push(maLine('ma5', THEME.ma5, 'MA5'))
-    series.push(maLine('ma10', THEME.ma10, 'MA10'))
-    series.push(maLine('ma20', THEME.ma20, 'MA20'))
-    series.push(maLine('ma60', THEME.ma60, 'MA60'))
+    series.push(maLine(5, 'ma5', THEME.ma5, 'MA5'))
+    series.push(maLine(10, 'ma10', THEME.ma10, 'MA10'))
+    series.push(maLine(15, undefined, THEME.ma15, 'MA15'))
+    series.push(maLine(20, 'ma20', THEME.ma20, 'MA20'))
+    series.push(maLine(30, undefined, THEME.ma30, 'MA30'))
+    series.push(maLine(45, undefined, THEME.ma45, 'MA45'))
+    series.push(maLine(60, 'ma60', THEME.ma60, 'MA60'))
   }
 
   // 加入自选日标注: 蓝色竖虚线从该根K线的下沿连到主图底端的「自选」标签。
