@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, Loader2, RefreshCw } from 'lucide-react'
-import { api, type MinuteKlineSession } from '@/lib/api'
+import { api, type MinuteKlineSession, type MinuteKlineRow } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { klineMinuteQueryOptions, klineMinuteRangeQueryOptions, minuteRefetchInterval } from '@/lib/kline'
 import { toast } from '@/components/Toast'
@@ -14,6 +14,7 @@ interface Props {
   symbol: string
   renderer?: ChartRenderer
   days: number
+  intervalMinutes?: 1 | 5 | 15 | 60 | 120
   height?: number
   refetchIntervalMs?: number
   onPriceDoubleClick?: (price: number, currentPrice: number) => void
@@ -23,11 +24,29 @@ interface Props {
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '分钟数据获取失败'
 }
+function aggregateRows(rows: MinuteKlineRow[], interval: number): MinuteKlineRow[] {
+  if (interval <= 1) return rows
+  const buckets = new Map<number, MinuteKlineRow[]>()
+  for (const row of rows) {
+    const time = new Date(row.datetime)
+    const minute = time.getHours() * 60 + time.getMinutes()
+    const key = Math.floor(minute / interval) * interval
+    buckets.set(key, [...(buckets.get(key) || []), row])
+  }
+  return [...buckets.values()].map(group => ({
+    datetime: group[0].datetime, open: group[0].open, high: Math.max(...group.map(row => row.high)),
+    low: Math.min(...group.map(row => row.low)), close: group.at(-1)!.close,
+    volume: group.reduce((sum, row) => sum + Number(row.volume || 0), 0),
+    amount: group.every(row => row.amount != null) ? group.reduce((sum, row) => sum + Number(row.amount), 0) : null,
+    avg_price: group.at(-1)!.avg_price,
+  }))
+}
 
 export function StockMultiDayIntradayChart({
   symbol,
   renderer = 'echarts',
   days,
+  intervalMinutes = 1,
   height = 420,
   refetchIntervalMs,
   onPriceDoubleClick,
@@ -68,6 +87,7 @@ export function StockMultiDayIntradayChart({
       .sort((left, right) => left.date.localeCompare(right.date))
       .slice(-days)
   }, [days, history.data?.sessions, latest.data])
+  const displayedSessions = useMemo(() => sessions.map(session => ({ ...session, rows: aggregateRows(session.rows, intervalMinutes) })), [sessions, intervalMinutes])
 
   const syncMinute = useMutation({
     mutationFn: () => api.syncMinuteSingle(symbol, days),
@@ -210,7 +230,7 @@ export function StockMultiDayIntradayChart({
         } : {})}
         symbol={symbol}
         showLimitLines={false}
-        sessions={sessions}
+        sessions={displayedSessions}
         height={chartHeight}
         onPriceDoubleClick={onPriceDoubleClick}
         priceLines={priceLines}

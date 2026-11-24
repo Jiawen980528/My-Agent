@@ -68,6 +68,7 @@ export const storage = {
 
   /** 个股详情多日分时周期 */
   stockPreviewIntradayDays: kv<number>('stock_preview_intraday_days'),
+  stockPreviewIntradayInterval: kv<1 | 5 | 15 | 60 | 120>('stock_preview_intraday_interval'),
 
   /** 个股详情外链 URL 模板 (支持 {code}/{market}/{symbol}; 留空关闭) */
   stockExternalTemplate: kv<string>('stock_external_template'),

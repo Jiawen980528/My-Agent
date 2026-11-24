@@ -92,6 +92,7 @@ function fmtAbnormalCalcTime(asofSec: number): string {
 export function StockPreviewDialogContent({ symbol, name, onClose, triggerInfo, navList: navListSource, onNavigate }: Props) {
   const [view, setView] = useState<PreviewView>('daily')
   const [intradayDays, setIntradayDays] = useState<number | null>(loadIntradayDays)
+  const [intradayInterval, setIntradayInterval] = useState<1 | 5 | 15 | 60 | 120>(() => storage.stockPreviewIntradayInterval.get(1))
   const [dateRange, setDateRange] = useState(getDefaultRange)
   const [rollingMonths, setRollingMonths] = useState<number | null>(6)
   const clock = useQuoteClock()
@@ -366,6 +367,9 @@ export function StockPreviewDialogContent({ symbol, name, onClose, triggerInfo, 
                   </div>
                 ) : (
                   <div className="inline-flex items-center gap-2">
+                    <div className="inline-flex shrink-0 items-center rounded border border-border/60 bg-base/60 p-0.5" aria-label="分钟周期">
+                      {[1, 5, 15, 60, 120].map(minutes => <button key={minutes} type="button" onClick={() => { const value = minutes as 1 | 5 | 15 | 60 | 120; setIntradayInterval(value); storage.stockPreviewIntradayInterval.set(value) }} className={`h-6 rounded px-2 text-[11px] ${intradayInterval === minutes ? 'bg-accent/20 text-accent font-medium' : 'text-muted hover:text-secondary'}`}>{minutes}分</button>)}
+                    </div>
                     <div className="inline-flex shrink-0 items-center rounded border border-border/60 bg-base/60 p-0.5" aria-label="分时周期">
                       {dayOptions.map(days => (
                         <button
@@ -567,6 +571,7 @@ export function StockPreviewDialogContent({ symbol, name, onClose, triggerInfo, 
                   symbol={symbol}
                   renderer="lightweight"
                   days={effectiveIntradayDays}
+                  intervalMinutes={intradayInterval}
                   height={480}
                   refetchIntervalMs={intradayRefetchMs}
                   priceLines={monitorPriceLines}
