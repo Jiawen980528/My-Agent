@@ -569,6 +569,8 @@ export interface MarketVolumeForecast {
   status: 'ok' | 'unavailable'
   trade_date?: string
   as_of?: string
+  forecast_window?: string
+  generated_at?: string
   current_cumulative_amount?: number
   forecast_amount?: number
   forecast_low?: number

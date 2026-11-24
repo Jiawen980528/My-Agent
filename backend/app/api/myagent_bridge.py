@@ -100,7 +100,14 @@ async def volume_forecast_for_symbol(
         rows = await asyncio.gather(*(asyncio.to_thread(load, selected) for selected in days))
         result = forecast_amount(rows[0], rows[1:])
         result["source"] = f"{selected_minute_source()}分钟成交额"
-        return {"symbol": normalized, "trade_date": day.isoformat(), **result}
+        return {
+            "symbol": normalized,
+            "trade_date": day.isoformat(),
+            "forecast_window": "当前数据时点 → 当日收盘",
+            "generated_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
+            "data_is_real": True,
+            **result,
+        }
     except PermissionError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except (OSError, ValueError, TypeError) as exc:
@@ -147,6 +154,8 @@ async def market_volume_forecast(request: Request, trade_date: date | None = Que
         current_rows, historical, covered_symbols, symbols = await asyncio.to_thread(load)
         result = forecast_market_amount(current_rows, historical)
         result["source"] = f"{selected_minute_source()}全市场分钟分区"
+        result["forecast_window"] = "当前数据时点 → 当日收盘"
+        result["generated_at"] = datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds")
         return {
             **result,
             "trade_date": selected.isoformat(),
