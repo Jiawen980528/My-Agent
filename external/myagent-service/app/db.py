@@ -38,6 +38,21 @@ def init_db():
             generated_at TEXT,
             created_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS quant_recommendation_snapshots(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scan_id INTEGER,
+            period TEXT NOT NULL,
+            valid_until TEXT NOT NULL,
+            generated_at TEXT NOT NULL,
+            data_source TEXT NOT NULL,
+            symbols TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT '待复盘',
+            reviewed_at TEXT,
+            review TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_quant_recommendation_created ON quant_recommendation_snapshots(created_at DESC);
         CREATE TABLE IF NOT EXISTS quant_holdings(
             symbol TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -184,6 +199,47 @@ def get_quant_scan(scan_id):
     with session() as c:
         row=c.execute("SELECT * FROM quant_scan_runs WHERE id=?",(scan_id,)).fetchone()
         return ({**dict(row),"criteria":json.loads(row["criteria"]),"result":json.loads(row["result"])} if row else None)
+
+def save_quant_recommendation_snapshot(*, scan_id, period, valid_until, generated_at, data_source, symbols, payload):
+    now = utc_now()
+    with session() as c:
+        cur = c.execute(
+            """INSERT INTO quant_recommendation_snapshots
+            (scan_id,period,valid_until,generated_at,data_source,symbols,payload,created_at)
+            VALUES(?,?,?,?,?,?,?,?)""",
+            (scan_id, str(period)[:40], str(valid_until)[:80], str(generated_at)[:80],
+             str(data_source)[:200], json.dumps(symbols, ensure_ascii=False),
+             json.dumps(payload, ensure_ascii=False, default=str), now),
+        )
+        return cur.lastrowid
+
+def list_quant_recommendation_snapshots(limit=50):
+    with session() as c:
+        rows = c.execute(
+            "SELECT * FROM quant_recommendation_snapshots ORDER BY id DESC LIMIT ?",
+            (max(1, min(int(limit), 200)),),
+        ).fetchall()
+        return [{**dict(row), "symbols": json.loads(row["symbols"]),
+                 "payload": json.loads(row["payload"]),
+                 "review": json.loads(row["review"]) if row["review"] else None} for row in rows]
+
+def get_quant_recommendation_snapshot(snapshot_id):
+    with session() as c:
+        row = c.execute("SELECT * FROM quant_recommendation_snapshots WHERE id=?", (int(snapshot_id),)).fetchone()
+        if not row:
+            return None
+        return {**dict(row), "symbols": json.loads(row["symbols"]),
+                "payload": json.loads(row["payload"]),
+                "review": json.loads(row["review"]) if row["review"] else None}
+
+def resolve_quant_recommendation_snapshot(snapshot_id, review):
+    now = utc_now()
+    with session() as c:
+        cur = c.execute(
+            "UPDATE quant_recommendation_snapshots SET status='已复盘', reviewed_at=?, review=? WHERE id=? AND status='待复盘'",
+            (now, json.dumps(review, ensure_ascii=False, default=str), int(snapshot_id)),
+        )
+        return cur.rowcount == 1
 
 def upsert_quant_holding(symbol,name,quantity,cost,sector,available_quantity=None,source="manual"):
     now=utc_now(); available=quantity if available_quantity is None else available_quantity

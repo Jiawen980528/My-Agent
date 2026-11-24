@@ -99,6 +99,17 @@ class QuantScanRequest(BaseModel):
     ma_tolerance_pct: float = Field(default=3.0, ge=0.5, le=15)
     exclude_st: bool = True
     force: bool = False
+class QuantRecommendationSnapshotRequest(BaseModel):
+    scan_id: int | None = Field(default=None, ge=1)
+    period: str = Field(min_length=1, max_length=40)
+    valid_until: str = Field(min_length=1, max_length=80)
+    generated_at: str = Field(min_length=1, max_length=80)
+    data_source: str = Field(min_length=1, max_length=200)
+    symbols: list[str] = Field(min_length=1, max_length=5)
+    payload: list[dict] = Field(min_length=1, max_length=5)
+class QuantRecommendationReviewRequest(BaseModel):
+    observations: list[dict] = Field(min_length=1, max_length=5)
+    note: str = Field(default="", max_length=1000)
 class QuantAIRequest(BaseModel):
     symbol: str = Field(pattern=r"^\d{6}$")
     name: str = Field(default="", max_length=40)
@@ -822,6 +833,48 @@ def quant_history_detail(scan_id: int):
     if not item:
         raise HTTPException(status_code=404, detail="历史筛选不存在")
     return item
+
+@app.post("/api/quant/recommendation-snapshots", dependencies=[Depends(require_auth)])
+def quant_recommendation_snapshot(req: QuantRecommendationSnapshotRequest):
+    """Persist a research-only recommendation snapshot; it never creates an order."""
+    if len(req.symbols) != len(req.payload):
+        raise HTTPException(status_code=400, detail="候选代码与候选内容数量不一致")
+    if any(not re.fullmatch(r"\d{6}", str(symbol)) for symbol in req.symbols):
+        raise HTTPException(status_code=400, detail="候选代码格式不正确")
+    snapshot_id = db.save_quant_recommendation_snapshot(
+        scan_id=req.scan_id, period=req.period, valid_until=req.valid_until,
+        generated_at=req.generated_at, data_source=req.data_source,
+        symbols=req.symbols, payload=req.payload,
+    )
+    db.log_event("INFO", "quant_recommendation_snapshot", f"id={snapshot_id}, count={len(req.symbols)}", actor="admin")
+    return {"ok": True, "id": snapshot_id, "status": "待复盘"}
+
+@app.get("/api/quant/recommendation-snapshots", dependencies=[Depends(require_auth)])
+def quant_recommendation_snapshots(limit: int = 50):
+    return {"items": db.list_quant_recommendation_snapshots(limit)}
+
+@app.get("/api/quant/recommendation-snapshots/{snapshot_id}", dependencies=[Depends(require_auth)])
+def quant_recommendation_snapshot_detail(snapshot_id: int):
+    item = db.get_quant_recommendation_snapshot(snapshot_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="推荐快照不存在")
+    return item
+
+@app.post("/api/quant/recommendation-snapshots/{snapshot_id}/review", dependencies=[Depends(require_auth)])
+def quant_recommendation_snapshot_review(snapshot_id: int, req: QuantRecommendationReviewRequest):
+    item = db.get_quant_recommendation_snapshot(snapshot_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="推荐快照不存在")
+    if item["status"] == "已复盘":
+        raise HTTPException(status_code=409, detail="该推荐快照已经复盘，不能覆盖原始结果")
+    for observation in req.observations:
+        if not isinstance(observation, dict) or not re.fullmatch(r"\d{6}", str(observation.get("symbol", ""))):
+            raise HTTPException(status_code=400, detail="复盘观察必须包含正确的六位股票代码")
+    review = {"observations": req.observations, "note": req.note[:1000], "source": "用户/真实行情复盘"}
+    if not db.resolve_quant_recommendation_snapshot(snapshot_id, review):
+        raise HTTPException(status_code=409, detail="推荐快照已被其他复盘请求处理")
+    db.log_event("INFO", "quant_recommendation_review", f"id={snapshot_id}", actor="admin")
+    return {"ok": True, "id": snapshot_id, "status": "已复盘", "review": review}
 
 @app.get("/api/quant/qmt/status", dependencies=[Depends(require_auth)])
 def quant_qmt_status():

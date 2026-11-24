@@ -1,12 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, RefreshCw, Target } from 'lucide-react'
 
 const API = '/quant/api/myagent/quant'
 type Candidate = { symbol: string; name: string; sector?: string; price?: number; pct?: number; score?: number; priority?: string; entry_status?: string; pattern?: string; volume_multiple?: number; max_turnover?: number; latest_date?: string }
 type ScanResult = { items?: Candidate[]; count?: number; universe_count?: number; data_source?: string; generated_at?: string; history_id?: number }
-type Snapshot = { id: string; generatedAt: string; period: string; validUntil: string; historyId?: number; symbols: string[]; status: '待复盘' | '已复盘' }
-
-const SNAPSHOT_KEY = 'myagent-recommendation-snapshots-v1'
+type Snapshot = { id: number | string; generated_at?: string; generatedAt?: string; period: string; valid_until?: string; validUntil?: string; scan_id?: number; historyId?: number; symbols: string[]; status: '待复盘' | '已复盘'; data_source?: string }
 const periodOptions = [
   { value: '盘中观察', label: '盘中观察', hint: '只用于当前交易时段的观察，不代表收盘预测' },
   { value: '当日收盘', label: '当日收盘', hint: '等待收盘数据后复盘当天表现' },
@@ -18,9 +16,13 @@ export function Recommendations() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [period, setPeriod] = useState('盘中观察')
-  const [snapshots, setSnapshots] = useState<Snapshot[]>(() => {
-    try { return JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || '[]') as Snapshot[] } catch { return [] }
-  })
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([])
+  useEffect(() => {
+    fetch(`${API}/recommendation-snapshots?limit=20`, { credentials: 'include' })
+      .then(async response => { const body = await response.json() as { items?: Snapshot[]; detail?: string }; if (!response.ok) throw new Error(body.detail || '推荐复盘记录读取失败'); return body })
+      .then(body => setSnapshots(body.items || []))
+      .catch(cause => setError(cause instanceof Error ? cause.message : '推荐复盘记录读取失败'))
+  }, [])
   const [criteria, setCriteria] = useState({ baseline_days: 60, max_avg_turnover: 1.5, recent_days: 5, volume_multiple: 2, max_market_cap_yi: 100 })
   const scan = async () => {
     setLoading(true); setError('')
@@ -34,13 +36,18 @@ export function Recommendations() {
   const items = useMemo(() => [...(result?.items || [])].sort((a, b) => Number(b.score || 0) - Number(a.score || 0)).slice(0, 5), [result])
   const selectedPeriod = periodOptions.find(item => item.value === period) || periodOptions[0]
   const latestSnapshot = snapshots[0]
-  const saveSnapshot = () => {
+  const saveSnapshot = async () => {
     if (!result || !items.length) return
-    const now = new Date()
     const validUntil = period === '次日跟踪' ? '下一交易日收盘后' : period === '当日收盘' ? '今日收盘后' : '本次盘中观察结束'
-    const snapshot: Snapshot = { id: `${now.getTime()}`, generatedAt: result.generated_at || now.toISOString(), period, validUntil, historyId: result.history_id, symbols: items.map(item => item.symbol), status: '待复盘' }
-    const next = [snapshot, ...snapshots].slice(0, 20)
-    setSnapshots(next); localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(next))
+    setError('')
+    try {
+      const response = await fetch(`${API}/recommendation-snapshots`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scan_id: result.history_id, period, valid_until: validUntil, generated_at: result.generated_at || new Date().toISOString(), data_source: result.data_source || '未标注', symbols: items.map(item => item.symbol), payload: items }) })
+      const body = await response.json() as { detail?: string }
+      if (!response.ok) throw new Error(body.detail || `保存失败 ${response.status}`)
+      const refreshed = await fetch(`${API}/recommendation-snapshots?limit=20`, { credentials: 'include' })
+      const list = await refreshed.json() as { items?: Snapshot[] }
+      setSnapshots(list.items || [])
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '推荐快照保存失败') }
   }
   return <div className="h-full overflow-auto bg-base p-3 text-foreground">
     <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-card border border-border bg-surface p-3">
@@ -57,7 +64,7 @@ export function Recommendations() {
     <div className="mb-3 rounded-card border border-border bg-surface p-3 text-[11px]">
       <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">推荐复盘</span><span className="text-muted">当前快照：{latestSnapshot ? `${latestSnapshot.period} · ${latestSnapshot.status}` : '尚未保存'}</span></div>
       <p className="mt-1 text-muted">保存后只记录当时的候选、生成时间和数据源；收盘或下一交易日再用真实行情核对，命中率不会在未复盘前提前计算。</p>
-      {!!snapshots.length && <div className="mt-2 grid gap-1 text-muted">{snapshots.slice(0, 3).map(snapshot => <div key={snapshot.id} className="flex flex-wrap justify-between gap-2 border-t border-border/60 pt-1"><span>{snapshot.generatedAt} · {snapshot.period} · {snapshot.symbols.join('、')}</span><span>{snapshot.status} · 有效至 {snapshot.validUntil}</span></div>)}</div>}
+      {!!snapshots.length && <div className="mt-2 grid gap-1 text-muted">{snapshots.slice(0, 3).map(snapshot => <div key={snapshot.id} className="flex flex-wrap justify-between gap-2 border-t border-border/60 pt-1"><span>{snapshot.generated_at || snapshot.generatedAt || '—'} · {snapshot.period} · {snapshot.symbols.join('、')}</span><span>{snapshot.status} · 有效至 {snapshot.valid_until || snapshot.validUntil || '—'}</span></div>)}</div>}
     </div>
     {!result && !loading && <div className="rounded-card border border-dashed border-border bg-surface p-10 text-center text-xs text-muted">点击“生成今日候选”后才读取真实扫描结果。</div>}
     {result && !items.length && <div className="rounded-card border border-warning/30 bg-warning/5 p-6 text-center text-xs text-warning">当前没有满足条件的候选。请检查数据时间、TickFlow/公开行情权限和筛选条件；不会用虚构标的补足。</div>}
