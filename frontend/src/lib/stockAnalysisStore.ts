@@ -59,9 +59,13 @@ function emit() { listeners.forEach(fn => fn()) }
 function subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn) } }
 
 function normalizeAiError(msg: string) {
-  return msg.includes('API Key') || msg.includes('api_key')
-    ? 'AI 未配置或无效,请在「设置 → AI」中检查当前 AI 提供方'
-    : msg
+  if (msg.includes('API Key') || msg.includes('api_key')) {
+    return 'AI 未配置或无效,请在「设置 → AI」中检查当前 AI 提供方'
+  }
+  if (/404|not found/i.test(msg)) {
+    return 'AI 服务端返回 404：当前模型的 Base URL 或 Chat Completions 接口路径不存在。请在「设置 → AI」核对服务地址、协议和模型名；这不是个股行情数据缺失。'
+  }
+  return msg
 }
 
 let _activeSnap: ActiveTask[] = []
