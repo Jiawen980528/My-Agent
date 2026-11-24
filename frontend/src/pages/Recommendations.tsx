@@ -117,7 +117,22 @@ export function Recommendations() {
   const askAI = async (item: Candidate) => {
     setAiLoading(true); setAiSymbol(item.symbol); setAiReply('')
     try {
-      const response = await fetch(`${API}/ai`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: item.symbol, name: item.name, question: `请复核这只候选是否值得继续观察：重点说明大盘/板块/个股条件、当前缺失的数据、触发条件和失效条件，不要给出确定买卖指令。`, context: { candidate: item, recommendation_period: period, scan_generated_at: result?.generated_at || null, scan_source: result?.data_source || null } }) })
+      const [indexesResult, sentimentResult, flowResult] = await Promise.allSettled([
+        fetch(`${API}/indexes`, { credentials: 'include' }).then(response => response.ok ? response.json() : null),
+        fetch(`${API}/sentiment`, { credentials: 'include' }).then(response => response.ok ? response.json() : null),
+        fetch(`${API}/fund-flow`, { credentials: 'include' }).then(response => response.ok ? response.json() : null),
+      ])
+      const context = {
+        candidate: item,
+        recommendation_period: period,
+        scan_generated_at: result?.generated_at || null,
+        scan_source: result?.data_source || null,
+        market_indexes: indexesResult.status === 'fulfilled' ? indexesResult.value : null,
+        market_sentiment: sentimentResult.status === 'fulfilled' ? sentimentResult.value : null,
+        fund_flow: flowResult.status === 'fulfilled' ? flowResult.value : null,
+        context_notice: '仅使用接口实际返回的数据；缺失项必须标记为不可用。',
+      }
+      const response = await fetch(`${API}/ai`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: item.symbol, name: item.name, question: `请复核这只候选是否值得继续观察：综合大盘指数、市场情绪、板块和资金流（仅使用实际返回的数据），重点说明当前缺失的数据、触发条件和失效条件，不要给出确定买卖指令。`, context }) })
       const body = await response.json() as { reply?: string; detail?: string }
       if (!response.ok) throw new Error(body.detail || `AI复核失败 ${response.status}`)
       setAiReply(body.reply || 'AI没有返回可用文字。')
