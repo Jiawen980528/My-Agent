@@ -60,6 +60,8 @@ export const storage = {
 
   /** 个股日K成交量对比设置 */
   stockVolumeCompare:   kv<{ enabled: boolean; days: number }>('stock_volume_compare'),
+  /** 个股日K显示的均线周期。 */
+  stockDailyMAPeriods:  kv<number[]>('stock_daily_ma_periods'),
 
   /** 个股详情日K异动显示方式 */
   stockDailyMarkerStyle: kv<DailyMarkerStyle>('stock_daily_marker_style'),

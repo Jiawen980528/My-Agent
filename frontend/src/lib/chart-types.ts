@@ -72,6 +72,8 @@ export interface DailyChartProps {
   priceLines?: ChartPriceLine[]
   height?: number
   showMA?: boolean
+  /** 日K叠加均线周期；空数组表示隐藏全部均线。 */
+  maPeriods?: number[]
   showInfoBar?: boolean
   showMarkers?: boolean
   markerStyle?: DailyMarkerStyle

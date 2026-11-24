@@ -155,6 +155,7 @@ export function StockDailyKChart({
   addedDate,
 }: Props) {
   const [activeIndicators, setActiveIndicators] = useState<string[]>(['vol'])
+  const [maPeriods, setMaPeriods] = useState<number[]>(() => storage.stockDailyMAPeriods.get([5, 10, 15, 20, 30, 45, 60, 250]))
   const [showMarkers, setShowMarkers] = useState(true)
   const [markerStyle, setMarkerStyle] = useState<DailyMarkerStyle>(() => {
     const saved = storage.stockDailyMarkerStyle.get('label')
@@ -194,6 +195,11 @@ export function StockDailyKChart({
     setMarkerStyle(style)
     storage.stockDailyMarkerStyle.set(style)
   }
+  const toggleMA = (period: number) => setMaPeriods(prev => {
+    const next = prev.includes(period) ? prev.filter(value => value !== period) : [...prev, period].sort((a, b) => a - b)
+    storage.stockDailyMAPeriods.set(next)
+    return next
+  })
 
   const activeSubDefs = activeIndicators
     .map(key => SUB_CHART_META.find(s => s.key === key))
@@ -228,6 +234,9 @@ export function StockDailyKChart({
               activeClass="bg-accent/20 text-accent"
               onClick={() => toggleIndicator(ind.key)}
             />
+          ))}
+          {renderer === 'echarts' && [5, 10, 15, 20, 30, 45, 60, 250].map(period => (
+            <ChartPill key={`ma-${period}`} active={maPeriods.includes(period)} label={period === 250 ? '牛熊线' : `MA${period}`} activeClass="bg-sky-500/15 text-sky-300" onClick={() => toggleMA(period)} />
           ))}
           {activeIndicators.includes('vol') && (
             <div className="ml-0.5 flex h-5 items-center gap-1.5 border-l border-border/70 pl-2">
@@ -310,6 +319,7 @@ export function StockDailyKChart({
           priceLines={priceLines}
           height={chartHeight - (renderer === 'lightweight' ? CHART_LAYOUT.toolbar : 22)}
           showMA={showMA}
+          maPeriods={maPeriods}
           showInfoBar={showInfoBar}
           showMarkers={showMarkers}
           markerStyle={renderer === 'lightweight' ? markerStyle : undefined}

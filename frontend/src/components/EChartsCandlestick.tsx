@@ -360,6 +360,7 @@ function buildOption(
   ranges: ChartRange[] | undefined,
   priceLines: ChartPriceLine[] | undefined,
   showMA: boolean,
+  maPeriods: number[],
   compact: boolean,
   activeIndicators: string[],
   containerHeight: number,
@@ -589,14 +590,8 @@ function buildOption(
       silent: true,
       lineStyle: { width: 1, color }, itemStyle: { color },
     })
-    series.push(maLine(5, 'ma5', THEME.ma5, 'MA5'))
-    series.push(maLine(10, 'ma10', THEME.ma10, 'MA10'))
-    series.push(maLine(15, undefined, THEME.ma15, 'MA15'))
-    series.push(maLine(20, 'ma20', THEME.ma20, 'MA20'))
-    series.push(maLine(30, undefined, THEME.ma30, 'MA30'))
-    series.push(maLine(45, undefined, THEME.ma45, 'MA45'))
-    series.push(maLine(60, 'ma60', THEME.ma60, 'MA60'))
-    series.push(maLine(250, undefined, THEME.ma250, '牛熊线 MA250'))
+    const lines: Array<[number, keyof OHLC | undefined, string, string]> = [[5, 'ma5', THEME.ma5, 'MA5'], [10, 'ma10', THEME.ma10, 'MA10'], [15, undefined, THEME.ma15, 'MA15'], [20, 'ma20', THEME.ma20, 'MA20'], [30, undefined, THEME.ma30, 'MA30'], [45, undefined, THEME.ma45, 'MA45'], [60, 'ma60', THEME.ma60, 'MA60'], [250, undefined, THEME.ma250, '牛熊线 MA250']]
+    lines.filter(([period]) => maPeriods.includes(period)).forEach(([period, key, color, name]) => series.push(maLine(period, key, color, name)))
   }
 
   // 加入自选日标注: 蓝色竖虚线从该根K线的下沿连到主图底端的「自选」标签。
@@ -775,6 +770,7 @@ export function EChartsCandlestick({
   priceLines,
   height = 480,
   showMA = true,
+  maPeriods = [5, 10, 15, 20, 30, 45, 60, 250],
   showInfoBar = true,
   showMarkers: showMarkersProp = true,
   onToggleMarkers: _onToggleMarkers,
@@ -1150,7 +1146,7 @@ export function EChartsCandlestick({
       showMarkersProp ? markers : undefined,
       ranges,
       priceLines,
-      showMA, compactRef.current,
+      showMA, maPeriods, compactRef.current,
       activeIndicators, chartHeight,
       infoIdxRef.current,
       linkedPrice,
