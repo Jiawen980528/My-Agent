@@ -23,6 +23,7 @@ const PickModel = lazy(() => import('./pages/PickModel').then(m => ({ default: m
 const SentimentMonitor = lazy(() => import('./pages/SentimentMonitor').then(m => ({ default: m.SentimentMonitor })))
 const RecommendationPage = lazy(() => import('./pages/RecommendationPage').then(m => ({ default: m.RecommendationPage })))
 const TodayRecommendations = lazy(() => import('./pages/TodayRecommendations').then(m => ({ default: m.TodayRecommendations })))
+const MarketBoard = lazy(() => import('./pages/MarketBoard').then(m => ({ default: m.MarketBoard })))
 const StrongSectors = lazy(() => import('./pages/PickModel').then(m => ({ default: m.PickModel })))
 const MyAgentQuant = lazy(() => import('./pages/MyAgentQuant').then(m => ({ default: m.MyAgentQuant })))
 const PortfolioOverview = lazy(() => import('./pages/PortfolioOverview').then(m => ({ default: m.PortfolioOverview })))
@@ -63,6 +64,7 @@ const CORE_ROUTE_PATHS = new Set([
   '/pick-model',
   '/sentiment-monitor',
   '/recommendations',
+  '/market-board',
   '/recommendation-history',
   '/strong-sectors',
   '/myagent-quant',
@@ -172,6 +174,7 @@ export const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <Dashboard /> },
+      { path: 'market-board', element: <MarketBoard /> },
       { path: 'pick-model', element: <PickModel /> },
       { path: 'sentiment-monitor', element: <SentimentMonitor /> },
       { path: 'recommendations', element: <TodayRecommendations /> },

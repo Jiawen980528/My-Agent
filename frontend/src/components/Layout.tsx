@@ -999,6 +999,18 @@ export function Layout() {
             )
           })}
           <NavLink
+            to="/market-board"
+            title={railMode ? '看盘' : undefined}
+            className={cn(
+              'group relative flex items-center rounded-btn text-sm transition-all duration-150 ease-smooth',
+              railMode ? 'justify-center px-0 py-2' : 'gap-3 px-3 py-2',
+              'text-foreground/75 hover:bg-elevated/70 hover:text-foreground',
+            )}
+          >
+            <BarChart3 className="h-4 w-4 shrink-0 text-foreground/60 group-hover:text-foreground/85" />
+            {!railMode && <span className="truncate">看盘</span>}
+          </NavLink>
+          <NavLink
             to="/holdings"
             title={railMode ? '我的持仓' : undefined}
             className={cn(
