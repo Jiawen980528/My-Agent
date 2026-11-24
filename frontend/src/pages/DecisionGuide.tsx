@@ -28,8 +28,11 @@ function savedLinkedBoard(symbol: string, remoteValue?: unknown): string {
     try { value = JSON.parse(window.localStorage.getItem('portfolio-terminal-linked-boards') || '{}') } catch { value = undefined }
   }
   try {
-    const code = String((value as Record<string, unknown> | null)?.[symbol] || '').toUpperCase()
-    return /^BK\d{4}$/.test(code) ? code : ''
+    const code = String((value as Record<string, unknown> | null)?.[symbol] || '').trim().toUpperCase()
+    // Eastmoney boards are BKxxxx; Fuyao/THS industry and concept boards use
+    // their own six-digit .TI codes. Keep both formats so a board selected in
+    // the portfolio workspace remains linked on the decision page.
+    return /^(?:BK\d{4}|\d{6}\.TI)$/.test(code) ? code : ''
   } catch {
     return ''
   }
