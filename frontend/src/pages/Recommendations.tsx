@@ -7,6 +7,7 @@ type HoldingLink = { symbol?: string; name?: string; sector?: string; quantity?:
 type WatchLink = { symbol?: string; name?: string; sector?: string }
 type PoolLink = { name?: string; status?: string; config?: { symbols?: unknown } }
 type LotLink = { symbol?: string; qty?: number; cost_price?: number }
+type TickflowStatus = { connected?: boolean; source?: string; message?: string }
 type ScanResult = { items?: Candidate[]; count?: number; universe_count?: number; data_source?: string; generated_at?: string; history_id?: number }
 type Snapshot = { id: number | string; generated_at?: string; generatedAt?: string; period: string; valid_until?: string; validUntil?: string; scan_id?: number; historyId?: number; symbols: string[]; status: '待复盘' | '已复盘'; data_source?: string; payload?: Candidate[]; review?: { observations?: Array<{ observed_return_pct?: number | null }>; note?: string } | null }
 const periodOptions = [
@@ -41,6 +42,13 @@ export function Recommendations() {
   const [researchPools, setResearchPools] = useState<PoolLink[]>([])
   const [lots, setLots] = useState<LotLink[]>([])
   const [linkNotice, setLinkNotice] = useState('正在读取持仓、自选、持仓提醒与研究候选池…')
+  const [tickflowStatus, setTickflowStatus] = useState<TickflowStatus | null>(null)
+  useEffect(() => {
+    fetch(`${API}/tickflow/status`, { credentials: 'include' })
+      .then(async response => { const body = await response.json() as TickflowStatus; if (!response.ok) throw new Error('TickFlow状态读取失败'); return body })
+      .then(setTickflowStatus)
+      .catch(() => setTickflowStatus({ connected: false, message: 'TickFlow状态暂不可用' }))
+  }, [])
   useEffect(() => {
     let disposed = false
     const loadLinks = async () => {
@@ -191,6 +199,7 @@ export function Recommendations() {
       <div><div className="flex items-center gap-2 text-sm font-semibold"><Target className="h-4 w-4 text-accent" />今日推荐 · 规则候选</div><p className="mt-1 text-[11px] text-muted">最多展示 5 只。它是可追溯的研究候选，不是几分钟后或全天必然走势，也不会自动下单。</p></div>
       <button type="button" onClick={scan} disabled={loading} className="inline-flex items-center gap-1 rounded-btn bg-accent px-3 py-2 text-xs text-white disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />{loading ? '扫描中…' : '生成今日候选'}</button>
     </div>
+    <div className={`mb-3 rounded-card border p-2 text-[11px] ${tickflowStatus?.connected ? 'border-success/30 bg-success/5 text-success' : 'border-warning/40 bg-warning/5 text-warning'}`}><b>行情能力：</b>{tickflowStatus?.connected ? `TickFlow 已连接${tickflowStatus.source ? ` · ${tickflowStatus.source}` : ''}` : (tickflowStatus?.message || 'TickFlow 未连接，实时/分钟数据不可用；页面不会用模拟数据补足。')}</div>
     <div className="mb-3 grid gap-3 rounded-card border border-border bg-surface p-3 md:grid-cols-[1fr_auto]">
       <div><div className="text-xs font-semibold">本次推荐周期</div><div className="mt-2 flex flex-wrap gap-2">{periodOptions.map(option => <button key={option.value} type="button" onClick={() => setPeriod(option.value)} className={`rounded border px-2.5 py-1.5 text-[11px] ${period === option.value ? 'border-accent bg-accent/15 text-accent' : 'border-border text-muted'}`}>{option.label}</button>)}</div><p className="mt-2 text-[11px] text-muted">{selectedPeriod.hint}；扫描算法本身不会把候选伪装成价格预测。</p></div>
       <div className="flex items-end"><button type="button" onClick={saveSnapshot} disabled={!result || !items.length} className="rounded-btn border border-accent/60 px-3 py-2 text-xs text-accent disabled:opacity-40">保存推荐快照</button></div>
