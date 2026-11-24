@@ -113,6 +113,13 @@ export function Recommendations() {
     const positive = values.filter(value => value > 0).length
     return `真实表现均值 ${average >= 0 ? '+' : ''}${average.toFixed(2)}% · 上涨 ${positive}/${values.length}`
   }
+  const reviewStats = useMemo(() => {
+    const observations = snapshots.flatMap(snapshot => snapshot.status === '已复盘' ? (snapshot.review?.observations || []) : [])
+    const values = observations.map(item => Number(item.observed_return_pct)).filter(value => Number.isFinite(value))
+    const positive = values.filter(value => value > 0).length
+    const average = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null
+    return { snapshots: snapshots.filter(snapshot => snapshot.status === '已复盘').length, count: values.length, positive, ratio: values.length ? positive / values.length * 100 : null, average }
+  }, [snapshots])
   const saveSnapshot = async () => {
     if (!result || !items.length) return
     const validUntil = period === '次日跟踪' ? '下一交易日收盘后' : period === '当日收盘' ? '今日收盘后' : '本次盘中观察结束'
@@ -189,7 +196,8 @@ export function Recommendations() {
     {(aiLoading || aiReply) && <div className="mb-3 rounded-card border border-accent/40 bg-accent/5 p-3"><div className="flex items-center justify-between gap-2 text-xs font-semibold">AI复核 · {aiSymbol}<span className="text-[10px] font-normal text-muted">研究辅助，不自动下单</span></div><p className="mt-2 whitespace-pre-wrap text-[11px] leading-5 text-muted">{aiLoading ? '正在结合候选条件和当前可用数据分析…' : aiReply}</p></div>}
     <div className="mb-3 rounded-card border border-border bg-surface p-3 text-[11px]">
       <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">推荐复盘</span><span className="text-muted">当前快照：{latestSnapshot ? `${latestSnapshot.period} · ${latestSnapshot.status}` : '尚未保存'}</span></div>
-      <p className="mt-1 text-muted">保存后只记录当时的候选、生成时间和数据源；收盘或下一交易日再用真实行情核对，命中率不会在未复盘前提前计算。</p>
+      <p className="mt-1 text-muted">保存后只记录当时的候选、生成时间和数据源；收盘或下一交易日再用真实行情核对。下方“观察正收益率”只统计已经用真实行情复盘的样本，不等同于稳定策略命中率。</p>
+      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4"><span className="rounded border border-border/60 bg-elevated/40 px-2 py-1">已复盘快照 <b>{reviewStats.snapshots}</b></span><span className="rounded border border-border/60 bg-elevated/40 px-2 py-1">真实样本 <b>{reviewStats.count}</b></span><span className="rounded border border-border/60 bg-elevated/40 px-2 py-1">正收益 <b>{reviewStats.count ? `${reviewStats.positive}/${reviewStats.count}` : '—'}</b></span><span className="rounded border border-border/60 bg-elevated/40 px-2 py-1">观察正收益率 <b>{reviewStats.ratio == null ? '—' : `${reviewStats.ratio.toFixed(1)}%`}</b>{reviewStats.average != null && <small className="ml-1 text-muted">均值 {reviewStats.average >= 0 ? '+' : ''}{reviewStats.average.toFixed(2)}%</small>}</span></div>
       {!!snapshots.length && <div className="mt-2 grid gap-1 text-muted">{snapshots.slice(0, 3).map(snapshot => <div key={snapshot.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-1"><span>{snapshot.generated_at || snapshot.generatedAt || '—'} · {snapshot.period} · {snapshot.symbols.join('、')}{reviewSummary(snapshot) && <span className="ml-2 text-foreground">{reviewSummary(snapshot)}</span>}</span><span className="flex items-center gap-2">{snapshot.status} · 有效至 {snapshot.valid_until || snapshot.validUntil || '—'}{snapshot.status === '待复盘' && <button type="button" onClick={() => reviewSnapshot(snapshot)} className="rounded border border-accent/60 px-1.5 py-0.5 text-accent">用当前真实行情复盘</button>}</span></div>)}</div>}
     </div>
     {!result && !loading && <div className="rounded-card border border-dashed border-border bg-surface p-10 text-center text-xs text-muted">点击“生成今日候选”后才读取真实扫描结果。</div>}
