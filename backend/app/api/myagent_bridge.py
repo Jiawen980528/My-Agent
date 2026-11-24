@@ -38,6 +38,29 @@ _board_catalog_cache: tuple[float, list[dict]] | None = None
 _board_catalog_lock = asyncio.Lock()
 _fuyao_board_catalog_cache: tuple[float, list[dict]] | None = None
 _fuyao_board_catalog_lock = asyncio.Lock()
+
+# 本地仅保存已经在项目配置/历史接口结果中核验过的板块别名和代码。
+# 不填涨跌幅，也不把它当作实时目录；外部目录不可达时用于搜索和绑定，
+# 绑定后的实时曲线仍必须由扶摇/合法板块行情接口返回。
+_LOCAL_BOARD_CATALOG = [
+    {"code": "BK1036", "name": "半导体", "pct": None},
+    {"code": "BK1325", "name": "半导体材料", "pct": None},
+    {"code": "BK1326", "name": "半导体设备", "pct": None},
+    {"code": "BK0800", "name": "人工智能", "pct": None},
+    {"code": "BK0735", "name": "计算机设备", "pct": None},
+    {"code": "BK0448", "name": "通信设备", "pct": None},
+    {"code": "BK1209", "name": "建筑装饰", "pct": None},
+    {"code": "000688.SH", "name": "科创50指数", "pct": None},
+]
+
+
+def _local_board_catalog(q: str = "") -> list[dict]:
+    keyword = q.strip().casefold()
+    if not keyword:
+        return list(_LOCAL_BOARD_CATALOG)
+    if "半导体设备材料" in keyword:
+        return [item for item in _LOCAL_BOARD_CATALOG if item["code"] in {"BK1325", "BK1326"}]
+    return [item for item in _LOCAL_BOARD_CATALOG if _board_keyword_match(item, keyword)]
 # 排除季报/公告/预亏等事件标签，避免被误当成持仓关联行业板块。
 _EVENT_BOARD_WORDS = ("季报", "年报", "中报", "首亏", "预亏", "预增", "扭亏", "公告", "减持", "增持", "重组", "摘帽")
 _BOARD_SEARCH_TERMS = ("半导体", "材料", "设备", "通信", "算力", "人工智能", "芯片", "光刻胶", "先进封装", "银行", "红利", "建筑装饰")
@@ -542,12 +565,16 @@ async def fund_flow_sectors(q: str = Query("", max_length=40), limit: int = Quer
             cached = _board_catalog_cache
             if not cached or time.monotonic() - cached[0] >= 600:
                 try:
-                    async with httpx.AsyncClient(timeout=15.0) as client:
+                    async with httpx.AsyncClient(timeout=15.0, trust_env=False) as client:
                         items = await _fetch_board_catalog(client)
                     _board_catalog_cache = (time.monotonic(), items)
                     cached = _board_catalog_cache
                 except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
                     if not cached:
+                        local_items = _local_board_catalog(q)
+                        if local_items:
+                            return {"items": local_items[:limit], "total": len(local_items),
+                                    "source": "本地已核验板块别名（实时数据需板块行情权限）"}
                         raise HTTPException(status_code=502, detail=f"板块目录暂不可用：{type(exc).__name__}") from exc
     items = cached[1]
     keyword = q.strip().casefold()
@@ -576,7 +603,7 @@ async def fund_flow_live(sector: str | None = Query(None, max_length=32)):
         if cached and time.monotonic() - cached[0] < 55:
             return cached[1]
         try:
-            async with httpx.AsyncClient(timeout=12.0) as client:
+            async with httpx.AsyncClient(timeout=12.0, trust_env=False) as client:
                 if sector:
                     rows = await _fetch_flow(client, f"90.{sector}")
                 else:
@@ -654,7 +681,7 @@ async def _archive_after_close() -> dict:
     today = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
     fetched_at = datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds")
     saved = 0
-    async with httpx.AsyncClient(timeout=12.0) as client:
+    async with httpx.AsyncClient(timeout=12.0, trust_env=False) as client:
         sh, sz = await asyncio.gather(_fetch_flow(client, "1.000001"), _fetch_flow(client, "0.399001"))
         market_rows = _sum_market_flows(sh, sz)
         if market_rows and market_rows[-1]["time"][:10] == today:
@@ -701,7 +728,7 @@ async def fund_flow_history(
         if cached and time.monotonic() - cached[0] < 600:
             return cached[1]
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=15.0, trust_env=False) as client:
                 if sector:
                     rows = await _fetch_daily_flow(client, f"90.{sector}", days)
                 else:
@@ -785,7 +812,7 @@ async def sector_kline(
         if cached and time.monotonic() - cached[0] < ttl:
             return cached[1]
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=15.0, trust_env=False) as client:
                 name, rows = await _fetch_board_price(client, sector, period, days)
             if not rows:
                 raise ValueError("板块行情没有有效K线")
