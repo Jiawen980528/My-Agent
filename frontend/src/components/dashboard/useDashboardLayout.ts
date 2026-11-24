@@ -33,6 +33,9 @@ export function useDashboardLayout(): {
     if (!next.some(item => item.t === 'portfolio-monitor')) {
       next.push({ i: 'portfolio-monitor', t: 'portfolio-monitor', x: 0, y: 0, w: 12, h: 24 })
     }
+    if (!next.some(item => item.t === 'page-panel' && item.p?.path === '/decision-guide')) {
+      next.push({ i: 'page-panel-decision-guide', t: 'page-panel', x: 0, y: 0, w: 12, h: 18, p: { path: '/decision-guide' } })
+    }
     return compactLayout(next)
   }, [prefs?.dashboard_layout])
   const [local, setLocal] = useState<DashboardItem[] | null>(null)

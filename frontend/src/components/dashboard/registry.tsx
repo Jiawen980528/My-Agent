@@ -373,4 +373,5 @@ export const DEFAULT_LAYOUT: DashboardItem[] = [
   { i: 'market-news', t: 'market-news', x: 0, y: 74, w: 6, h: 12 },
   { i: 'fund-flow', t: 'fund-flow', x: 0, y: 86, w: 6, h: 13 },
   { i: 'holdings', t: 'holdings', x: 6, y: 86, w: 6, h: 13 },
+  { i: 'page-panel-decision-guide', t: 'page-panel', x: 0, y: 99, w: 12, h: 18, p: { path: '/decision-guide' } },
 ]
