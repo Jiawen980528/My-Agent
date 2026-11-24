@@ -62,8 +62,11 @@ function normalizeAiError(msg: string) {
   if (msg.includes('API Key') || msg.includes('api_key')) {
     return 'AI 未配置或无效,请在「设置 → AI」中检查当前 AI 提供方'
   }
-  if (/404|not found/i.test(msg)) {
+  if (msg.includes('404') || /not found/i.test(msg)) {
     return 'AI 服务端返回 404：当前模型的 Base URL 或 Chat Completions 接口路径不存在。请在「设置 → AI」核对服务地址、协议和模型名；这不是个股行情数据缺失。'
+  }
+  if (msg.includes('401') || /authentication fails|ip is invalid|invalid.*ip/i.test(msg)) {
+    return 'AI 鉴权失败（401）：当前 API Key 不允许本服务器公网 IP 调用。请到模型平台为该 Key 添加服务器公网 IP 白名单，或关闭 IP 限制后重新测试；这不是行情或个股数据问题。'
   }
   return msg
 }
