@@ -586,6 +586,19 @@ async def fund_flow_sectors(q: str = Query("", max_length=40), limit: int = Quer
     return {"items": items[:limit], "total": len(items), "source": "东方财富公开板块目录（扶摇不可用时兜底）"}
 
 
+@router.get("/fund-flow/status")
+async def fund_flow_status() -> dict[str, object]:
+    """Expose board-data capability without exposing provider credentials."""
+    provider = _configured_fuyao_provider()
+    return {
+        "fuyao_configured": provider is not None,
+        "board_catalog": "fuyao" if provider is not None else "local_alias_or_eastmoney_fallback",
+        "board_history": "fuyao" if provider is not None else "unavailable",
+        "fund_flow": "provider_dependent",
+        "message": "扶摇板块目录与历史曲线可用" if provider is not None else "请在设置→数据源配置扶摇 API Key；当前仅能搜索本地别名/使用公开兜底目录",
+    }
+
+
 @router.get("/fund-flow/live")
 async def fund_flow_live(sector: str | None = Query(None, max_length=32)):
     """东方财富公开延迟行情；仅 BKxxxx 有资金流接口，其他板块明确不可用。"""

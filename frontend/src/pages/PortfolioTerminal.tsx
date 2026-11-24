@@ -15,6 +15,16 @@ export function PortfolioTerminal() {
     },
     refetchInterval: 30_000,
   })
+  const boardStatus = useQuery({
+    queryKey: ['myagent-board-data-status'],
+    queryFn: async () => {
+      const response = await fetch('/quant/api/myagent/fund-flow/status', { credentials: 'include' })
+      const body = await response.json() as { fuyao_configured?: boolean; board_history?: string; message?: string }
+      if (!response.ok) throw new Error(body.message || `板块状态读取失败 ${response.status}`)
+      return body
+    },
+    refetchInterval: 30_000,
+  })
   const bridgeConnected = status.data?.connected === true
   const live = bridgeConnected && Boolean(status.data?.source && status.data.source !== 'unavailable')
   return (
@@ -31,6 +41,14 @@ export function PortfolioTerminal() {
         <span className={live ? 'text-bull' : 'text-warning'}>{live ? 'TickFlow 实时/分钟能力可用' : bridgeConnected ? 'TickFlow 桥接已连通，但实时/分钟能力未授权' : 'TickFlow 桥接不可用'}</span>
         <span className="text-muted">{status.data?.source || '状态读取中'}{status.data?.as_of ? ` · ${status.data.as_of}` : ''}</span>
         {!live && <Link to="/settings?tab=data-sources" className="ml-auto text-accent hover:underline">配置数据源</Link>}
+      </div>
+      <div className="flex shrink-0 flex-wrap items-center gap-2 rounded border border-border bg-surface/70 px-3 py-1.5 text-[11px]">
+        <span className={`h-2 w-2 rounded-full ${boardStatus.data?.fuyao_configured ? 'bg-bull' : 'bg-warning'}`} />
+        <span className={boardStatus.data?.fuyao_configured ? 'text-bull' : 'text-warning'}>
+          {boardStatus.data?.fuyao_configured ? '扶摇板块目录/历史曲线已配置' : '扶摇板块数据未配置'}
+        </span>
+        <span className="text-muted">{boardStatus.data?.message || '板块状态读取中'}</span>
+        {!boardStatus.data?.fuyao_configured && <Link to="/settings?tab=data-sources" className="ml-auto text-accent hover:underline">配置扶摇</Link>}
       </div>
       <div className="min-h-0 flex-1"><PortfolioMonitorWidget /></div>
     </div>
