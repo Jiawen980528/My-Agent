@@ -686,6 +686,9 @@ async def fund_flow_sector_member_quotes(request: Request, sector: str = Query(.
     if not symbols:
         return {**members, "quotes": {}, "quote_source": "unavailable"}
     try:
+        capset = getattr(request.app.state, "capabilities", None)
+        if capset is not None and not capset.has(Cap.QUOTE_BATCH):
+            raise PermissionError("TickFlow quote.batch entitlement unavailable")
         asset_types = {symbol: request.app.state.repo.resolve_asset_type(symbol) for symbol in symbols}
         snapshot = await asyncio.to_thread(quote_snapshot, symbols, asset_types=asset_types)
         quotes = {str(item.get("symbol")): item for item in snapshot.get("items", []) if item.get("symbol")}
