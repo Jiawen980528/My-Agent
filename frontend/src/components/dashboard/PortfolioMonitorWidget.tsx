@@ -524,12 +524,23 @@ export function PortfolioMonitorWidget() {
   })
   const sectorCatalog = useQuery({ queryKey: ['fund-flow-sector-catalog'], queryFn: () =>
     json<{ items: { code: string; name: string; pct?: number | null }[]; source: string }>(`${PUBLIC_API}/fund-flow/sectors?limit=1200`), staleTime: 10 * 60_000 })
+  // 目录可能超过一次返回上限；搜索时必须走后端目录检索，不能只在前端缓存的
+  // 前 1200 条里筛选，否则扶摇同花顺板块会出现“明明存在但搜不到”。
+  const boardSearch = useQuery({
+    queryKey: ['fund-flow-sector-search', boardInput.trim()],
+    queryFn: () => json<{ items: { code: string; name: string; pct?: number | null }[]; source: string }>(
+      `${PUBLIC_API}/fund-flow/sectors?q=${encodeURIComponent(boardInput.trim())}&limit=50`,
+    ),
+    enabled: boardInput.trim().length >= 1,
+    staleTime: 5 * 60_000,
+  })
   const boardOptions = useMemo(() => sectorCatalog.data?.items || [], [sectorCatalog.data?.items])
   const boardMatches = useMemo(() => {
     const query = boardInput.trim().toLowerCase()
     if (!query) return []
-    return (sectorCatalog.data?.items || []).filter(item => `${item.code} ${item.name}`.toLowerCase().includes(query)).slice(0, 8)
-  }, [boardInput, sectorCatalog.data?.items])
+    const remote = boardSearch.data?.items || []
+    return remote.filter(item => `${item.code} ${item.name}`.toLowerCase().includes(query) || item.name.includes(query)).slice(0, 8)
+  }, [boardInput, boardSearch.data?.items])
   const allItems = useMemo<Holding[]>(() => [...items, ...extraSymbols.filter(symbol => !items.some(item => item.symbol === symbol))
     .map(symbol => ({ symbol, name: extraSymbolNames[symbol] || symbol + ' · 名称待核对' }))], [items, extraSymbols, extraSymbolNames])
   const active = allItems.find(item => item.symbol === selected) || allItems[0]
@@ -651,8 +662,11 @@ export function PortfolioMonitorWidget() {
   const addBoard = (inputValue = boardInput) => {
     const raw = inputValue.trim()
     const directCode = raw.toUpperCase()
-    const matched = sectorCatalog.data?.items?.find(item => item.code === directCode || item.name === raw)
-    const code = /^BK\d{4}$/.test(directCode) ? directCode : matched?.code || boardMatches[0]?.code
+    const matched = [...(boardSearch.data?.items || []), ...(sectorCatalog.data?.items || [])]
+      .find(item => item.code.toUpperCase() === directCode || item.name === raw)
+    // Eastmoney 使用 BKxxxx；扶摇同花顺行业/概念目录可能使用 88xxxx/其它
+    // 合法指数代码，必须以目录匹配结果为准，不能把代码格式硬编码成 BK。
+    const code = matched?.code || (/^BK\d{4}$/.test(directCode) ? directCode : boardMatches[0]?.code)
     if (!code) { setBoardError('请输入板块名称或代码，例如“半导体芯片”或 BK1036'); return }
     if (!extraBoards.includes(code)) {
       const next = [...extraBoards, code]
@@ -769,7 +783,7 @@ export function PortfolioMonitorWidget() {
       <div className="max-h-28 overflow-auto">{items.filter(item => item.board).map(item => <button key={item.symbol} type="button"
         className="block w-full truncate px-2 py-1 text-left hover:bg-elevated" onClick={() => { setSelected(item.symbol); setSelectedBoard(''); setMenu(null) }}>
         {item.board?.name} · {item.symbol}</button>)}</div>
-      <p className="px-2 text-[10px] text-muted">新标的可查看真实分钟K；未绑定板块时显示不可用。</p>
+      <p className="px-2 text-[10px] text-muted">新标的可查看真实分钟K；未绑定板块时显示不可用。目录来源：{boardSearch.data?.source || sectorCatalog.data?.source || '读取中…'}。</p>
       <button type="button" onClick={() => setMenu(null)} className="w-full px-2 py-1 text-left text-accent">关闭</button>
     </div>, document.body)}
   </section>
