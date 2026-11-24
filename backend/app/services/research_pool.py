@@ -9,6 +9,7 @@ import io
 import json
 import re
 import threading
+import uuid
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
@@ -32,13 +33,39 @@ def _path(data_dir: Path) -> Path:
     return data_dir / "user_data" / "myagent_research_pool.json"
 
 
+def _item_id(item: dict) -> str:
+    """Keep a stable ID for imported legacy rows and new manual rows."""
+    value = str(item.get("id") or "").strip()
+    if value:
+        return value
+    parts = [str(item.get(key) or "").strip() for key in ("symbol", "name", "theme", "segment", "role", "source_file")]
+    return "pool-" + uuid.uuid5(uuid.NAMESPACE_URL, "|".join(parts)).hex[:20]
+
+
+def _with_ids(items: list[dict]) -> list[dict]:
+    return [{**item, "id": _item_id(item)} for item in items if isinstance(item, dict)]
+
+
+def _normalize_symbol(value: object) -> str | None:
+    raw = str(value or "").strip().upper()
+    if not raw:
+        return None
+    match = re.fullmatch(r"(\d{6})(?:\.(SH|SZ|BJ))?", raw)
+    if not match:
+        raise ValueError("股票代码应为 6 位代码或 000001.SZ 格式")
+    code, suffix = match.groups()
+    return f"{code}.{suffix or ('SH' if code.startswith('6') else 'BJ' if code.startswith(('4', '8', '9')) else 'SZ')}"
+
+
 def load(data_dir: Path) -> dict:
     path = _path(data_dir)
     if not path.exists():
         return {"items": [], "sources": []}
     try:
         content = json.loads(path.read_text(encoding="utf-8"))
-        return content if isinstance(content.get("items"), list) else {"items": [], "sources": []}
+        if not isinstance(content.get("items"), list):
+            return {"items": [], "sources": []}
+        return {"items": _with_ids(content["items"]), "sources": content.get("sources", [])}
     except (OSError, ValueError, AttributeError):
         return {"items": [], "sources": []}
 
@@ -137,3 +164,67 @@ def import_workbook(data_dir: Path, raw: bytes, filename: str) -> dict:
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(path, json.dumps(result, ensure_ascii=False), mode=0o600)
     return {"count": len(deduped), "imported": len(items), "unresolved": sum(not item["symbol"] for item in deduped), "sources": sources}
+
+
+def _save(data_dir: Path, items: list[dict], sources: list[str]) -> dict:
+    result = {"items": _with_ids(items), "sources": sorted({str(source) for source in sources if source})}
+    path = _path(data_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(path, json.dumps(result, ensure_ascii=False), mode=0o600)
+    return result
+
+
+def add_manual(data_dir: Path, payload: dict) -> dict:
+    name = _text(payload.get("name"))[:80]
+    if not name:
+        raise ValueError("请填写股票名称")
+    symbol = _normalize_symbol(payload.get("symbol"))
+    theme = _text(payload.get("theme"))[:80] or "自定义股票池"
+    item = {
+        "id": "pool-" + uuid.uuid4().hex[:20], "symbol": symbol, "name": name,
+        "theme": theme, "segment": _text(payload.get("segment"))[:100],
+        "role": _text(payload.get("role"))[:60] or "自选",
+        "rationale": _text(payload.get("rationale"))[:240], "source": "手动录入",
+        "source_date": _text(payload.get("source_date"))[:20], "source_file": "manual",
+    }
+    with _WRITE_LOCK:
+        current = load(data_dir)
+        duplicate = next((row for row in current["items"] if row.get("symbol") == symbol and row.get("name") == name and row.get("theme") == theme), None)
+        if duplicate:
+            raise ValueError("该股票已在同一题材股票池中")
+        return _save(data_dir, [*current["items"], item], current.get("sources", []))
+
+
+def update_manual(data_dir: Path, item_id: str, payload: dict) -> dict:
+    with _WRITE_LOCK:
+        current = load(data_dir)
+        updated = False
+        rows: list[dict] = []
+        editable = ("name", "theme", "segment", "role", "rationale", "source_date")
+        for row in current["items"]:
+            if row.get("id") != item_id:
+                rows.append(row)
+                continue
+            if row.get("source") != "手动录入":
+                raise ValueError("导入资料请重新导入原文件；仅手动股票池条目可编辑")
+            next_row = dict(row)
+            for key in editable:
+                if key in payload:
+                    next_row[key] = _text(payload.get(key))[:240 if key == "rationale" else 100]
+            if "symbol" in payload:
+                next_row["symbol"] = _normalize_symbol(payload.get("symbol"))
+            if not _text(next_row.get("name")):
+                raise ValueError("请填写股票名称")
+            rows.append(next_row); updated = True
+        if not updated:
+            raise ValueError("股票池条目不存在")
+        return _save(data_dir, rows, current.get("sources", []))
+
+
+def delete_item(data_dir: Path, item_id: str) -> dict:
+    with _WRITE_LOCK:
+        current = load(data_dir)
+        rows = [row for row in current["items"] if row.get("id") != item_id]
+        if len(rows) == len(current["items"]):
+            raise ValueError("股票池条目不存在")
+        return _save(data_dir, rows, current.get("sources", []))

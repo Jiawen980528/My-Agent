@@ -790,6 +790,30 @@ def import_research_pool(request: Request, file: UploadFile = File(...)):
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+
+@router.post("/research-pool/items")
+def add_research_pool_item(request: Request, payload: dict):
+    try:
+        return research_pool.add_manual(request.app.state.repo.store.data_dir, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.put("/research-pool/items/{item_id}")
+def update_research_pool_item(request: Request, item_id: str, payload: dict):
+    try:
+        return research_pool.update_manual(request.app.state.repo.store.data_dir, item_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.delete("/research-pool/items/{item_id}")
+def delete_research_pool_item(request: Request, item_id: str):
+    try:
+        return research_pool.delete_item(request.app.state.repo.store.data_dir, item_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
 _FLOW_URL = "https://push2delay.eastmoney.com/api/qt/stock/fflow/kline/get"
 _FLOW_HISTORY_URL = "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get"
 _BOARD_KLINE_URL = "https://7.push2his.eastmoney.com/api/qt/stock/kline/get"
