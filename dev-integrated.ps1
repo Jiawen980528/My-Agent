@@ -29,6 +29,22 @@ function Require-Path([string]$Path, [string]$Description) {
     }
 }
 
+function Read-DotEnvValue([string]$Path, [string]$Name) {
+    if (-not (Test-Path -LiteralPath $Path)) { return $null }
+    $escaped = [Regex]::Escape($Name)
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        if ($line -match "^\s*$escaped\s*=\s*(.*?)\s*$") {
+            $value = $Matches[1].Trim() -replace '\s+#.*$', ''
+            $value = $value.Trim()
+            if ($value.Length -ge 2 -and (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'")))) {
+                return $value.Substring(1, $value.Length - 2)
+            }
+            return $value
+        }
+    }
+    return $null
+}
+
 function Port-InUse([int]$Port) {
     return $null -ne (Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue)
 }
@@ -37,6 +53,21 @@ Require-Path (Join-Path $Root 'dev.ps1') 'TickFlow 启动脚本'
 if (-not $SkipMyAgent) {
     Require-Path (Join-Path $MyAgentRoot 'app\main.py') 'MyAgent 服务源码'
     Require-Path (Join-Path $MyAgentRoot '.env') 'MyAgent .env 配置'
+}
+
+# 本机只读桥接配置：由启动器在两个子进程之间注入，不落盘、不输出。
+# 这样桌面系统的 HTTP_PROXY 不会把 127.0.0.1 服务间请求转走，也不会再因
+# 忘记手工设置 MYAGENT_ADMIN_TOKEN / TICKFLOW_BRIDGE_TOKEN 而出现 502。
+if (-not $SkipMyAgent) {
+    $myAgentAdminToken = Read-DotEnvValue (Join-Path $MyAgentRoot '.env') 'ADMIN_TOKEN'
+    if ([string]::IsNullOrWhiteSpace($myAgentAdminToken)) { throw 'MyAgent .env 未配置 ADMIN_TOKEN，无法建立本机只读桥接。' }
+    $bridgeToken = "local-readonly-$([Guid]::NewGuid().ToString('N'))"
+    $env:MYAGENT_BRIDGE_URL = "http://127.0.0.1:$MyAgentPort"
+    $env:MYAGENT_ADMIN_TOKEN = $myAgentAdminToken
+    $env:TICKFLOW_BRIDGE_URL = "http://127.0.0.1:$TickFlowBackendPort"
+    $env:TICKFLOW_BRIDGE_TOKEN = $bridgeToken
+    $env:NO_PROXY = "127.0.0.1,localhost;$($env:NO_PROXY)"
+    $env:no_proxy = $env:NO_PROXY
 }
 
 $children = @()
