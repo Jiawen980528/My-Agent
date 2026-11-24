@@ -12,6 +12,14 @@ from app.services.json_report_store import JsonReportStore
 _store = JsonReportStore("forecast_reviews.json", 200, id_prefix="fvr", id_with_symbol=False)
 
 
+def classify_prediction(actual_amount: float | None, forecast_low: float | None,
+                        forecast_high: float | None) -> str:
+    """严格分类：缺少真实值/区间时保持 pending，不猜测。"""
+    if actual_amount is None or forecast_low is None or forecast_high is None:
+        return "pending"
+    return "hit" if float(forecast_low) <= float(actual_amount) <= float(forecast_high) else "miss"
+
+
 def save_prediction(payload: dict[str, Any]) -> dict[str, Any]:
     return _store.save_report({"status": "pending", **payload})
 
@@ -27,9 +35,10 @@ def resolve_review(review_id: str, actual_amount: float, *, note: str = "") -> d
         return None
     low = target.get("forecast_low")
     high = target.get("forecast_high")
-    hit = isinstance(low, (int, float)) and isinstance(high, (int, float)) and float(low) <= actual_amount <= float(high)
+    status = classify_prediction(actual_amount, low if isinstance(low, (int, float)) else None,
+                                 high if isinstance(high, (int, float)) else None)
     target.update({
-        "status": "hit" if hit else "miss",
+        "status": status,
         "actual_amount": round(actual_amount, 2),
         "resolved_note": note,
         "error_pct": round((actual_amount - float(target.get("forecast_amount"))) / actual_amount * 100, 4)
