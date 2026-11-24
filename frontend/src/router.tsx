@@ -20,6 +20,7 @@ const Factors = lazy(() => import('./pages/Factors').then(m => ({ default: m.Fac
 const Data = lazy(() => import('./pages/Data').then(m => ({ default: m.Data })))
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
 const PickModel = lazy(() => import('./pages/PickModel').then(m => ({ default: m.PickModel })))
+const Recommendations = lazy(() => import('./pages/Recommendations').then(m => ({ default: m.Recommendations })))
 const MyAgentQuant = lazy(() => import('./pages/MyAgentQuant').then(m => ({ default: m.MyAgentQuant })))
 const PortfolioTerminal = lazy(() => import('./pages/PortfolioTerminal').then(m => ({ default: m.PortfolioTerminal })))
 const FundFlow = lazy(() => import('./pages/FundFlow').then(m => ({ default: m.FundFlow })))
@@ -57,6 +58,7 @@ const CORE_ROUTE_PATHS = new Set([
   '/settings/ai',
   '/settings/queries',
   '/pick-model',
+  '/recommendations',
   '/myagent-quant',
   '/portfolio-terminal',
   '/fund-flow',
@@ -165,6 +167,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Dashboard /> },
       { path: 'pick-model', element: <PickModel /> },
+      { path: 'recommendations', element: <Recommendations /> },
       { path: 'myagent-quant', element: <MyAgentQuant /> },
       { path: 'portfolio-terminal', element: <PortfolioTerminal /> },
       { path: 'fund-flow', element: <FundFlow /> },
