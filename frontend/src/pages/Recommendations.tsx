@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, RefreshCw, Target } from 'lucide-react'
 
 const API = '/quant/api/myagent/quant'
-type Candidate = { symbol: string; name: string; sector?: string; price?: number; pct?: number; score?: number; priority?: string; entry_status?: string; pattern?: string; volume_multiple?: number; max_turnover?: number; latest_date?: string }
+type Candidate = { symbol: string; name: string; sector?: string; price?: number; pct?: number; score?: number; priority?: string; entry_status?: string; pattern?: string; volume_multiple?: number; max_turnover?: number; latest_date?: string; quote_source?: string }
 type ScanResult = { items?: Candidate[]; count?: number; universe_count?: number; data_source?: string; generated_at?: string; history_id?: number }
 type Snapshot = { id: number | string; generated_at?: string; generatedAt?: string; period: string; valid_until?: string; validUntil?: string; scan_id?: number; historyId?: number; symbols: string[]; status: '待复盘' | '已复盘'; data_source?: string; payload?: Candidate[]; review?: { observations?: Array<{ observed_return_pct?: number | null }>; note?: string } | null }
 const periodOptions = [
@@ -20,12 +20,33 @@ export function Recommendations() {
   const [aiLoading, setAiLoading] = useState(false)
   const [aiReply, setAiReply] = useState('')
   const [aiSymbol, setAiSymbol] = useState('')
+  const [quoteUpdatedAt, setQuoteUpdatedAt] = useState('')
+  const [quoteNotice, setQuoteNotice] = useState('')
   useEffect(() => {
     fetch(`${API}/recommendation-snapshots?limit=20`, { credentials: 'include' })
       .then(async response => { const body = await response.json() as { items?: Snapshot[]; detail?: string }; if (!response.ok) throw new Error(body.detail || '推荐复盘记录读取失败'); return body })
       .then(body => setSnapshots(body.items || []))
       .catch(cause => setError(cause instanceof Error ? cause.message : '推荐复盘记录读取失败'))
   }, [])
+  useEffect(() => {
+    if (!result?.items?.length) return
+    let disposed = false
+    const refreshQuotes = async () => {
+      try {
+        const response = await fetch(`${API}/quotes?symbols=${result.items?.map(item => item.symbol).join(',')}`, { credentials: 'include' })
+        const body = await response.json() as { items?: Array<{ code?: string; symbol?: string; price?: number; change_pct?: number; pct?: number }>; source?: string }
+        if (!response.ok) throw new Error('实时行情暂不可用')
+        const quotes = new Map((body.items || []).map(item => [String(item.code || item.symbol || '').replace(/\D/g, ''), item]))
+        if (disposed) return
+        setResult(current => current ? { ...current, items: (current.items || []).map(item => { const quote = quotes.get(item.symbol); return quote ? { ...item, price: quote.price, pct: quote.change_pct ?? quote.pct, quote_source: body.source } : item }) } : current)
+        setQuoteUpdatedAt(new Date().toLocaleTimeString('zh-CN', { hour12: false }))
+        setQuoteNotice(body.source || '实时行情')
+      } catch { if (!disposed) setQuoteNotice('实时行情暂不可用，显示扫描时数据') }
+    }
+    void refreshQuotes()
+    const timer = window.setInterval(() => void refreshQuotes(), 30000)
+    return () => { disposed = true; window.clearInterval(timer) }
+  }, [result?.history_id])
   const [criteria, setCriteria] = useState({ baseline_days: 60, max_avg_turnover: 1.5, recent_days: 5, volume_multiple: 2, max_market_cap_yi: 100 })
   const scan = async () => {
     setLoading(true); setError('')
@@ -103,7 +124,7 @@ export function Recommendations() {
     </div>
     <div className="mb-3 grid grid-cols-2 gap-2 rounded-card border border-border bg-surface p-3 md:grid-cols-5">{([['baseline_days','长期地量天数'],['max_avg_turnover','换手上限%'],['recent_days','异动窗口天数'],['volume_multiple','放量倍数'],['max_market_cap_yi','市值上限亿']] as const).map(([key, label]) => <label key={key} className="grid gap-1 text-[11px] text-muted">{label}<input type="number" value={criteria[key]} onChange={e => setCriteria({ ...criteria, [key]: Number(e.target.value) })} className="h-8 rounded border border-border bg-elevated px-2 text-xs text-foreground" /></label>)}</div>
     {error && <div className="mb-3 flex items-center gap-2 rounded border border-danger/30 bg-danger/10 p-2 text-xs text-danger"><AlertTriangle className="h-4 w-4" />{error}</div>}
-    {result && <div className="mb-2 flex flex-wrap gap-3 text-[11px] text-muted"><span>生成于 {result.generated_at || '未标注'}</span><span>数据源：{result.data_source || '未标注'}</span><span>全市场样本 {result.universe_count ?? '—'} · 原始候选 {result.count ?? 0} · 展示 {items.length}/5</span>{result.history_id != null && <span>记录 #{result.history_id}</span>}</div>}
+    {result && <div className="mb-2 flex flex-wrap gap-3 text-[11px] text-muted"><span>生成于 {result.generated_at || '未标注'}</span><span>数据源：{result.data_source || '未标注'}</span><span>全市场样本 {result.universe_count ?? '—'} · 原始候选 {result.count ?? 0} · 展示 {items.length}/5</span>{result.history_id != null && <span>记录 #{result.history_id}</span>}{quoteUpdatedAt && <span>行情更新 {quoteUpdatedAt} · {quoteNotice}</span>}</div>}
     {(aiLoading || aiReply) && <div className="mb-3 rounded-card border border-accent/40 bg-accent/5 p-3"><div className="flex items-center justify-between gap-2 text-xs font-semibold">AI复核 · {aiSymbol}<span className="text-[10px] font-normal text-muted">研究辅助，不自动下单</span></div><p className="mt-2 whitespace-pre-wrap text-[11px] leading-5 text-muted">{aiLoading ? '正在结合候选条件和当前可用数据分析…' : aiReply}</p></div>}
     <div className="mb-3 rounded-card border border-border bg-surface p-3 text-[11px]">
       <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">推荐复盘</span><span className="text-muted">当前快照：{latestSnapshot ? `${latestSnapshot.period} · ${latestSnapshot.status}` : '尚未保存'}</span></div>
