@@ -255,7 +255,8 @@ function StockAnalysisBoard({ symbol, name }: { symbol: string; name: string }) 
     // 键永远修补不到; 注意合并依赖 _focusSymbol (预览弹窗设置焦点), 看板单独
     // 打开时仍靠 60s staleTime 重拉, 与其他日K入口的键 (带真实日期) 不共享。
     queryKey: QK.kline(symbol, '', ''),
-    queryFn: () => api.klineDaily(symbol, 250),
+    // MA250 需要至少 250 根日K；额外预留约百根历史，才能看清牛熊线的方向而非只显示一个点。
+    queryFn: () => api.klineDaily(symbol, 360),
     enabled: !!symbol,
     staleTime: 60_000,
     placeholderData: (prev: any, prevQuery: any) =>

@@ -240,6 +240,7 @@ const THEME = {
   ma30: '#EAB308',
   ma45: '#EC4899',
   ma60: '#8B5CF6',
+  ma250: '#06B6D4',
   bg: 'transparent',
 }
 
@@ -595,6 +596,7 @@ function buildOption(
     series.push(maLine(30, undefined, THEME.ma30, 'MA30'))
     series.push(maLine(45, undefined, THEME.ma45, 'MA45'))
     series.push(maLine(60, 'ma60', THEME.ma60, 'MA60'))
+    series.push(maLine(250, undefined, THEME.ma250, '牛熊线 MA250'))
   }
 
   // 加入自选日标注: 蓝色竖虚线从该根K线的下沿连到主图底端的「自选」标签。
