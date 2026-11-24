@@ -1497,7 +1497,7 @@ function SortTh({ label, sortKey, sort, onSort, align = 'left', title }: {
   )
 }
 
-function CompareView({ onCreateSingle }: { onCreateSingle: () => void }) {
+function CompareView({ onCreateSingle }: { onCreateSingle: (preferredId?: string) => void }) {
   const [createOpen, setCreateOpen] = useState(false)
   const [baseOpen, setBaseOpen] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -1565,7 +1565,7 @@ function CompareView({ onCreateSingle }: { onCreateSingle: () => void }) {
               批量创建账户
             </button>
             <button
-              onClick={onCreateSingle}
+              onClick={() => onCreateSingle(rows.length ? undefined : 'myagent_auto')}
               className="flex items-center gap-0.5 rounded-btn border border-border px-2 py-1 text-[11px] text-muted transition-colors hover:border-accent/40 hover:text-accent"
               title="新建单个虚拟账户 (原流程)"
             >
@@ -1615,7 +1615,7 @@ function CompareView({ onCreateSingle }: { onCreateSingle: () => void }) {
                 批量创建账户
               </button>
               <button
-                onClick={onCreateSingle}
+                onClick={() => onCreateSingle(rows.length ? undefined : 'myagent_auto')}
                 className="rounded-btn border border-border px-3 py-1.5 text-xs text-secondary transition-colors hover:bg-elevated hover:text-foreground"
               >
                 先建一个单账户
@@ -2092,7 +2092,7 @@ export function Paper() {
   const close = () => { setSetupOpen(false); setDraftId(null) }
   return (
     <>
-      <CompareView onCreateSingle={() => { setDraftId(genAccountId()); setSetupOpen(true) }} />
+      <CompareView onCreateSingle={(preferredId) => { setDraftId(preferredId ?? genAccountId()); setSetupOpen(true) }} />
       {setupOpen && (
         <Modal onClose={close} labelledBy="setup-card-title" panelClassName="w-[94vw] max-w-md bg-surface border border-border rounded-card shadow-xl">
           <SetupCard
