@@ -11,6 +11,7 @@ import { fmtBigNum } from '@/lib/format'
 import { cn } from '@/lib/cn'
 
 const FORECAST_REVIEW_API = '/quant/api/myagent/forecast-review'
+type ForecastReviewItem = { id: string; trade_date: string; scope?: string; forecast_amount?: number; forecast_low?: number; forecast_high?: number; actual_amount?: number; status?: 'pending' | 'hit' | 'miss'; as_of?: string; source?: string }
 
 const INDEXES = [
   { symbol: '000001.SH', name: '上证指数' },
@@ -61,11 +62,12 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
     queryFn: async () => {
       const response = await fetch(FORECAST_REVIEW_API, { credentials: 'include' })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      return response.json() as Promise<{ summary?: { resolved?: number; success_rate?: number | null; pending?: number } }>
+      return response.json() as Promise<{ items?: ForecastReviewItem[]; summary?: { resolved?: number; success_rate?: number | null; pending?: number } }>
     },
     staleTime: 60_000,
   })
   const [forecastReviewMessage, setForecastReviewMessage] = useState('')
+  const [actualAmounts, setActualAmounts] = useState<Record<string, string>>({})
   const portfolio = useQuery({
     queryKey: ['dashboard-portfolio-snapshot'],
     queryFn: () => api.portfolioSnapshot(),
@@ -120,6 +122,23 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
       await forecastReviews.refetch()
     } catch (error) {
       setForecastReviewMessage(error instanceof Error ? `保存失败：${error.message}` : '保存失败')
+    }
+  }
+
+  const resolveForecastReview = async (id: string) => {
+    const actual = Number(actualAmounts[id])
+    if (!Number.isFinite(actual) || actual <= 0) { setForecastReviewMessage('请输入真实收盘成交额'); return }
+    setForecastReviewMessage('复盘中…')
+    try {
+      const response = await fetch(`${FORECAST_REVIEW_API}/${encodeURIComponent(id)}/resolve`, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actual_amount: actual }),
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      setForecastReviewMessage('已完成复盘')
+      await forecastReviews.refetch()
+    } catch (error) {
+      setForecastReviewMessage(error instanceof Error ? `复盘失败：${error.message}` : '复盘失败')
     }
   }
 
@@ -185,6 +204,14 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
                   <span className="text-muted">已复盘 {forecastReviews.data?.summary?.resolved ?? 0} 次 · 成功率 {forecastReviews.data?.summary?.success_rate == null ? '—' : `${forecastReviews.data.summary.success_rate}%`}</span>
                   {forecastReviewMessage && <span className="text-secondary">{forecastReviewMessage}</span>}
                 </div>
+                {!!forecastReviews.data?.items?.length && <div className="mt-1 max-h-28 space-y-1 overflow-auto border-t border-border/50 pt-1 text-[10px]">
+                  {forecastReviews.data.items.slice(0, 4).map(item => <div key={item.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded bg-base/60 px-1.5 py-1">
+                    <span className="font-mono text-muted">{item.trade_date}</span>
+                    <span>预测 {forecastText(item.forecast_amount)}</span>
+                    <span className={item.status === 'hit' ? 'text-bull' : item.status === 'miss' ? 'text-bear' : 'text-warning'}>{item.status === 'hit' ? '命中' : item.status === 'miss' ? '未命中' : '待复盘'}</span>
+                    {item.status === 'pending' ? <><input aria-label={`${item.trade_date}真实收盘成交额`} value={actualAmounts[item.id] || ''} onChange={event => setActualAmounts(current => ({ ...current, [item.id]: event.target.value }))} placeholder="真实收盘额" inputMode="decimal" className="w-24 rounded border border-border bg-surface px-1 py-0.5" /><button type="button" onClick={() => resolveForecastReview(item.id)} className="text-accent">复盘</button></> : <span className="text-muted">实际 {forecastText(item.actual_amount)}</span>}
+                  </div>)}
+                </div>}
               </> : <p className="text-[10px] text-muted">{volume.isLoading ? '正在读取真实分钟成交额…' : volume.data?.reason ?? '预测暂不可用，需要当前日和至少3个可比交易日的分钟成交额。'}</p>}
             </div>}
             {forecastTab === 'ai' && <div className="space-y-1.5 text-[11px]">
