@@ -50,6 +50,9 @@ _LOCAL_BOARD_CATALOG = [
     {"code": "BK0735", "name": "计算机设备", "pct": None},
     {"code": "BK0448", "name": "通信设备", "pct": None},
     {"code": "BK1209", "name": "建筑装饰", "pct": None},
+    {"code": "BK0475", "name": "银行Ⅱ", "pct": None},
+    {"code": "BK0474", "name": "保险Ⅱ", "pct": None},
+    {"code": "BK0427", "name": "公用事业", "pct": None},
     {"code": "000688.SH", "name": "科创50指数", "pct": None},
 ]
 
