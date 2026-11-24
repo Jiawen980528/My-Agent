@@ -21,6 +21,7 @@ const Data = lazy(() => import('./pages/Data').then(m => ({ default: m.Data })))
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
 const PickModel = lazy(() => import('./pages/PickModel').then(m => ({ default: m.PickModel })))
 const MyAgentQuant = lazy(() => import('./pages/MyAgentQuant').then(m => ({ default: m.MyAgentQuant })))
+const PortfolioTerminal = lazy(() => import('./pages/PortfolioTerminal').then(m => ({ default: m.PortfolioTerminal })))
 const FundFlow = lazy(() => import('./pages/FundFlow').then(m => ({ default: m.FundFlow })))
 const MarketNews = lazy(() => import('./pages/MarketNews').then(m => ({ default: m.MarketNews })))
 const DecisionGuide = lazy(() => import('./pages/DecisionGuide').then(m => ({ default: m.DecisionGuide })))
@@ -57,6 +58,7 @@ const CORE_ROUTE_PATHS = new Set([
   '/settings/queries',
   '/pick-model',
   '/myagent-quant',
+  '/portfolio-terminal',
   '/fund-flow',
   '/market-news',
   '/decision-guide',
@@ -164,6 +166,7 @@ export const router = createBrowserRouter([
       { index: true, element: <Dashboard /> },
       { path: 'pick-model', element: <PickModel /> },
       { path: 'myagent-quant', element: <MyAgentQuant /> },
+      { path: 'portfolio-terminal', element: <PortfolioTerminal /> },
       { path: 'fund-flow', element: <FundFlow /> },
       { path: 'overview', element: <Navigate to="/" replace /> },
       { path: 'analysis', element: <Navigate to="/settings?tab=pages&section=ext-pages" replace /> },
