@@ -25,7 +25,7 @@ const RecommendationPage = lazy(() => import('./pages/RecommendationPage').then(
 const TodayRecommendations = lazy(() => import('./pages/TodayRecommendations').then(m => ({ default: m.TodayRecommendations })))
 const MarketBoard = lazy(() => import('./pages/MarketBoard').then(m => ({ default: m.MarketBoard })))
 const StockPool = lazy(() => import('./pages/StockPool').then(m => ({ default: m.StockPool })))
-const StrongSectors = lazy(() => import('./pages/PickModel').then(m => ({ default: m.PickModel })))
+const StrongSectors = lazy(() => import('./pages/StrongSectors').then(m => ({ default: m.StrongSectors })))
 const MyAgentQuant = lazy(() => import('./pages/MyAgentQuant').then(m => ({ default: m.MyAgentQuant })))
 const PortfolioOverview = lazy(() => import('./pages/PortfolioOverview').then(m => ({ default: m.PortfolioOverview })))
 const FundFlow = lazy(() => import('./pages/FundFlow').then(m => ({ default: m.FundFlow })))
