@@ -15,7 +15,8 @@ export function PortfolioTerminal() {
     },
     refetchInterval: 30_000,
   })
-  const live = status.data?.connected === true
+  const bridgeConnected = status.data?.connected === true
+  const live = bridgeConnected && Boolean(status.data?.source && status.data.source !== 'unavailable')
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden bg-base p-2 text-foreground sm:p-3">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-card border border-border bg-surface px-3 py-2">
@@ -27,7 +28,7 @@ export function PortfolioTerminal() {
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-2 rounded border border-border bg-surface/70 px-3 py-1.5 text-[11px]">
         <span className={`h-2 w-2 rounded-full ${live ? 'bg-bull' : 'bg-warning'}`} />
-        <span className={live ? 'text-bull' : 'text-warning'}>{live ? 'TickFlow 数据桥接可用' : 'TickFlow 实时/分钟桥接不可用'}</span>
+        <span className={live ? 'text-bull' : 'text-warning'}>{live ? 'TickFlow 实时/分钟能力可用' : bridgeConnected ? 'TickFlow 桥接已连通，但实时/分钟能力未授权' : 'TickFlow 桥接不可用'}</span>
         <span className="text-muted">{status.data?.source || '状态读取中'}{status.data?.as_of ? ` · ${status.data.as_of}` : ''}</span>
         {!live && <Link to="/settings?tab=data-sources" className="ml-auto text-accent hover:underline">配置数据源</Link>}
       </div>
