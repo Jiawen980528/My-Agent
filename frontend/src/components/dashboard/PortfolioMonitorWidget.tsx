@@ -317,6 +317,15 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
         : stockMove != null && stockMove < 0 && boardMove < 0
           ? { label: '风险偏高', tone: 'text-bear', reasons: ['个股与板块同步走弱', '需等待支撑和量价确认'] }
           : { label: '观望', tone: 'text-warning', reasons: [nearHigh ? '个股接近近端高点，警惕冲高回落' : '个股与板块未形成同步突破', selectedFlow.data?.rows?.length ? '资金流可继续观察' : '资金流数据未取得'] }
+  const averageVolume = recent.length > 1 ? recent.slice(0, -1).reduce((sum, row) => sum + Number(row.volume || 0), 0) / (recent.length - 1) : 0
+  const impactFactors = [
+    { label: '个股/板块', value: boardMove == null || stockMove == null ? '数据缺失' : `${pct(stockMove)} / ${pct(boardMove)}` },
+    { label: '量价', value: !last || !averageVolume ? '数据缺失' : `${nearHigh ? '接近近端高点' : '未接近高点'} · 量比 ${(Number(last.volume || 0) / averageVolume).toFixed(2)}x` },
+    { label: '资金', value: selectedFlow.data?.rows?.length ? `已取得 · ${selectedFlow.data.source}` : '数据缺失' },
+    { label: '新闻', value: relatedNews.length ? `${relatedNews.length} 条可核对` : '暂无可核对新闻' },
+    { label: '龙头/炸板', value: '当前持仓卡未取得独立数据' },
+    { label: '指数环境', value: '当前持仓卡未取得独立数据' },
+  ]
   return <div className="min-w-0 space-y-1.5">
     <header className="flex flex-wrap items-center justify-between gap-2 rounded border border-border bg-base/70 px-2 py-1">
       <div><b className="text-sm">{item.name}</b><span className="ml-2 text-xs text-muted">{item.symbol}</span>
@@ -362,6 +371,7 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
     <section className="rounded border border-border bg-base/50 p-2 text-xs">
       <div className="flex flex-wrap items-center justify-between gap-2"><b>持仓影响评估</b><span className={`font-medium ${impact.tone}`}>{impact.label}</span></div>
       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted"><span>个股区间 {pct(stockMove)}</span><span>板块区间 {pct(boardMove)}</span><span>关联板块 {boardName}</span><span>新闻 {relatedNews.length ? `${relatedNews.length} 条` : '暂无'}</span></div>
+      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-muted sm:grid-cols-3">{impactFactors.map(factor => <span key={factor.label}><b className="text-secondary">{factor.label}：</b>{factor.value}</span>)}</div>
       <p className="mt-1 text-[11px] text-secondary">依据：{impact.reasons.join('；')}。该结论只描述当前数据对手工持仓的影响，不替代交易决定。</p>
     </section>
     {visible.news && <section className="rounded border border-border bg-base/50 p-2 text-xs"><b>{boardName} · 关联新闻</b>
