@@ -547,8 +547,16 @@ async def fund_flow_sectors(q: str = Query("", max_length=40), limit: int = Quer
 
 
 @router.get("/fund-flow/live")
-async def fund_flow_live(sector: str | None = Query(None, pattern=r"^BK\d{4}$")):
-    """东方财富公开延迟行情；60 秒轮询，返回原始数据时点供前端辨别新旧。"""
+async def fund_flow_live(sector: str | None = Query(None, max_length=32)):
+    """东方财富公开延迟行情；仅 BKxxxx 有资金流接口，其他板块明确不可用。"""
+    if sector and not re.fullmatch(r"BK\d{4}", sector.upper()):
+        return {
+            "status": "unavailable",
+            "rows": [],
+            "latest_time": None,
+            "source": "当前资金流接口仅支持东方财富 BK 板块代码；扶摇板块资金流未提供",
+        }
+    sector = sector.upper() if sector else None
     key = sector or "market"
     cached = _flow_cache.get(key)
     if cached and time.monotonic() - cached[0] < 55:
