@@ -23,14 +23,18 @@ def get_client(provider_name=None):
     profile=settings.providers().get(provider_name or settings.model_provider)
     if not profile: raise AgentError("MODEL_PROVIDER 配置无效。")
     if not profile.api_key: raise AgentError(f"{profile.label} API Key 未配置；模型调用未发生。")
-    opts={"api_key":profile.api_key,"timeout":settings.model_timeout_seconds,"max_retries":1}
+    # The Windows runtime may load httpx/httpx2 together.  Compressed model
+    # responses can then hit an incompatible decoder signature.  Asking the
+    # provider for an uncompressed response keeps the existing OpenAI-
+    # compatible client path deterministic without exposing or changing keys.
+    opts={"api_key":profile.api_key,"timeout":settings.model_timeout_seconds,"max_retries":1,"default_headers":{"Accept-Encoding":"identity"}}
     if profile.base_url: opts["base_url"]=profile.base_url
     return OpenAI(**opts)
 def _public_model_error(exc):
     if isinstance(exc,(APITimeoutError,APIConnectionError)): return "模型服务网络连接或超时，请稍后重试。"
     if isinstance(exc,RateLimitError): return "模型服务限流或额度不足，请检查 API 账户后重试。"
     if isinstance(exc,APIStatusError): return f"模型服务返回错误（HTTP {exc.status_code}）。"
-    return "模型调用失败，请查看已脱敏审计日志。"
+    return f"模型调用失败（{type(exc).__name__}），请检查模型服务配置或网络。"
 
 def _response_with_fallback(messages, require_vision=False):
     """Call configured compatible APIs in priority order without exposing provider secrets."""
