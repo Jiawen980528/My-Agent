@@ -386,6 +386,8 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
       <div className="flex flex-wrap items-center justify-between gap-1 px-1 text-xs"><b>{boardName} · {chartPeriod === '1d' || chartPeriod === '1w' ? '板块K线' : '板块分时'}</b><span className="text-muted">{linkedBoard.data?.source || board.data?.source || '数据源待确认'}</span></div>
       <TimeChart rows={boardRows} title={boardName} color="#e3a54d" height={150} />
       <p className="px-1 text-[11px] text-muted">区间涨跌 {pct(boardMove)} · {linkedBoard.data?.latest_time || board.data?.last_market_time || '暂无时间'}；{linkedBoardCode ? `自选板块 ${linkedBoardCode}` : autoBoardName ? '自动关联行业板块' : '请先选择真实行业/指数板块'}</p>
+      {linkedBoard.isError && <p className="px-1 text-[11px] text-warning">板块行情暂不可用：{linkedBoard.error instanceof Error ? linkedBoard.error.message : '数据源未返回曲线'}。当前不使用个股K线替代板块曲线。</p>}
+      {board.isError && !linkedBoardCode && <p className="px-1 text-[11px] text-warning">自动关联板块读取失败：{board.error instanceof Error ? board.error.message : '数据源未返回曲线'}。</p>}
     </section>}
     <div className="grid gap-1.5 lg:grid-cols-2">
       {visible.flow && <section className="rounded border border-border bg-base/50 p-2 text-xs">
