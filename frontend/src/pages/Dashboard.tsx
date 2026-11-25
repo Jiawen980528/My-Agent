@@ -356,10 +356,10 @@ export function Dashboard() {
               <button
                 type="button"
                 onClick={resetDashLayout}
-                title="显示市场实时、量能、持仓分时、关联板块、资金和新闻"
+                title="切换到个人持仓研究看板：持仓分时、关联板块、资金、新闻和提醒"
                 className="inline-flex items-center gap-1 rounded-btn border border-accent/40 bg-accent/10 px-2 py-1 text-[11px] text-accent transition-colors hover:bg-accent/20"
               >
-                <Gauge className="h-3 w-3" />核心看盘
+                <Gauge className="h-3 w-3" />个人持仓模式
               </button>
               <button
                 onClick={() => setDashEditing(true)}
