@@ -457,14 +457,18 @@ export function MonitorWidget({ onStockClick, activeSymbol }: {
   // 切股导航列表: 有 symbol 的触发记录
   const alertNav = toNavItems(events.filter((ev): ev is AlertEvent & { symbol: string } => !!ev.symbol))
 
+  if (alerts.isError) {
+    return <div className="mt-1 rounded border border-warning/30 bg-warning/5 px-2 py-3 text-center text-[11px] text-warning">提醒接口暂不可用，未把连接失败误显示为“暂无触发记录”。</div>
+  }
   if (events.length === 0) {
     return (
-      <div className="mt-1 py-6 text-center text-[11px] text-muted">暂无触发记录</div>
+      <div className="mt-1 py-6 text-center text-[11px] text-muted">暂无触发记录 · 每10秒刷新</div>
     )
   }
 
   return (
     <>
+      <div className="mb-1 text-right text-[9px] text-muted">提醒记录 · 最近7天 · 每10秒刷新</div>
       <div className="mt-1 space-y-1.5">
         {events.map((ev, i) => {
           const sev = _SEVERITY_BAR[ev.severity ?? 'info'] ?? _SEVERITY_BAR.info
