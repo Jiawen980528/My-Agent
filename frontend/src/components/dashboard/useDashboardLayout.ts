@@ -36,6 +36,9 @@ export function useDashboardLayout(): {
     if (!next.some(item => item.t === 'recommendations')) {
       next.push({ i: 'recommendations', t: 'recommendations', x: 0, y: 0, w: 6, h: 12 })
     }
+    if (!next.some(item => item.t === 'paper-summary')) {
+      next.push({ i: 'paper-summary', t: 'paper-summary', x: 0, y: 0, w: 12, h: 10 })
+    }
     if (!next.some(item => item.t === 'page-panel' && item.p?.path === '/decision-guide')) {
       next.push({ i: 'page-panel-decision-guide', t: 'page-panel', x: 0, y: 0, w: 12, h: 18, p: { path: '/decision-guide' } })
     }
@@ -59,3 +62,4 @@ export function useDashboardLayout(): {
 
   return { items: local ?? saved, setItems: setLocal, saveError, retrySave: () => setRetry(value => value + 1) }
 }
+
