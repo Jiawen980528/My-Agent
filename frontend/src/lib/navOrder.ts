@@ -18,10 +18,13 @@ export const DEFAULT_NAV_PATHS = [
 ] as const
 
 const INDEX = new Map<string, number>(DEFAULT_NAV_PATHS.map((p, i) => [p, i]))
+// 个股研究已从旧策略筛选页迁移到推荐/复盘工作区；保留旧 19 项基准，
+// 让未保存排序的老用户仍能把新入口放在原“策略”位置。
+const NAV_ALIASES = new Map<string, number>([['/recommendations', 2]])
 
 /** 路径的默认序号; 未知路径返回 Infinity (排在全部已知路径之后) */
 export function defaultNavIndex(path: string): number {
-  return INDEX.get(path) ?? Number.POSITIVE_INFINITY
+  return INDEX.get(path) ?? NAV_ALIASES.get(path) ?? Number.POSITIVE_INFINITY
 }
 
 /**

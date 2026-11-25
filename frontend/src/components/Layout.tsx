@@ -80,7 +80,7 @@ const nav = [
   { to: '/',                   label: '看板',       icon: IconDashboard },
   { to: '/portfolio-terminal', label: '我的持仓',   icon: IconWatchlist },
   { to: '/decision-guide',     label: '持仓推演',   icon: Sparkles },
-  { to: '/screener',           label: '个股研究',   icon: IconStrategy },
+  { to: '/recommendations',    label: '个股研究',   icon: IconStrategy },
   { to: '/fund-flow',          label: '市场环境',   icon: BarChart3 },
 ] as const
 
