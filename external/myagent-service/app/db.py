@@ -41,6 +41,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS quant_recommendation_snapshots(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             scan_id INTEGER,
+            recommendation_slot TEXT NOT NULL DEFAULT '未标注',
             period TEXT NOT NULL,
             valid_until TEXT NOT NULL,
             generated_at TEXT NOT NULL,
@@ -126,6 +127,12 @@ def init_db():
         """)
         c.execute("INSERT OR IGNORE INTO schema_migrations VALUES(1,?)", (utc_now(),))
         c.execute("INSERT OR IGNORE INTO schema_migrations VALUES(2,?)", (utc_now(),))
+        # Existing installations predate the recommendation time-slot field.
+        # Add it in place and preserve every historical snapshot unchanged.
+        columns = {row[1] for row in c.execute("PRAGMA table_info(quant_recommendation_snapshots)").fetchall()}
+        if "recommendation_slot" not in columns:
+            c.execute("ALTER TABLE quant_recommendation_snapshots ADD COLUMN recommendation_slot TEXT NOT NULL DEFAULT '未标注'")
+        c.execute("INSERT OR IGNORE INTO schema_migrations VALUES(3,?)", (utc_now(),))
 
 def log_event(level,event,details="",task_id=None,actor="system"):
     with session() as c: c.execute("INSERT INTO audit_logs(level,event,details,task_id,actor,created_at) VALUES(?,?,?,?,?,?)",(level,event,str(details)[:4000],task_id,actor,utc_now()))
@@ -200,14 +207,14 @@ def get_quant_scan(scan_id):
         row=c.execute("SELECT * FROM quant_scan_runs WHERE id=?",(scan_id,)).fetchone()
         return ({**dict(row),"criteria":json.loads(row["criteria"]),"result":json.loads(row["result"])} if row else None)
 
-def save_quant_recommendation_snapshot(*, scan_id, period, valid_until, generated_at, data_source, symbols, payload):
+def save_quant_recommendation_snapshot(*, scan_id, recommendation_slot="未标注", period, valid_until, generated_at, data_source, symbols, payload):
     now = utc_now()
     with session() as c:
         cur = c.execute(
             """INSERT INTO quant_recommendation_snapshots
-            (scan_id,period,valid_until,generated_at,data_source,symbols,payload,created_at)
-            VALUES(?,?,?,?,?,?,?,?)""",
-            (scan_id, str(period)[:40], str(valid_until)[:80], str(generated_at)[:80],
+            (scan_id,recommendation_slot,period,valid_until,generated_at,data_source,symbols,payload,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?)""",
+            (scan_id, str(recommendation_slot)[:20], str(period)[:40], str(valid_until)[:80], str(generated_at)[:80],
              str(data_source)[:200], json.dumps(symbols, ensure_ascii=False),
              json.dumps(payload, ensure_ascii=False, default=str), now),
         )

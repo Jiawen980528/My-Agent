@@ -21,7 +21,7 @@ type LegacySummary = {
   warnings?: string[]
 }
 type ScanResult = { items?: Candidate[]; count?: number; universe_count?: number; data_source?: string; generated_at?: string; history_id?: number }
-type Snapshot = { id: number | string; generated_at?: string; generatedAt?: string; period: string; valid_until?: string; validUntil?: string; scan_id?: number; historyId?: number; symbols: string[]; status: '待复盘' | '已复盘'; data_source?: string; payload?: Candidate[]; review?: { observations?: Array<{ symbol?: string; observed_return_pct?: number | null }>; note?: string } | null }
+type Snapshot = { id: number | string; generated_at?: string; generatedAt?: string; recommendation_slot?: '集合竞价' | '盘中' | '轮动' | '未标注' | string; period: string; valid_until?: string; validUntil?: string; scan_id?: number; historyId?: number; symbols: string[]; status: '待复盘' | '已复盘'; data_source?: string; payload?: Candidate[]; review?: { observations?: Array<{ symbol?: string; observed_return_pct?: number | null }>; note?: string } | null }
 const periodOptions = [
   { value: '盘中观察', label: '盘中观察', hint: '只用于当前交易时段的观察，不代表收盘预测' },
   { value: '当日收盘', label: '当日收盘', hint: '等待收盘数据后复盘当天表现' },
@@ -43,6 +43,7 @@ export function Recommendations() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [period, setPeriod] = useState('盘中观察')
+  const [recommendationSlot, setRecommendationSlot] = useState<'集合竞价' | '盘中' | '轮动'>('盘中')
   const [snapshots, setSnapshots] = useState<Snapshot[]>([])
   const [aiLoading, setAiLoading] = useState(false)
   const [aiReply, setAiReply] = useState('')
@@ -184,6 +185,14 @@ export function Recommendations() {
       average: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null,
     }
   }), [snapshots])
+  const slotStats = useMemo(() => (['集合竞价', '盘中', '轮动', '未标注'] as const).map(slot => {
+    const observations = snapshots
+      .filter(snapshot => snapshot.status === '已复盘' && (snapshot.recommendation_slot || '未标注') === slot)
+      .flatMap(snapshot => snapshot.review?.observations || [])
+    const values = observations.map(item => Number(item.observed_return_pct)).filter(value => Number.isFinite(value))
+    const positive = values.filter(value => value > 0).length
+    return { slot, count: values.length, positive, ratio: values.length ? positive / values.length * 100 : null, average: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null }
+  }).filter(stat => stat.count > 0), [snapshots])
   const sectorStats = useMemo(() => {
     const groups = new Map<string, { count: number; positive: number; total: number }>()
     for (const snapshot of snapshots) {
@@ -242,7 +251,7 @@ export function Recommendations() {
     const validUntil = period === '次日跟踪' ? '下一交易日收盘后' : period === '当日收盘' ? '今日收盘后' : '本次盘中观察结束'
     setError('')
     try {
-      const response = await fetch(`${API}/recommendation-snapshots`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scan_id: result.history_id, period, valid_until: validUntil, generated_at: result.generated_at || new Date().toISOString(), data_source: result.data_source || '未标注', symbols: items.map(item => item.symbol), payload: items }) })
+      const response = await fetch(`${API}/recommendation-snapshots`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scan_id: result.history_id, recommendation_slot: recommendationSlot, period, valid_until: validUntil, generated_at: result.generated_at || new Date().toISOString(), data_source: result.data_source || '未标注', symbols: items.map(item => item.symbol), payload: items }) })
       const body = await response.json() as { detail?: string }
       if (!response.ok) throw new Error(body.detail || `保存失败 ${response.status}`)
       const refreshed = await fetch(`${API}/recommendation-snapshots?limit=20`, { credentials: 'include' })
@@ -328,7 +337,7 @@ export function Recommendations() {
       {!!legacySummary.warnings?.length && <div className="mt-2 space-y-1 border-t border-warning/20 pt-2 text-warning">{legacySummary.warnings.map(warning => <div key={warning}>⚠ {warning}</div>)}</div>}
     </div>}
     <div className="mb-3 grid gap-3 rounded-card border border-border bg-surface p-3 md:grid-cols-[1fr_auto]">
-      <div><div className="text-xs font-semibold">本次推荐周期</div><div className="mt-2 flex flex-wrap gap-2">{periodOptions.map(option => <button key={option.value} type="button" onClick={() => setPeriod(option.value)} className={`rounded border px-2.5 py-1.5 text-[11px] ${period === option.value ? 'border-accent bg-accent/15 text-accent' : 'border-border text-muted'}`}>{option.label}</button>)}</div><p className="mt-2 text-[11px] text-muted">{selectedPeriod.hint}；扫描算法本身不会把候选伪装成价格预测。</p></div>
+      <div><div className="text-xs font-semibold">本次推荐时段</div><div className="mt-2 flex flex-wrap gap-2">{(['集合竞价', '盘中', '轮动'] as const).map(slot => <button key={slot} type="button" onClick={() => setRecommendationSlot(slot)} className={`rounded border px-2.5 py-1.5 text-[11px] ${recommendationSlot === slot ? 'border-accent bg-accent/15 text-accent' : 'border-border text-muted'}`}>{slot}</button>)}</div><div className="mt-3 text-xs font-semibold">本次推荐周期</div><div className="mt-2 flex flex-wrap gap-2">{periodOptions.map(option => <button key={option.value} type="button" onClick={() => setPeriod(option.value)} className={`rounded border px-2.5 py-1.5 text-[11px] ${period === option.value ? 'border-accent bg-accent/15 text-accent' : 'border-border text-muted'}`}>{option.label}</button>)}</div><p className="mt-2 text-[11px] text-muted">{selectedPeriod.hint}；时段和周期会写入不可变推荐快照。</p></div>
       <div className="flex items-end"><button type="button" onClick={saveSnapshot} disabled={!result || !items.length} className="rounded-btn border border-accent/60 px-3 py-2 text-xs text-accent disabled:opacity-40">保存推荐快照</button></div>
     </div>
     <div className="mb-3 grid grid-cols-2 gap-2 rounded-card border border-border bg-surface p-3 md:grid-cols-5">{([['baseline_days','长期地量天数'],['max_avg_turnover','换手上限%'],['recent_days','异动窗口天数'],['volume_multiple','放量倍数'],['max_market_cap_yi','市值上限亿']] as const).map(([key, label]) => <label key={key} className="grid gap-1 text-[11px] text-muted">{label}<input type="number" value={criteria[key]} onChange={e => setCriteria({ ...criteria, [key]: Number(e.target.value) })} className="h-8 rounded border border-border bg-elevated px-2 text-xs text-foreground" /></label>)}</div>
@@ -372,6 +381,12 @@ export function Recommendations() {
             <div className="flex items-center justify-between gap-2"><b className="truncate" title={stat.source}>{stat.source}</b><span className="text-muted">样本 {stat.count}</span></div>
             <div className="mt-0.5 text-muted">上涨率 {stat.ratio == null ? '—' : `${stat.ratio.toFixed(1)}%`} · 均值 {stat.average == null ? '—' : `${stat.average >= 0 ? '+' : ''}${stat.average.toFixed(2)}%`}</div>
           </div>)}
+        </div>
+      </div>}
+      {!!slotStats.length && <div className="mt-2 rounded border border-border/60 bg-base/40 p-2">
+        <div className="flex flex-wrap items-center justify-between gap-2"><b>按推荐时段归因</b><span className="text-[10px] text-muted">推荐价到复盘价的真实表现；未含手续费、成交约束和隔夜风险</span></div>
+        <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
+          {slotStats.map(stat => <div key={stat.slot} className="rounded border border-border/60 bg-surface px-2 py-1.5 text-[10px]"><div className="flex items-center justify-between gap-2"><b>{stat.slot}</b><span className="text-muted">样本 {stat.count}</span></div><div className="mt-0.5 text-muted">上涨率 {stat.ratio == null ? '—' : `${stat.ratio.toFixed(1)}%`} · 均值 {stat.average == null ? '—' : `${stat.average >= 0 ? '+' : ''}${stat.average.toFixed(2)}%`}</div></div>)}
         </div>
       </div>}
       {!!reviewTrend.length && <div className="mt-2 rounded border border-border/60 bg-base/40 p-2">

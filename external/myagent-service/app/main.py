@@ -101,6 +101,7 @@ class QuantScanRequest(BaseModel):
     force: bool = False
 class QuantRecommendationSnapshotRequest(BaseModel):
     scan_id: int | None = Field(default=None, ge=1)
+    recommendation_slot: str = Field(default="未标注", pattern=r"^(集合竞价|盘中|轮动|未标注)$")
     period: str = Field(min_length=1, max_length=40)
     valid_until: str = Field(min_length=1, max_length=80)
     generated_at: str = Field(min_length=1, max_length=80)
@@ -846,7 +847,7 @@ def quant_recommendation_snapshot(req: QuantRecommendationSnapshotRequest):
     if any(not re.fullmatch(r"\d{6}", str(symbol)) for symbol in req.symbols):
         raise HTTPException(status_code=400, detail="候选代码格式不正确")
     snapshot_id = db.save_quant_recommendation_snapshot(
-        scan_id=req.scan_id, period=req.period, valid_until=req.valid_until,
+        scan_id=req.scan_id, recommendation_slot=req.recommendation_slot, period=req.period, valid_until=req.valid_until,
         generated_at=req.generated_at, data_source=req.data_source,
         symbols=req.symbols, payload=req.payload,
     )
