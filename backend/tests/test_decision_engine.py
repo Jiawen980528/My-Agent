@@ -82,6 +82,27 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertNotIn("multi_period", result["evidence"]["context_missing"])
         self.assertIn("日线/60分钟/15分钟/5分钟多周期", result["basis"])
 
+    def test_external_and_arms_context_are_exposed_as_warnings(self):
+        result = build_decision({
+            "strict_context": True,
+            "freshness": {"stale": False, "market_time": "2026-11-08T10:00:00+08:00"},
+            "quote": {"price": 9.95, "support": 9.9, "resistance": 10.5},
+            "market": {"pct": 0.5, "turnover_ratio": 1.1}, "board": {"pct": 0.8},
+            "market_breadth": {"up_count": 3000, "down_count": 1000, "arms": {"value": 1.35}},
+            "turnover_forecast": {"status": "ok"}, "defensive": {"pct": 0.1},
+            "multi_period": {"daily": {"trend": "up", "observations": 10},
+                             "minute_60": {"trend": "up", "observations": 3},
+                             "minute_15": {"trend": "up", "observations": 6},
+                             "minute_5": {"trend": "up", "observations": 18}},
+            "account": {"available_cash": 20000, "source": "manual", "verified": False},
+            "external_market": {"status": "ok", "rows": [{"symbol": "^VIX", "last": 32, "status": "ok"}]},
+        })
+        self.assertIn("阿姆斯/TRIN", result["basis"])
+        self.assertIn("美股/外围市场背景（公共行情，可能延迟）", result["basis"])
+        self.assertEqual(len(result["warnings"]), 2)
+        self.assertEqual(result["evidence"]["external_market"]["status"], "ok")
+
 
 if __name__ == "__main__":
     unittest.main()
+
