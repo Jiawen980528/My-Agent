@@ -327,6 +327,13 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
     ['ATR%', latestTechnical.atr_pct, (value: unknown) => `${(Number(value) * 100).toFixed(2)}%`],
     ['量比', latestTechnical.vol_ratio_5d, (value: unknown) => `${Number(value).toFixed(2)}x`],
   ] as const : []
+  const technicalRegime = latestTechnical && [latestTechnical.close, latestTechnical.ma20, latestTechnical.ma60].every(value => Number.isFinite(Number(value)))
+    ? Number(latestTechnical.close) >= Number(latestTechnical.ma20) && Number(latestTechnical.ma20) >= Number(latestTechnical.ma60)
+      ? { label: '偏牛结构', cls: 'text-bull' }
+      : Number(latestTechnical.close) <= Number(latestTechnical.ma20) && Number(latestTechnical.ma20) <= Number(latestTechnical.ma60)
+        ? { label: '偏熊结构', cls: 'text-bear' }
+        : { label: '均线震荡', cls: 'text-warning' }
+    : { label: '不可用', cls: 'text-muted' }
   const autoBoardName = usableBoardName(board.data?.board?.name) ? board.data?.board?.name : usableBoardName(item.board?.name) ? item.board?.name : undefined
   const boardName = linkedBoard.data?.name || autoBoardName || '关联行业板块待绑定'
   const boardCode = linkedBoardCode || board.data?.board?.code || ''
@@ -404,7 +411,8 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
             <button key={n} type="button" onClick={() => setRequestedDays(n)} className={`rounded px-1 py-0.5 ${requestedDays === n ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>{n}日</button>)}</>}</div></div>
       <TimeChart rows={chartRows} title={`${item.name} · ${chartPeriod}`} color="#5aaaff" height={260} multiDay={chartPeriod === '1m' && historyRows.length > stockRows.length} previousCloses={previousCloses} trades={chartPeriod === '1m' ? trades : []} />
       <p className="px-1 text-[11px] text-muted">滚轮缩放 · 拖动下方时间条浏览 · 鼠标悬停看具体信息 · {chartPeriod === '1m' ? `已有 ${new Set(historyRows.map(row => dateOf(row.datetime))).size} 个交易日 · 选中日 ${stockRows.length} 根` : `${chartRows.length} 根真实${chartPeriod === '1d' ? '日K' : chartPeriod === '1w' ? '周K' : chartPeriod}数据`} · {chartRows.at(-1)?.datetime || '暂无时间'} · {chartPeriod === '1d' || chartPeriod === '1w' ? (dailyHistory.data?.source || '来源未标注') : (isLatest ? (minuteSource || selectedMinute.data?.source || '来源未标注') : (selectedMinute.data?.source || minuteSource || '读取中'))}</p>
-      {(chartPeriod === '1d' || chartPeriod === '1w') && <div className="grid grid-cols-3 gap-1 rounded border border-border/70 bg-elevated/35 p-1.5 text-[10px] sm:grid-cols-6">
+      {(chartPeriod === '1d' || chartPeriod === '1w') && <div className="grid grid-cols-3 gap-1 rounded border border-border/70 bg-elevated/35 p-1.5 text-[10px] sm:grid-cols-7">
+        <div className="rounded bg-base/50 px-1.5 py-1"><span className="text-muted">牛熊结构</span><br /><b className={technicalRegime.cls}>{technicalRegime.label}</b></div>
         {technicalItems.map(([label, raw, format]) => <div key={label} className="rounded bg-base/50 px-1.5 py-1"><span className="text-muted">{label}</span><br /><b className="font-mono">{raw == null || !Number.isFinite(Number(raw)) ? '不可用' : format(raw)}</b></div>)}
         {!technicalItems.length && <span className="col-span-full text-muted">当前日K未返回技术指标，不能用价格曲线替代指标。</span>}
       </div>}
