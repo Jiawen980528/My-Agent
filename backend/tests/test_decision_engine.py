@@ -102,6 +102,18 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertEqual(len(result["warnings"]), 2)
         self.assertEqual(result["evidence"]["external_market"]["status"], "ok")
 
+    def test_technical_context_is_kept_in_evidence_and_warns(self):
+        result = build_decision({
+            "freshness": {"stale": False, "market_time": "2026-11-08T10:00:00+08:00"},
+            "quote": {"price": 9.95, "support": 9.9, "resistance": 10.5},
+            "market": {"pct": 0.5, "turnover_ratio": 1.1}, "board": {"pct": 0.8},
+            "account": {"available_cash": 20000, "source": "manual", "verified": False},
+            "technical": {"rsi_14": 74, "macd_hist": -0.02, "kdj_j": 105},
+        })
+        self.assertIn("日线技术指标（真实 enriched 数据）", result["basis"])
+        self.assertEqual(result["evidence"]["technical"]["rsi_14"], 74)
+        self.assertEqual(len(result["warnings"]), 3)
+
 
 if __name__ == "__main__":
     unittest.main()
