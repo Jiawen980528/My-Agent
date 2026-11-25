@@ -319,7 +319,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
                 <td className="px-2 py-1.5 text-right font-mono">{item.cost == null ? '未录入' : item.cost.toFixed(3)}</td>
                 <td className={cn('px-2 py-1.5 text-right font-mono', tone(item.pnl))}>{item.pnl == null ? '未核算' : item.pnl.toFixed(2)}</td>
                 <td className="px-2 py-1.5">{item.board?.name ?? '待关联'}</td>
-                <td className="px-2 py-1.5 text-muted">{item.holding_source ? '已录入持仓' : '监控标的·待核实'}</td>
+                <td className="px-2 py-1.5 text-muted">{item.holding_source ? '已录入持仓' : item.holding_source !== undefined ? '持仓未核实' : '监控标的·待核实'}</td>
               </tr>)}
             </tbody>
           </table>
