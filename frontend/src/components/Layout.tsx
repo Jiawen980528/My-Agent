@@ -32,7 +32,6 @@ import {
   DatabaseZap,
   Loader2,
   BarChart3,
-  Layers3,
   Sparkles,
   CheckCircle2,
   ChevronRight,
@@ -68,7 +67,6 @@ import { toggleTheme, useTheme } from '@/lib/theme'
 import { setCurrentTotal as setAlertTotal, useUnreadAlerts } from '@/lib/monitorBadge'
 import { DEFAULT_INDEXES, useIndexWatchlist } from '@/lib/indexWatchlist'
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
-import { getFrontendExtensionNavigation } from '@/extensions/registry'
 
 // 品牌色 — 只用于 logo / brand 区域,不影响功能语义色
 const BRAND = '#8B5CF6'
@@ -81,14 +79,13 @@ type CoreIndex = (typeof CORE_INDEXES)[number]
 const nav = [
   { to: '/',                   label: '看板',       icon: IconDashboard },
   { to: '/portfolio-terminal', label: '我的持仓',   icon: IconWatchlist },
-  { to: '/decision-guide',     label: '行情推演',   icon: Sparkles },
-  { to: '/screener',            label: '个股搜索',   icon: IconStrategy },
-  { to: '/fund-flow',           label: '市场总览',   icon: BarChart3 },
+  { to: '/decision-guide',     label: '持仓推演',   icon: Sparkles },
+  { to: '/screener',           label: '个股研究',   icon: IconStrategy },
+  { to: '/fund-flow',          label: '市场环境',   icon: BarChart3 },
 ] as const
 
-// 量化侧栏只展示个人持仓决策链路。新闻、个股推荐等内容已并入看板/个股搜索，
-// 拾贝、回测、因子、数据同步等旧页面仍保留路由和数据，不再占用主导航。
-const FOCUS_EXTENSION_PATHS = new Set(['/paper', '/review', '/monitor'])
+// 量化侧栏只展示个人持仓决策链路。暗盘、预测复盘和提醒仍保留路由，
+// 统一收进「我的持仓」页内，避免把同一套决策链路重复铺在侧栏。
 
 /** 亮/暗主题切换 — 状态存 localStorage, 生效见 lib/theme.ts */
 function ThemeToggle() {
@@ -590,25 +587,12 @@ export function Layout() {
     if (alertsTotal != null) setAlertTotal(alertsTotal)
   }, [alertsTotal])
 
-  // 主栏只保留个人持仓决策链路；自选、暗盘/复盘/提醒等作为可选入口收进“更多功能”。
+  // 主栏只保留个人持仓决策链路；暗盘/复盘/提醒由「我的持仓」页内导航承载。
   type NavIcon = (props: BrandIconProps) => ReactNode
   // arch: 'ext' = 扩展域页面 (官方扩展/自定义分析), 核心域 nav 常量不带标。
   // 与菜单设置 ARCH_CLASS 同口径: nav 常量 8 项全部核心, 其余两个来源全部扩展。
   type NavItem = { to: string; label: string; icon: NavIcon; badge?: string; arch?: 'core' | 'ext' }
-  const extensionNav: NavItem[] = getFrontendExtensionNavigation().map(item => ({
-    to: item.route.path,
-    label: item.label,
-    icon: item.icon,
-    badge: item.badge,
-    arch: 'ext' as const,
-  }))
-  const secondaryNav: NavItem[] = [
-    // 自选页仍保留路由和数据能力，但不在个人持仓模式的侧栏重复展示。
-    ...extensionNav.filter(item => FOCUS_EXTENSION_PATHS.has(item.to)),
-  ]
-
-  // 扩展页仍保留路由，但不再并入主导航；否则旧用户保存过的侧栏顺序
-  // 会把模拟盘/复盘/监控重新铺开，抵消个人持仓模式的精简目标。
+  // 扩展页仍保留路由，但不并入主导航；由对应核心工作区提供入口。
   const allNav: NavItem[] = [...nav]
   const savedOrder = prefs?.nav_order ?? []
 
@@ -644,10 +628,6 @@ export function Layout() {
 
   const hiddenIds = new Set(prefs?.nav_hidden ?? [])
   const visibleNavItems = navItems.filter(n => !hiddenIds.has(n.to) && !hiddenIds.has(n.to.replace(/^\/analysis\//, '')))
-  const [extensionsOpen, setExtensionsOpen] = useState(() => secondaryNav.some(item => location.pathname === item.to))
-  useEffect(() => {
-    if (secondaryNav.some(item => location.pathname === item.to)) setExtensionsOpen(true)
-  }, [location.pathname])
   const [dragNavPath, setDragNavPath] = useState<string | null>(null)
   const moveNavItem = (targetPath: string) => {
     if (!dragNavPath || dragNavPath === targetPath) return
@@ -978,51 +958,6 @@ export function Layout() {
               </div>
             )
           })}
-          {railMode && secondaryNav.length > 0 && secondaryNav.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              title={label}
-              className={({ isActive }) => cn(
-                'group relative flex items-center justify-center rounded-btn px-0 py-2 text-sm transition-all duration-150 ease-smooth',
-                isActive ? 'bg-elevated text-foreground font-medium' : 'text-foreground/60 hover:bg-elevated/70 hover:text-foreground',
-              )}
-            >
-              {({ isActive }) => <Icon className={cn('h-4 w-4 shrink-0', isActive ? 'text-accent' : 'text-foreground/60 group-hover:text-foreground/85')} />}
-            </NavLink>
-          ))}
-          {!railMode && secondaryNav.length > 0 && (
-            <div className="mt-2 border-t border-border/60 pt-2">
-              <button
-                type="button"
-                onClick={() => setExtensionsOpen(value => !value)}
-                className="flex w-full items-center gap-3 rounded-btn px-3 py-2 text-sm text-foreground/60 transition-colors hover:bg-elevated/70 hover:text-foreground"
-                aria-expanded={extensionsOpen}
-              >
-                <Layers3 className="h-4 w-4 shrink-0" />
-                <span className="flex-1 text-left">更多功能</span>
-                {extensionsOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-              </button>
-              {extensionsOpen && (
-                <div className="mt-0.5 space-y-0.5">
-                  {secondaryNav.map(({ to, label, icon: Icon, badge }) => (
-                    <NavLink
-                      key={to}
-                      to={to}
-                      className={({ isActive }) => cn(
-                        'flex items-center gap-3 rounded-btn px-3 py-1.5 pl-10 text-[12px] transition-colors',
-                        isActive ? 'bg-elevated text-accent font-medium' : 'text-foreground/60 hover:bg-elevated/50 hover:text-foreground',
-                      )}
-                    >
-                      <Icon className="h-3.5 w-3.5 shrink-0" />
-                      <span className="truncate">{label}</span>
-                      {badge && <span className="ml-auto text-[9px] text-muted">{badge}</span>}
-                    </NavLink>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
           <ExtensionSlot
             name="layout.navigation.extra"
             context={{ collapsed: railMode, pathname: location.pathname }}

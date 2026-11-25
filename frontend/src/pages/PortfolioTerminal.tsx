@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, LayoutDashboard } from 'lucide-react'
 import { PortfolioMonitorWidget } from '@/components/dashboard/PortfolioMonitorWidget'
@@ -34,7 +34,23 @@ export function PortfolioTerminal() {
           <Link to="/" className="rounded-btn p-1.5 text-muted hover:bg-elevated hover:text-foreground" title="返回看板" aria-label="返回看板"><ArrowLeft className="h-4 w-4" /></Link>
           <div><h1 className="text-sm font-semibold">我的持仓 · 实时工作区</h1><p className="text-[11px] text-muted">手工/截图确认的持仓 · 只读行情 · 不连接券商、不自动下单</p></div>
         </div>
-        <Link to="/" className="inline-flex items-center gap-1 rounded-btn border border-border px-2 py-1 text-xs text-accent hover:bg-elevated"><LayoutDashboard className="h-3.5 w-3.5" />看板布局</Link>
+        <div className="flex flex-wrap items-center gap-1">
+          {[
+            ['/portfolio-terminal', '实时持仓'],
+            ['/paper', '暗盘模拟'],
+            ['/review', '预测复盘'],
+            ['/monitor', '提醒规则'],
+          ].map(([to, label]) => (
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) => `rounded-btn border px-2 py-1 text-xs transition-colors ${isActive ? 'border-accent/60 bg-accent/15 text-accent' : 'border-border text-muted hover:bg-elevated hover:text-foreground'}`}
+            >
+              {label}
+            </NavLink>
+          ))}
+          <Link to="/" className="inline-flex items-center gap-1 rounded-btn border border-border px-2 py-1 text-xs text-accent hover:bg-elevated"><LayoutDashboard className="h-3.5 w-3.5" />看板布局</Link>
+        </div>
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-2 rounded border border-border bg-surface/70 px-3 py-1.5 text-[11px]">
         <span className={`h-2 w-2 rounded-full ${live ? 'bg-bull' : 'bg-warning'}`} />
