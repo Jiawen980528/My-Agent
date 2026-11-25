@@ -87,6 +87,27 @@ function resampleMinute(rows: { close?: number; datetime?: string }[], minutes: 
   return [...buckets.values()].map(values => values.at(-1)!).filter(Boolean)
 }
 
+function conditionalAction(args: {
+  trend: string
+  last: number | null
+  support: number | null
+  resistance: number | null
+  stale: boolean
+}) {
+  const { trend, last, support, resistance, stale } = args
+  if (last == null || !Number.isFinite(last) || support == null || resistance == null) return '数据不足·等待支撑压力'
+  const nearSupport = support > 0 && (last - support) / last <= 0.008
+  const nearResistance = resistance > 0 && (resistance - last) / last <= 0.008
+  let action = trend === '偏强'
+    ? nearResistance ? '冲高靠近压力·不追高，等待突破确认' : '持有·等待回踩确认'
+    : trend === '偏弱'
+      ? nearSupport ? '接近支撑·等待企稳，反T观察' : '偏弱·暂不操作，等待止跌'
+      : trend === '震荡'
+        ? nearSupport ? '区间下沿·正T观察（确认后）' : nearResistance ? '区间上沿·减仓/反T观察' : '区间震荡·等待方向'
+        : '数据不足·等待数据补齐'
+  return stale ? `数据已过期·${action}` : action
+}
+
 export function DecisionGuide() {
   const day = tradeDay()
   const [selectedSymbol, setSelectedSymbol] = useState('')
@@ -102,12 +123,15 @@ export function DecisionGuide() {
     const first = closes[0]
     const ma5 = closes.length >= 5 ? closes.slice(-5).reduce((a, b) => a + b, 0) / 5 : null
     const ma20 = closes.length >= 20 ? closes.slice(-20).reduce((a, b) => a + b, 0) / 20 : null
-    const support = bars.length ? Math.min(...bars.slice(-20).map(x => Number(x.low))) : null
-    const resistance = bars.length ? Math.max(...bars.slice(-20).map(x => Number(x.high))) : null
+    const lows = bars.slice(-20).map(x => Number(x.low)).filter(Number.isFinite)
+    const highs = bars.slice(-20).map(x => Number(x.high)).filter(Number.isFinite)
+    const support = lows.length ? Math.min(...lows) : null
+    const resistance = highs.length ? Math.max(...highs) : null
     const move = first && Number.isFinite(last) ? (last / first - 1) * 100 : Number(item.change_pct)
     const trend = last == null || ma5 == null ? '数据不足' : last >= ma5 && (ma20 == null || last >= ma20) ? '偏强' : last < ma5 && (ma20 == null || last < ma20) ? '偏弱' : '震荡'
-    const action = trend === '偏强' ? '持有，等待回踩确认' : trend === '偏弱' ? '暂不操作，等待止跌' : trend === '数据不足' ? '等待数据补齐' : '区间观察'
-    return { item, bars, last, move, ma5, ma20, support, resistance, trend, action, freshness: minute.data?.freshness?.[item.symbol] }
+    const freshness = minute.data?.freshness?.[item.symbol]
+    const action = conditionalAction({ trend, last, support, resistance, stale: Boolean(freshness?.stale) })
+    return { item, bars, last, move, ma5, ma20, support, resistance, trend, action, freshness }
   }), [items, usableMinuteData, minute.data?.freshness])
   const strong = rows.filter(x => x.trend === '偏强').length
   const weak = rows.filter(x => x.trend === '偏弱').length
