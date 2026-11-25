@@ -70,6 +70,24 @@ def _board(symbol: str) -> str:
     return "其他"
 
 
+def _arms_index(rows: list[dict]) -> dict:
+    """计算 Arms/TRIN：上涨家数/下跌家数 ÷ 上涨量/下跌量。
+
+    只使用有真实成交量的上涨/下跌股票；任一侧缺失时返回 unavailable，避免把
+    普通涨跌幅或空量数据伪装成市场宽度指标。
+    """
+    advances = [r for r in rows if (_finite(r.get("change_pct")) or 0) > 0 and (_finite(r.get("volume")) or 0) > 0]
+    declines = [r for r in rows if (_finite(r.get("change_pct")) or 0) < 0 and (_finite(r.get("volume")) or 0) > 0]
+    if not advances or not declines:
+        return {"value": None, "status": "unavailable", "advances": len(advances), "declines": len(declines)}
+    advance_volume = sum(_finite(r.get("volume")) or 0 for r in advances)
+    decline_volume = sum(_finite(r.get("volume")) or 0 for r in declines)
+    if advance_volume <= 0 or decline_volume <= 0:
+        return {"value": None, "status": "unavailable", "advances": len(advances), "declines": len(declines)}
+    value = (len(advances) / len(declines)) / (advance_volume / decline_volume)
+    return {"value": value, "status": "ok", "advances": len(advances), "declines": len(declines)}
+
+
 # 注: 原 _score(value, low, high) 已迁至 app.services.emotion_score.score_of ——
 # 情绪评分的区间与权重现由用户可配置, 归一化函数须与配置同处一个模块。
 # regime_builder 保留同名实现 (其区间是 A 股分位数校准的另一套口径, 不共用)。
@@ -426,6 +444,7 @@ def build_market_overview(
             "activity": {"avg_turnover": 0, "high_turnover": 0, "high_vol_ratio": 0, "vol_ratio": 1},
             "radar": [],
             "emotion": {"score": 50, "label": "暂无"},
+            "arms": {"value": None, "status": "unavailable", "advances": 0, "declines": 0},
             "top_gainers": [],
             "top_losers": [],
             "turnover_leaders": [],
@@ -560,6 +579,7 @@ def build_market_overview(
     high_vol_pct = high_vol_ratio / total * 100 if total else 0
     strong_down_pct = strong_down / total * 100 if total else 0
     tier2_count = sum(t["count"] for t in tiers if t["boards"] >= 2)
+    arms = _arms_index(rows)
     mainline_items = [*concept_rank["leading"][:3], *industry_rank["leading"][:3]]
     mainline_avg = max([_finite(item.get("avg_pct")) or 0 for item in mainline_items], default=0)
     mainline_cover_pct = max([(_finite(item.get("count")) or 0) / total * 100 for item in mainline_items], default=0) if total else 0
@@ -607,6 +627,7 @@ def build_market_overview(
             "strong_up": strong_up,
             "strong_down": strong_down,
         },
+        "arms": arms,
         "amount": {"total": total_amount, "avg": avg_amount},
         "boards": boards,
         "limit": {"limit_up": limit_up, "broken": broken, "failed": 0, "limit_down": limit_down, "max_boards": max_boards, "seal_rate": seal_rate, "tiers": tiers, "sealed_ready": sealed_ready, "fake_up": fake_up, "fake_down": fake_down},

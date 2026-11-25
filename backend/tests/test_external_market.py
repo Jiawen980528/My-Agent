@@ -1,4 +1,5 @@
 from app.api.external_market import _parse_quote
+from app.services.market_overview_builder import _arms_index
 
 
 def test_parse_quote_keeps_timestamp_and_change():
@@ -23,3 +24,16 @@ def test_parse_quote_reports_unavailable_without_filling_zero():
     assert row["status"] == "unavailable"
     assert row["last"] is None
     assert row["change_pct"] is None
+
+
+def test_arms_index_uses_real_volume_and_is_not_zero_filled():
+    rows = [
+        {"change_pct": 1, "volume": 100},
+        {"change_pct": 2, "volume": 100},
+        {"change_pct": -1, "volume": 50},
+        {"change_pct": -2, "volume": 50},
+    ]
+    result = _arms_index(rows)
+    assert result["status"] == "ok"
+    assert result["value"] == 0.5
+    assert _arms_index([{ "change_pct": 1, "volume": 10 }])["value"] is None
