@@ -1001,6 +1001,105 @@ async def local_tickflow_status(request: Request) -> dict[str, object]:
     }
 
 
+@router.get("/quant/legacy-summary")
+async def legacy_myagent_summary() -> dict[str, object]:
+    """Expose a safe, read-only summary of the old MyAgent archives.
+
+    These files predate the current quant UI and include historical research and
+    paper-trading experiments.  The endpoint intentionally returns metadata and
+    aggregate statistics only: it never enables the old auto-paper rules and it
+    never exposes credentials, raw AI prompts, or account data.
+    """
+    root = settings.data_dir / "user_data"
+
+    def read_json(name: str, default: object) -> object:
+        path = root / name
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except (OSError, ValueError, TypeError):
+            return default
+
+    recommendations = read_json("myagent_recommendations.json", [])
+    reviews = read_json("myagent_recommendation_reviews.json", [])
+    research = read_json("myagent_research_pool.json", {})
+    reports = read_json("ai_stock_reports.json", [])
+    if not isinstance(recommendations, list):
+        recommendations = []
+    if not isinstance(reviews, list):
+        reviews = []
+    if not isinstance(research, dict):
+        research = {}
+    if not isinstance(reports, list):
+        reports = []
+
+    paper_status: dict[str, int] = {}
+    paper_symbols: dict[str, int] = {}
+    latest: list[dict[str, object]] = []
+    for record in recommendations:
+        if not isinstance(record, dict):
+            continue
+        paper = record.get("paper_auto")
+        if isinstance(paper, dict):
+            status = str(paper.get("status") or "未标记")
+            paper_status[status] = paper_status.get(status, 0) + 1
+            symbol = str(paper.get("symbol") or "").strip()
+            if symbol:
+                paper_symbols[symbol] = paper_symbols.get(symbol, 0) + 1
+        if len(latest) < 12:
+            latest.append({
+                "date": record.get("date"),
+                "created_at": record.get("createdAt"),
+                "stage": record.get("stage"),
+                "source": record.get("source"),
+                "item_count": len(record.get("items") or []) if isinstance(record.get("items"), list) else 0,
+                "paper_status": paper.get("status") if isinstance(paper, dict) else None,
+                "paper_symbol": paper.get("symbol") if isinstance(paper, dict) else None,
+            })
+
+    review_summary = []
+    for review in reviews[:10]:
+        if not isinstance(review, dict):
+            continue
+        summary = review.get("summary") if isinstance(review.get("summary"), dict) else {}
+        review_summary.append({
+            "date": review.get("date"),
+            "tracked": summary.get("tracked"),
+            "wins": summary.get("wins"),
+            "win_rate": summary.get("win_rate"),
+            "average_pct": summary.get("average_pct"),
+            "best_pct": summary.get("best_pct"),
+            "worst_pct": summary.get("worst_pct"),
+        })
+
+    pool_items = research.get("items") if isinstance(research.get("items"), list) else []
+    pool_sources: dict[str, int] = {}
+    pool_themes: dict[str, int] = {}
+    for item in pool_items:
+        if not isinstance(item, dict):
+            continue
+        for bucket, key in ((pool_sources, "source"), (pool_themes, "theme")):
+            value = str(item.get(key) or "未标注")
+            bucket[value] = bucket.get(value, 0) + 1
+
+    warnings = [
+        "历史资料只读展示，不会启用旧自动模拟盘规则，也不会连接券商或真实下单。",
+        "历史复盘口径是推荐价与后续真实行情的对照，不等于策略命中率或实际收益。",
+    ]
+    if any(float(item.get("win_rate") or 0) >= 99 and float(item.get("average_pct") or 0) == 0 for item in review_summary):
+        warnings.append("部分历史复盘出现高胜率但平均收益为 0 的异常口径，当前标记为待重算，不作为成功率依据。")
+
+    return {
+        "available": bool(recommendations or reviews or pool_items or reports),
+        "label": "历史 MyAgent 归档（只读）",
+        "recommendations": {"records": len(recommendations), "latest": latest, "paper_status": paper_status, "paper_symbols": len(paper_symbols)},
+        "reviews": {"days": len(review_summary), "summary": review_summary},
+        "research_pool": {"items": len(pool_items), "sources": sorted(pool_sources.items(), key=lambda item: (-item[1], item[0]))[:8], "themes": sorted(pool_themes.items(), key=lambda item: (-item[1], item[0]))[:8]},
+        "ai_reports": {"count": len(reports), "symbols": sorted({str(item.get("symbol")) for item in reports if isinstance(item, dict) and item.get("symbol")})},
+        "warnings": warnings,
+    }
+
+
 @router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy_myagent(path: str, request: Request):
     if not (path.startswith("quant/") or path in {"chat", "config"}):

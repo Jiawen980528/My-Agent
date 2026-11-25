@@ -11,6 +11,15 @@ type PoolLink = { name?: string; status?: string; config?: { symbols?: unknown }
 type LotLink = { symbol?: string; qty?: number; cost_price?: number }
 type TickflowStatus = { connected?: boolean; source?: string; message?: string }
 type AIStatus = { api_key_configured?: boolean; model?: string; providers?: Array<{ label?: string; configured?: boolean }> }
+type LegacySummary = {
+  available?: boolean
+  label?: string
+  recommendations?: { records?: number; latest?: Array<{ date?: string; created_at?: string; stage?: string; source?: string; item_count?: number; paper_status?: string; paper_symbol?: string | null }>; paper_status?: Record<string, number>; paper_symbols?: number }
+  reviews?: { days?: number; summary?: Array<{ date?: string; tracked?: number; wins?: number; win_rate?: number; average_pct?: number; best_pct?: number; worst_pct?: number }> }
+  research_pool?: { items?: number; sources?: Array<[string, number]>; themes?: Array<[string, number]> }
+  ai_reports?: { count?: number; symbols?: string[] }
+  warnings?: string[]
+}
 type ScanResult = { items?: Candidate[]; count?: number; universe_count?: number; data_source?: string; generated_at?: string; history_id?: number }
 type Snapshot = { id: number | string; generated_at?: string; generatedAt?: string; period: string; valid_until?: string; validUntil?: string; scan_id?: number; historyId?: number; symbols: string[]; status: '待复盘' | '已复盘'; data_source?: string; payload?: Candidate[]; review?: { observations?: Array<{ observed_return_pct?: number | null }>; note?: string } | null }
 const periodOptions = [
@@ -47,11 +56,18 @@ export function Recommendations() {
   const [linkNotice, setLinkNotice] = useState('正在读取持仓、自选、持仓提醒与研究候选池…')
   const [tickflowStatus, setTickflowStatus] = useState<TickflowStatus | null>(null)
   const [aiStatus, setAiStatus] = useState<AIStatus | null>(null)
+  const [legacySummary, setLegacySummary] = useState<LegacySummary | null>(null)
   useEffect(() => {
     fetch(`${API}/tickflow/status`, { credentials: 'include' })
       .then(async response => { const body = await response.json() as TickflowStatus; if (!response.ok) throw new Error('TickFlow状态读取失败'); return body })
       .then(setTickflowStatus)
       .catch(() => setTickflowStatus({ connected: false, message: 'TickFlow状态暂不可用' }))
+  }, [])
+  useEffect(() => {
+    fetch(`${API}/legacy-summary`, { credentials: 'include' })
+      .then(async response => { const body = await response.json() as LegacySummary; if (!response.ok) throw new Error('历史归档读取失败'); return body })
+      .then(setLegacySummary)
+      .catch(() => setLegacySummary(null))
   }, [])
   useEffect(() => {
     fetch(`${MYAGENT_ROOT}/config`, { credentials: 'include' })
@@ -217,6 +233,20 @@ export function Recommendations() {
     </div>
     <div className={`mb-3 flex flex-wrap items-center gap-2 rounded-card border p-2 text-[11px] ${tickflowStatus?.connected ? 'border-success/30 bg-success/5 text-success' : 'border-warning/40 bg-warning/5 text-warning'}`}><span><b>行情能力：</b>{tickflowStatus?.connected ? `TickFlow 已连接${tickflowStatus.source ? ` · ${tickflowStatus.source}` : ''}` : (tickflowStatus?.message || 'TickFlow 未连接，实时/分钟数据不可用；页面不会用模拟数据补足。')}</span>{!tickflowStatus?.connected && <Link to="/settings?tab=data-sources" className="rounded border border-warning/50 px-2 py-1 text-warning underline-offset-2 hover:underline">前往配置 TickFlow</Link>}</div>
     <div className={`mb-3 flex flex-wrap items-center gap-2 rounded-card border p-2 text-[11px] ${aiStatus?.api_key_configured ? 'border-accent/30 bg-accent/5 text-accent' : 'border-border bg-surface text-muted'}`}><span><b>AI复核：</b>{aiStatus?.api_key_configured ? `已配置${aiStatus.model ? ` · ${aiStatus.model}` : ''}` : '未配置，规则引擎仍可运行；AI复核按钮会保持不可用提示。'}</span>{!aiStatus?.api_key_configured && <Link to="/settings?tab=ai" className="rounded border border-accent/50 px-2 py-1 text-accent underline-offset-2 hover:underline">前往配置 AI</Link>}</div>
+    {legacySummary?.available && <div className="mb-3 rounded-card border border-warning/40 bg-warning/5 p-3 text-[11px]">
+      <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold text-warning">{legacySummary.label || '历史归档（只读）'}</span><span className="text-muted">已评估，未启用旧自动模拟逻辑</span></div>
+      <div className="mt-2 grid gap-2 sm:grid-cols-4">
+        <div className="rounded border border-border bg-surface p-2"><div className="text-muted">历史推荐</div><b>{legacySummary.recommendations?.records ?? 0}</b> 条</div>
+        <div className="rounded border border-border bg-surface p-2"><div className="text-muted">模拟触发记录</div><b>{legacySummary.recommendations?.paper_status?.submitted ?? 0}</b> 次</div>
+        <div className="rounded border border-border bg-surface p-2"><div className="text-muted">研究池</div><b>{legacySummary.research_pool?.items ?? 0}</b> 条</div>
+        <div className="rounded border border-border bg-surface p-2"><div className="text-muted">AI报告</div><b>{legacySummary.ai_reports?.count ?? 0}</b> 份</div>
+      </div>
+      <div className="mt-2 grid gap-3 lg:grid-cols-[1fr_1fr]">
+        <div><div className="font-semibold">历史复盘概览</div><div className="mt-1 space-y-1 text-muted">{(legacySummary.reviews?.summary || []).slice(0, 4).map(item => <div key={item.date}> {item.date}：跟踪 {item.tracked ?? '—'} · 表面胜率 {item.win_rate ?? '—'}% · 平均 {item.average_pct == null ? '—' : `${item.average_pct >= 0 ? '+' : ''}${item.average_pct}%`}</div>)}</div></div>
+        <div><div className="font-semibold">最近历史触发</div><div className="mt-1 space-y-1 text-muted">{(legacySummary.recommendations?.latest || []).slice(0, 4).map((item, index) => <div key={`${item.created_at || item.date}-${index}`}>{item.created_at || item.date || '—'} · {item.stage || '—'} · {item.paper_status || '未模拟'}{item.paper_symbol ? ` · ${item.paper_symbol}` : ''}</div>)}</div></div>
+      </div>
+      {!!legacySummary.warnings?.length && <div className="mt-2 space-y-1 border-t border-warning/20 pt-2 text-warning">{legacySummary.warnings.map(warning => <div key={warning}>⚠ {warning}</div>)}</div>}
+    </div>}
     <div className="mb-3 grid gap-3 rounded-card border border-border bg-surface p-3 md:grid-cols-[1fr_auto]">
       <div><div className="text-xs font-semibold">本次推荐周期</div><div className="mt-2 flex flex-wrap gap-2">{periodOptions.map(option => <button key={option.value} type="button" onClick={() => setPeriod(option.value)} className={`rounded border px-2.5 py-1.5 text-[11px] ${period === option.value ? 'border-accent bg-accent/15 text-accent' : 'border-border text-muted'}`}>{option.label}</button>)}</div><p className="mt-2 text-[11px] text-muted">{selectedPeriod.hint}；扫描算法本身不会把候选伪装成价格预测。</p></div>
       <div className="flex items-end"><button type="button" onClick={saveSnapshot} disabled={!result || !items.length} className="rounded-btn border border-accent/60 px-3 py-2 text-xs text-accent disabled:opacity-40">保存推荐快照</button></div>
