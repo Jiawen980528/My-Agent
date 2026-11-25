@@ -470,8 +470,8 @@ function BoardDetail({ code, day, news, visible, onSelectSymbol }: { code: strin
   </div>
 }
 
-function HoldingsOverview({ items, minuteData, source, onSelect }: {
-  items: Holding[]; minuteData: Record<string, Bar[]>; source?: string; onSelect: (symbol: string) => void
+function HoldingsOverview({ items, minuteData, source, day, onSelect }: {
+  items: Holding[]; minuteData: Record<string, Bar[]>; source?: string; day: string; onSelect: (symbol: string) => void
 }) {
   return <section className="space-y-2 rounded border border-border bg-base/40 p-2">
     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -481,16 +481,53 @@ function HoldingsOverview({ items, minuteData, source, onSelect }: {
     <div className="grid gap-2 xl:grid-cols-2">
       {items.map(item => {
         const rows = minuteData[item.symbol] || []
-        const last = rows.at(-1)
-        return <div key={item.symbol} role="button" tabIndex={0} onClick={() => onSelect(item.symbol)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') onSelect(item.symbol) }} className="min-w-0 cursor-pointer rounded border border-border bg-surface p-1.5 text-left hover:border-accent/70">
-          <div className="mb-1 flex items-center justify-between gap-2"><span className="truncate text-xs font-semibold">{item.name}</span><span className={Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}>{pct(item.change_pct)}</span></div>
-          <div className="mb-1 flex justify-between text-[10px] text-muted"><span>{item.symbol}</span><span>最新 {last ? price(last.close) : price(item.price)} · {last?.datetime || '暂无分钟数据'}</span></div>
-          <TimeChart rows={rows} title={item.name} color={Number(item.change_pct) >= 0 ? '#24ba91' : '#5aaaff'} height={155} />
-        </div>
+        return <HoldingOverviewCard key={item.symbol} item={item} rows={rows} source={source} day={day} onSelect={onSelect} />
       })}
       {!items.length && <p className="p-3 text-xs text-muted">暂无持仓或监控标的</p>}
     </div>
   </section>
+}
+
+function HoldingOverviewCard({ item, rows, source, day, onSelect }: {
+  item: Holding; rows: Bar[]; source?: string; day: string; onSelect: (symbol: string) => void
+}) {
+  const board = useQuery({
+    queryKey: ['portfolio-overview-board', item.symbol, day],
+    queryFn: () => json<Board>(`${API}/portfolio/board/${item.symbol}?trade_date=${day}`),
+    staleTime: 60_000,
+    refetchInterval: tradingNow() ? 60_000 : false,
+  })
+  const boardCode = board.data?.board?.code || item.board?.code || ''
+  const boardName = board.data?.board?.name || item.board?.name || ''
+  const members = useQuery({
+    queryKey: ['portfolio-overview-board-members', boardCode, boardName],
+    queryFn: () => json<BoardMemberQuotes>(`${PUBLIC_API}/fund-flow/sector-member-quotes?sector=${encodeURIComponent(boardCode)}&name=${encodeURIComponent(boardName)}&limit=100`),
+    enabled: !!boardCode,
+    staleTime: 5 * 60_000,
+    refetchInterval: tradingNow() ? 60_000 : false,
+  })
+  const flow = board.data?.flow?.at(-1)
+  const boardRows = board.data?.rows || []
+  const boardFirst = Number(boardRows[0]?.close)
+  const boardLast = Number(boardRows.at(-1)?.close)
+  const boardPct = Number.isFinite(boardFirst) && boardFirst > 0 && Number.isFinite(boardLast)
+    ? (boardLast / boardFirst - 1) * 100 : null
+  const leaderRows = (members.data?.items || []).map(member => ({ member, quote: members.data?.quotes?.[member.symbol] }))
+    .filter(row => row.quote?.change_pct != null)
+  const leader = [...leaderRows].sort((a, b) => Number(b.quote?.change_pct) - Number(a.quote?.change_pct))[0]
+  const last = rows.at(-1)
+  return <div role="button" tabIndex={0} onClick={() => onSelect(item.symbol)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') onSelect(item.symbol) }} className="min-w-0 cursor-pointer rounded border border-border bg-surface p-1.5 text-left hover:border-accent/70">
+    <div className="mb-1 flex items-center justify-between gap-2"><span className="truncate text-xs font-semibold">{item.name}</span><span className={Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}>{pct(item.change_pct)}</span></div>
+    <div className="mb-1 flex justify-between text-[10px] text-muted"><span>{item.symbol}</span><span>最新 {last ? price(last.close) : price(item.price)} · {last?.datetime || '暂无分钟数据'}</span></div>
+    <TimeChart rows={rows} title={item.name} color={Number(item.change_pct) >= 0 ? '#24ba91' : '#5aaaff'} height={155} />
+    <div className="mt-1 grid gap-x-2 gap-y-0.5 text-[10px] text-muted sm:grid-cols-2">
+      <span className="truncate"><b className="text-secondary">板块：</b>{boardName || '未取得关联板块'}</span>
+      <span><b className="text-secondary">板块涨跌：</b>{pct(boardPct)}</span>
+      <span><b className="text-secondary">主力流：</b>{flow?.main_yi == null ? '不可用' : `${flow.main_yi.toFixed(2)} 亿`}</span>
+      <span className="truncate"><b className="text-secondary">龙头：</b>{leader ? `${leader.member.name} ${pct(leader.quote?.change_pct)}` : '不可用'}</span>
+    </div>
+    <p className="mt-1 text-[9px] text-muted">板块/龙头数据按真实接口独立读取 · {members.data?.quote_source || board.data?.source || source || '来源待确认'}</p>
+  </div>
 }
 
 function DecisionGuidePanel({ items, minuteData, source, aiText, aiBusy, onAiReview }: { items: Holding[]; minuteData: Record<string, Bar[]>; source?: string; aiText?: string; aiBusy: boolean; onAiReview: () => void }) {
@@ -779,12 +816,12 @@ export function PortfolioMonitorWidget() {
       　现金 ¥{tradeHistory.data.account_snapshot.cash_available}　当日盈亏 ¥{tradeHistory.data.account_snapshot.day_pnl}
     </div>}
     {(snapshot.isError || minute.isError) && <p className="text-xs text-danger">行情读取失败：{String((snapshot.error || minute.error) instanceof Error ? (snapshot.error || minute.error)?.message : '请重试')}</p>}
-    {viewMode === 'overview' && <HoldingsOverview items={shown} minuteData={usableMinuteData} source={minute.data?.source} onSelect={symbol => { setSelected(symbol); chooseView('detail') }} />}
+    {viewMode === 'overview' && <HoldingsOverview items={shown} minuteData={usableMinuteData} source={minute.data?.source} day={day} onSelect={symbol => { setSelected(symbol); chooseView('detail') }} />}
     {viewMode === 'detail' && <>
     <div className="mb-1 flex flex-wrap items-center justify-between gap-2 rounded border border-border bg-base/40 px-2 py-1 text-[11px]">
       <span className="text-muted">详情布局</span><div className="flex gap-1"><button type="button" onClick={() => chooseLayout('side')} className={`rounded px-2 py-0.5 ${layoutMode === 'side' ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>左侧列表</button><button type="button" onClick={() => chooseLayout('strip')} className={`rounded px-2 py-0.5 ${layoutMode === 'strip' ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>横向长条</button><button type="button" onClick={() => chooseLayout('grid')} className={`rounded px-2 py-0.5 ${layoutMode === 'grid' ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>网格总览</button></div>
     </div>
-    {layoutMode === 'grid' && <HoldingsOverview items={shown} minuteData={usableMinuteData} source={minute.data?.source} onSelect={symbol => { setSelected(symbol); chooseLayout('side') }} />}
+    {layoutMode === 'grid' && <HoldingsOverview items={shown} minuteData={usableMinuteData} source={minute.data?.source} day={day} onSelect={symbol => { setSelected(symbol); chooseLayout('side') }} />}
     {layoutMode !== 'grid' && <div ref={splitRef} className={layoutMode === 'side' ? 'portfolio-detail-split grid gap-y-2 md:gap-x-0' : 'space-y-2'}
       style={layoutMode === 'side' ? { '--portfolio-left': `${paneWidths.left}px`, '--portfolio-right': `${paneWidths.right}px` } as React.CSSProperties : undefined}>
       {layoutMode === 'strip' && <div className="flex gap-1 overflow-x-auto rounded border border-border bg-base/50 p-1">{shown.map(item => <button key={item.symbol} type="button" onClick={() => { setSelected(item.symbol); setSelectedBoard('') }} className={`min-w-44 rounded border border-border px-2 py-1 text-left hover:bg-elevated ${active?.symbol === item.symbol ? 'bg-accent/15' : ''}`}><div className="flex justify-between gap-1 text-xs"><b className="truncate">{item.name}</b><span className={Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}>{pct(item.change_pct)}</span></div><div className="text-[10px] text-muted">{item.symbol} · {price(item.price)}</div></button>)}</div>}
