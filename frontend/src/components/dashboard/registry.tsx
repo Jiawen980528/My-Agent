@@ -23,7 +23,7 @@ import {
 import type { DashboardItem, WidgetType } from './layout'
 import { ExternalLinkWidget } from './ExternalLinkWidget'
 import { FundFlowPanel } from '@/components/FundFlowPanel'
-import { HoldingsWidget, RecommendationWidget, SectorWatchWidget, MarketNewsWidget } from './MyAgentWidgets'
+import { HoldingsWidget, PaperSummaryWidget, RecommendationWidget, SectorWatchWidget, MarketNewsWidget } from './MyAgentWidgets'
 import { PortfolioMonitorWidget } from './PortfolioMonitorWidget'
 import { PageWidget } from './PageWidget'
 import { MarketOverviewWidget } from './MarketOverviewWidget'
@@ -316,6 +316,10 @@ export const WIDGET_DEFS: WidgetDef[] = [
     render: () => <RecommendationWidget />,
   },
   {
+    id: 'paper-summary', label: '暗黑模拟盘摘要', icon: Repeat, minW: 4, minH: 6, defW: 6, defH: 9,
+    render: () => <PaperSummaryWidget />,
+  },
+  {
     id: 'portfolio-monitor', label: '持仓·分时·板块·新闻', icon: LineChart, minW: 6, minH: 12, defW: 12, defH: 22,
     render: () => <PortfolioMonitorWidget />,
   },
@@ -371,5 +375,6 @@ export const DEFAULT_LAYOUT: DashboardItem[] = [
   { i: 'holdings', t: 'holdings', x: 0, y: 57, w: 4, h: 13 },
   { i: 'recommendations', t: 'recommendations', x: 4, y: 57, w: 4, h: 13 },
   { i: 'market-news', t: 'market-news', x: 8, y: 57, w: 4, h: 13 },
-  { i: 'page-panel-decision-guide', t: 'page-panel', x: 0, y: 70, w: 12, h: 18, p: { path: '/decision-guide' } },
+  { i: 'paper-summary', t: 'paper-summary', x: 0, y: 70, w: 12, h: 10 },
+  { i: 'page-panel-decision-guide', t: 'page-panel', x: 0, y: 80, w: 12, h: 18, p: { path: '/decision-guide' } },
 ]
