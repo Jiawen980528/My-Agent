@@ -32,6 +32,13 @@ type History = { trades: Trade[]; account_snapshot: { total_assets: string; posi
       unmatched_buy_quantity: number; unmatched_sell_quantity: number; realised_t_pnl: string; total_fees: string }[] };
   notice: string }
 type PortfolioSnapshot = { items: Holding[]; source: string; account_source?: string | null; account_verified?: boolean }
+type MarketOverviewBrief = {
+  as_of?: string | null
+  quote_status?: { source?: string | null; quote_age_ms?: number | null; is_trading_hours?: boolean }
+  indices?: { symbol: string; name: string; last_price?: number | null; change_pct?: number | null }[]
+  breadth?: { up?: number; down?: number; flat?: number; avg_pct?: number | null }
+  limit?: { limit_up?: number; broken?: number; limit_down?: number; max_boards?: number; seal_rate?: number | null }
+}
 type Replay = { actual_vs_no_trade: string; realised_t_pnl: string; extra_position_effect: string;
   max_drawdown_yuan: string; max_drawdown_pct_of_snapshot_assets: string | null; hindsight_optimal_pnl: string;
   hindsight_quantity: number | null;
@@ -255,6 +262,9 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
       `${PUBLIC_API}/fund-flow/live${flowScope === 'linked' && linkedBoardCode ? `?sector=${encodeURIComponent(linkedBoardCode)}` : ''}`),
     enabled: flowScope === 'market' || !!linkedBoardCode, staleTime: 30_000,
     refetchInterval: isLatest && tradingNow() ? 60_000 : false })
+  const marketOverview = useQuery({ queryKey: ['portfolio-market-overview', day],
+    queryFn: () => json<MarketOverviewBrief>('/quant/api/overview/market'),
+    staleTime: 30_000, refetchInterval: isLatest && tradingNow() ? 30_000 : false })
   const history = useQuery({ queryKey: ['portfolio-minute-range', item.symbol],
     queryFn: () => api.klineMinuteRange(item.symbol, 20), staleTime: 60_000 })
   const dailyHistory = useQuery({ queryKey: ['portfolio-daily-range', item.symbol],
@@ -320,23 +330,30 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
     : stockMove != null && stockMove > 0 && boardMove > 0 && nearHigh ? '个股与板块同步走强，接近近20分钟高点；留意回落风险'
       : stockMove != null && stockMove < 0 && boardMove < 0 ? '个股与板块同步走弱；等待企稳确认'
         : '个股与板块未形成同步突破；等待下一分钟确认'
+  const marketReason = marketOverview.data?.breadth && marketOverview.data.breadth.up != null && marketOverview.data.breadth.down != null
+    ? `市场上涨 ${marketOverview.data.breadth.up}、下跌 ${marketOverview.data.breadth.down}${marketOverview.data.limit ? `，涨停 ${marketOverview.data.limit.limit_up ?? 0}、炸板 ${marketOverview.data.limit.broken ?? 0}` : ''}`
+    : '市场广度和涨跌停数据未取得'
   const impact = !last
     ? { label: '无法判断', tone: 'text-muted', reasons: ['分钟行情不足'] }
     : boardMove == null
       ? { label: '无法判断', tone: 'text-muted', reasons: ['关联板块分钟行情不可用'] }
       : stockMove != null && stockMove > 0 && boardMove > 0 && !nearHigh
-        ? { label: '偏利好', tone: 'text-bull', reasons: ['个股与板块同步走强', selectedFlow.data?.rows?.length ? '资金流有可核对记录' : '资金流数据未取得'] }
+        ? { label: '偏利好', tone: 'text-bull', reasons: ['个股与板块同步走强', marketReason, selectedFlow.data?.rows?.length ? '资金流有可核对记录' : '资金流数据未取得'] }
         : stockMove != null && stockMove < 0 && boardMove < 0
-          ? { label: '风险偏高', tone: 'text-bear', reasons: ['个股与板块同步走弱', '需等待支撑和量价确认'] }
-          : { label: '观望', tone: 'text-warning', reasons: [nearHigh ? '个股接近近端高点，警惕冲高回落' : '个股与板块未形成同步突破', selectedFlow.data?.rows?.length ? '资金流可继续观察' : '资金流数据未取得'] }
+          ? { label: '风险偏高', tone: 'text-bear', reasons: ['个股与板块同步走弱', marketReason, '需等待支撑和量价确认'] }
+          : { label: '观望', tone: 'text-warning', reasons: [nearHigh ? '个股接近近端高点，警惕冲高回落' : '个股与板块未形成同步突破', marketReason, selectedFlow.data?.rows?.length ? '资金流可继续观察' : '资金流数据未取得'] }
   const averageVolume = recent.length > 1 ? recent.slice(0, -1).reduce((sum, row) => sum + Number(row.volume || 0), 0) / (recent.length - 1) : 0
   const impactFactors = [
     { label: '个股/板块', value: boardMove == null || stockMove == null ? '数据缺失' : `${pct(stockMove)} / ${pct(boardMove)}` },
     { label: '量价', value: !last || !averageVolume ? '数据缺失' : `${nearHigh ? '接近近端高点' : '未接近高点'} · 量比 ${(Number(last.volume || 0) / averageVolume).toFixed(2)}x` },
     { label: '资金', value: selectedFlow.data?.rows?.length ? `已取得 · ${selectedFlow.data.source}` : '数据缺失' },
     { label: '新闻', value: relatedNews.length ? `${relatedNews.length} 条可核对` : '暂无可核对新闻' },
-    { label: '龙头/炸板', value: '当前持仓卡未取得独立数据' },
-    { label: '指数环境', value: '当前持仓卡未取得独立数据' },
+    { label: '涨停/炸板', value: marketOverview.data?.limit
+      ? `${marketOverview.data.limit.limit_up ?? 0} / ${marketOverview.data.limit.broken ?? 0} · 最高连板 ${marketOverview.data.limit.max_boards ?? 0}`
+      : '市场数据未取得' },
+    { label: '指数环境', value: marketOverview.data?.indices?.length
+      ? marketOverview.data.indices.filter(index => index.change_pct != null).slice(0, 3).map(index => `${index.name} ${pct(index.change_pct)}`).join(' · ')
+      : '市场数据未取得' },
   ]
   return <div className="min-w-0 space-y-1.5">
     <header className="flex flex-wrap items-center justify-between gap-2 rounded border border-border bg-base/70 px-2 py-1">

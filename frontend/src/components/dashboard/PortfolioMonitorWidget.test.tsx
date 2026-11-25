@@ -30,6 +30,13 @@ vi.mock('@tanstack/react-query', () => ({
     } }
     if (queryKey[0] === 'myagent-quant-news') return { data: { items: [{ title: '半导体新闻', url: 'https://example.com/a',
       source: '测试', sector_names: ['半导体'], bias: '待判断', relevance: '板块相关' }] } }
+    if (queryKey[0] === 'portfolio-market-overview') return { data: {
+      as_of: '2026-11-06 15:00', quote_status: { source: '测试行情', quote_age_ms: 1000, is_trading_hours: false },
+      indices: [{ symbol: '000001.SH', name: '上证指数', last_price: 3500, change_pct: 0.8 },
+        { symbol: '399006.SZ', name: '创业板指', last_price: 2200, change_pct: -0.4 }],
+      breadth: { up: 2500, down: 1800, flat: 100, avg_pct: 0.2 },
+      limit: { limit_up: 45, broken: 12, limit_down: 3, max_boards: 6, seal_rate: 78 },
+    } }
     if (queryKey[0] === 'portfolio-terminal-history') return { data: {
       account_snapshot: { total_assets: '111527.05', position_value: '108672.70', cash_available: '2854.35', total_pnl: '-28966.80', day_pnl: '-2925.10', source: 'user_screenshot_20261106', verified: 0 },
       trades: [{ fingerprint: 'trade-1', trade_date: '2026-11-06', trade_time: '09:34', symbol: '159558.SZ', side: 'sell', quantity: 23800, price: '0.803', commission: '5.00', cash_flow: '19106.40', source: 'user_provided_20261106', verified: false }],
@@ -65,6 +72,9 @@ it('opens a compact stock and board workspace with flow, news and unverified hol
   expect(host.textContent).toContain('已配对做T净收益')
   expect(host.textContent).toContain('相对完全不交易')
   expect(host.textContent).toContain('事后理论最优')
+  expect(host.textContent).toContain('涨停/炸板')
+  expect(host.textContent).toContain('45 / 12')
+  expect(host.textContent).toContain('上证指数 +0.80%')
   await act(async () => root.unmount())
 })
 
