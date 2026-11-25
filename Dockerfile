@@ -23,7 +23,7 @@ RUN if [ "$USE_CN_MIRROR" = "1" ]; then pnpm config set registry "$NPM_REGISTRY"
 COPY frontend/package.json frontend/pnpm-lock.yaml* ./
 RUN pnpm install --frozen-lockfile || pnpm install
 COPY frontend/ ./
-RUN pnpm build
+RUN pnpm run build
 
 # === Stage 1c: Codex CLI ===
 # 固定版本保证镜像可复现；只复制安装产物到运行镜像，不保留 npm。
