@@ -24,6 +24,7 @@ from app.services.market_volume_forecast import forecast_market_amount
 from app.services.market_data_service import quote_snapshot
 from app.services import forecast_reviews
 from app.tickflow.capabilities import Cap
+from app.plugins.fuyao.client import FuyaoError
 
 router = APIRouter(prefix="/api/myagent", tags=["myagent-bridge"])
 
@@ -519,7 +520,10 @@ async def _fetch_fuyao_board_history(code: str, days: int) -> tuple[str, list[di
     if provider is None:
         raise ValueError("扶摇未配置或板块接口不可用")
     end = datetime.now(ZoneInfo("Asia/Shanghai"))
-    start = end.fromtimestamp(end.timestamp() - 5 * 366 * 86400, tz=ZoneInfo("Asia/Shanghai"))
+    # 扶摇只允许最近五年；按页面实际需要的 bars 取一个有余量的窗口，
+    # 避免 5*366 天在闰年边界上越过供应商的严格五年限制。
+    lookback_days = max(int(days) * 3, 30)
+    start = end - timedelta(days=lookback_days)
     raw, timestamp = await asyncio.to_thread(
         provider.get_ths_index_history, code, int(start.timestamp() * 1000), int(end.timestamp() * 1000)
     )
@@ -915,7 +919,7 @@ async def sector_kline(
                       "source": "TickFlow日K缓存"}
             _history_cache[key] = (time.monotonic(), result)
             return result
-        except (OSError, ValueError, KeyError, TypeError, RuntimeError) as exc:
+        except (FuyaoError, OSError, ValueError, KeyError, TypeError, RuntimeError) as exc:
             if cached:
                 return {**cached[1], "stale": True}
             raise HTTPException(status_code=502, detail=f"TickFlow指数日K暂不可用：{type(exc).__name__}") from exc
