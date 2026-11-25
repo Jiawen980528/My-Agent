@@ -39,6 +39,8 @@ type MarketOverviewBrief = {
   breadth?: { up?: number; down?: number; flat?: number; avg_pct?: number | null }
   limit?: { limit_up?: number; broken?: number; limit_down?: number; max_boards?: number; seal_rate?: number | null }
 }
+type BoardMemberQuote = { price?: number | null; change_pct?: number | null; signal_limit_up?: boolean; signal_broken_limit_up?: boolean }
+type BoardMemberQuotes = { items?: { symbol: string; name: string; labels?: string[] }[]; quotes?: Record<string, BoardMemberQuote>; quote_source?: string; notice?: string }
 type TickFlowStatus = { connected?: boolean; source?: string | null; as_of?: string | null; message?: string | null }
 type Replay = { actual_vs_no_trade: string; realised_t_pnl: string; extra_position_effect: string;
   max_drawdown_yuan: string; max_drawdown_pct_of_snapshot_assets: string | null; hindsight_optimal_pnl: string;
@@ -315,6 +317,10 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
   }, [chartPeriod, dailyHistory.data?.rows, historyRows, stockRows])
   const autoBoardName = usableBoardName(board.data?.board?.name) ? board.data?.board?.name : usableBoardName(item.board?.name) ? item.board?.name : undefined
   const boardName = linkedBoard.data?.name || autoBoardName || '关联行业板块待绑定'
+  const boardCode = linkedBoardCode || board.data?.board?.code || ''
+  const boardMembers = useQuery({ queryKey: ['portfolio-board-members', boardCode, boardName],
+    queryFn: () => json<BoardMemberQuotes>(`${PUBLIC_API}/fund-flow/sector-member-quotes?sector=${encodeURIComponent(boardCode)}&name=${encodeURIComponent(boardName)}&limit=100`),
+    enabled: !!boardCode, staleTime: 5 * 60_000, refetchInterval: isLatest && tradingNow() ? 60_000 : false })
   const boardRows = linkedBoardCode
     ? chartPeriod === '1w'
       ? weeklyRows((linkedBoard.data?.rows || []).map(row => ({ date: row.time, open: row.close, high: row.high, low: row.low, close: row.close, volume: row.volume })))
@@ -344,14 +350,22 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
           ? { label: '风险偏高', tone: 'text-bear', reasons: ['个股与板块同步走弱', marketReason, '需等待支撑和量价确认'] }
           : { label: '观望', tone: 'text-warning', reasons: [nearHigh ? '个股接近近端高点，警惕冲高回落' : '个股与板块未形成同步突破', marketReason, selectedFlow.data?.rows?.length ? '资金流可继续观察' : '资金流数据未取得'] }
   const averageVolume = recent.length > 1 ? recent.slice(0, -1).reduce((sum, row) => sum + Number(row.volume || 0), 0) / (recent.length - 1) : 0
+  const memberRows = (boardMembers.data?.items || []).map(member => ({ member, quote: boardMembers.data?.quotes?.[member.symbol] })).filter(row => row.quote?.change_pct != null)
+  const leader = [...memberRows].sort((a, b) => Number(b.quote?.change_pct) - Number(a.quote?.change_pct))[0]
+  const memberAvg = memberRows.length ? memberRows.reduce((sum, row) => sum + Number(row.quote?.change_pct || 0), 0) / memberRows.length : null
+  const memberBroken = memberRows.filter(row => row.quote?.signal_broken_limit_up === true).length
   const impactFactors = [
     { label: '个股/板块', value: boardMove == null || stockMove == null ? '数据缺失' : `${pct(stockMove)} / ${pct(boardMove)}` },
     { label: '量价', value: !last || !averageVolume ? '数据缺失' : `${nearHigh ? '接近近端高点' : '未接近高点'} · 量比 ${(Number(last.volume || 0) / averageVolume).toFixed(2)}x` },
     { label: '资金', value: selectedFlow.data?.rows?.length ? `已取得 · ${selectedFlow.data.source}` : '数据缺失' },
     { label: '新闻', value: relatedNews.length ? `${relatedNews.length} 条可核对` : '暂无可核对新闻' },
+    { label: '龙头/炸板', value: leader
+      ? `${leader.member.name} ${pct(leader.quote?.change_pct)} · 炸板 ${memberBroken}`
+      : '板块成分报价未取得' },
     { label: '涨停/炸板', value: marketOverview.data?.limit
       ? `${marketOverview.data.limit.limit_up ?? 0} / ${marketOverview.data.limit.broken ?? 0} · 最高连板 ${marketOverview.data.limit.max_boards ?? 0}`
       : '市场数据未取得' },
+    { label: '成分情绪', value: memberAvg == null ? '板块成分报价未取得' : `均值 ${pct(memberAvg)} · ${memberRows.length} 只` },
     { label: '指数环境', value: marketOverview.data?.indices?.length
       ? marketOverview.data.indices.filter(index => index.change_pct != null).slice(0, 3).map(index => `${index.name} ${pct(index.change_pct)}`).join(' · ')
       : '市场数据未取得' },

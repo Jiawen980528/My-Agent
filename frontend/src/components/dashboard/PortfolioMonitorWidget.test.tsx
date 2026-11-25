@@ -28,6 +28,11 @@ vi.mock('@tanstack/react-query', () => ({
         { datetime: '2026-11-06 09:31', close: 101, high: 101, low: 100 }],
       flow: [{ datetime: '2026-11-06 09:31', main_yi: 1.2 }],
     } }
+    if (queryKey[0] === 'portfolio-board-members') return { data: {
+      items: [{ symbol: '600000.SH', name: '测试龙头' }],
+      quotes: { '600000.SH': { change_pct: 3.2, signal_broken_limit_up: false } },
+      quote_source: '测试行情',
+    } }
     if (queryKey[0] === 'myagent-quant-news') return { data: { items: [{ title: '半导体新闻', url: 'https://example.com/a',
       source: '测试', sector_names: ['半导体'], bias: '待判断', relevance: '板块相关' }] } }
     if (queryKey[0] === 'portfolio-market-overview') return { data: {
@@ -75,6 +80,7 @@ it('opens a compact stock and board workspace with flow, news and unverified hol
   expect(host.textContent).toContain('涨停/炸板')
   expect(host.textContent).toContain('45 / 12')
   expect(host.textContent).toContain('上证指数 +0.80%')
+  expect(host.textContent).toContain('测试龙头 +3.20%')
   await act(async () => root.unmount())
 })
 
