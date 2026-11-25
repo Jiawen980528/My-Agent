@@ -31,7 +31,6 @@ import {
   Settings,
   DatabaseZap,
   Loader2,
-  BarChart3,
   Sparkles,
   CheckCircle2,
   ChevronRight,
@@ -81,10 +80,10 @@ const nav = [
   { to: '/portfolio-terminal', label: '我的持仓',   icon: IconWatchlist },
   { to: '/decision-guide',     label: '持仓推演',   icon: Sparkles },
   { to: '/recommendations',    label: '个股研究',   icon: IconStrategy },
-  { to: '/fund-flow',          label: '市场环境',   icon: BarChart3 },
 ] as const
 
-// 量化侧栏只展示个人持仓决策链路。暗盘、预测复盘和提醒仍保留路由，
+// 量化侧栏只展示个人持仓决策链路。市场宽度、情绪、资金流和大盘判断
+// 统一收进「看板」及其展开页；暗盘、预测复盘和提醒仍保留路由，
 // 统一收进「我的持仓」页内，避免把同一套决策链路重复铺在侧栏。
 
 /** 亮/暗主题切换 — 状态存 localStorage, 生效见 lib/theme.ts */
