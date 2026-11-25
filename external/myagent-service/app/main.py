@@ -883,7 +883,7 @@ def quant_research_pool_upsert(req: QuantResearchPoolItem):
     return {"ok": True, "item": next((x for x in db.list_quant_research_pool(req.symbol) if x["symbol"] == req.symbol), None)}
 
 def _research_header(value: str) -> str:
-    return re.sub(r"[\\s_\\-（）()：:]+", "", str(value or "").strip().lower())
+    return re.sub(r"[\s_\-（）()：:]+", "", str(value or "").strip().lower())
 
 def _research_rows_from_xlsx(raw: bytes) -> list[list[str]]:
     ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main", "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships"}
