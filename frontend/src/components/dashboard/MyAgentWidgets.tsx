@@ -244,7 +244,7 @@ export function RecommendationWidget() {
     {snapshots.isLoading && <p className="mt-3 text-xs text-muted">读取推荐记录…</p>}
     {snapshots.error && <p className="mt-3 text-xs text-danger">推荐记录暂不可用：{(snapshots.error as Error).message}</p>}
     {legacy.data?.available && <div className="mt-2 rounded border border-warning/30 bg-warning/5 p-2 text-[10px]"><div className="flex items-center justify-between gap-2"><b className="text-warning">{legacy.data.label || '历史归档（只读）'}</b><span className="text-muted">不启用旧模拟逻辑</span></div><div className="mt-1 text-muted">历史推荐 {legacy.data.recommendations?.records ?? 0} 条 · 模拟触发 {legacy.data.recommendations?.paper_status?.submitted ?? 0} 次 · 复盘 {legacy.data.reviews?.days ?? 0} 天 · 研究池 {legacy.data.research_pool?.items ?? 0} 条</div>{legacy.data.warnings?.some(item => item.includes('异常口径')) && <div className="mt-1 text-warning">⚠ 历史复盘成功率口径异常，当前仅作参考</div>}</div>}
-    {!snapshots.isLoading && !holdings.isLoading && !snapshots.error && !items.length && <p className="mt-3 text-xs text-muted">当前没有涉及持仓的推荐快照；全市场候选请前往“个股搜索/推荐”，不会把非持仓候选混入看板。</p>}
+    {!snapshots.isLoading && !holdings.isLoading && !snapshots.error && !items.length && <p className="mt-3 text-xs text-muted">当前没有涉及持仓的推荐快照；全市场候选请前往“个股研究/推荐”，不会把非持仓候选混入看板。</p>}
     <div className="mt-2 grid gap-1.5">{items.slice(0, 3).map(item => <div key={item.id} className="rounded border border-border/70 bg-base/40 p-2 text-[10px]"><div className="flex justify-between gap-2"><b>{item.period}</b><span className={item.status === '待复盘' ? 'text-warning' : 'text-bull'}>{item.status}</span></div><div className="mt-1 text-muted">{item.generated_at} · {item.symbols.join('、')}</div><div className="mt-1 text-muted">有效至 {item.valid_until}</div></div>)}</div>
   </section>
 }
