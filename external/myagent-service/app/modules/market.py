@@ -867,6 +867,27 @@ def _analyse_candidate(
     score += 3 if small_candle else 0
     score = min(100, round(score))
     priority = "A" if pullback_ready and score >= 75 else "B" if has_event and score >= 68 else "C"
+    reasons = [
+        f"基准期平均换手 {avg_turnover:.2f}%（上限 {max_turnover:.2f}%）",
+        f"基准期高点到事件前收盘回撤 {decline_pct:.1f}%",
+    ]
+    opposing_evidence = []
+    if has_event:
+        reasons.append(f"出现{pattern or '放量异动'}，事件量比 {event_multiple:.2f}x")
+    else:
+        opposing_evidence.append("最近窗口未发现满足阈值的放量异动")
+    if near_support:
+        reasons.append(f"现价距 {nearest_ma} {ma_distance:.1f}%")
+    else:
+        opposing_evidence.append(f"现价距最近均线 {nearest_ma} {ma_distance:.1f}%，尚未回到均线附近")
+    if has_event and post_event and pullback_volume_ratio <= 0.8:
+        reasons.append(f"事件后量比 {pullback_volume_ratio:.2f}，出现缩量回踩迹象")
+    elif has_event and post_event:
+        opposing_evidence.append(f"事件后量比 {pullback_volume_ratio:.2f}，缩量确认不足")
+    if small_candle:
+        reasons.append("最新K线实体较小，波动收敛")
+    else:
+        opposing_evidence.append("最新K线实体偏大，尚未形成收敛确认")
     return {
         "symbol": symbol, "name": name or history["name"], "sector": sector_for_name(name), "price": current_price,
         "pct": round(recent[-1]["pct"], 2), "avg_turnover": round(avg_turnover, 2),
@@ -878,6 +899,7 @@ def _analyse_candidate(
         "ma15": round(ma15, 2), "ma45": round(ma45, 2), "nearest_ma": nearest_ma,
         "ma_distance_pct": round(ma_distance, 1), "pullback_volume_ratio": round(pullback_volume_ratio, 2),
         "entry_status": entry_status, "score": score, "priority": priority,
+        "reasons": reasons, "opposing_evidence": opposing_evidence,
         "latest_date": latest["date"],
     }
 
