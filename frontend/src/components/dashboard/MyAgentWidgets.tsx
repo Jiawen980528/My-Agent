@@ -172,7 +172,7 @@ export function HoldingsWidget() {
       <span className="text-right"><b className="block">{x.price ? Number(x.price).toFixed(2) : '—'}</b><span className={Number(x.pct) >= 0 ? 'text-danger' : 'text-success'}>{signed(x.pct)}%</span></span>
       <span className={`w-20 text-right ${Number(x.profit) >= 0 ? 'text-danger' : 'text-success'}`}>{x.price ? signed(x.profit) : '—'}<small className="block text-[10px]">{x.price ? `${signed(x.profit_pct)}%` : '暂无报价'}</small></span>
     </button>)}
-    <p className="mt-2 text-[10px] text-muted">持仓需手工录入；当前未连接国金账户/QMT。<Link to="/myagent-quant" className="text-accent">查看持仓页</Link></p>
+    <p className="mt-2 text-[10px] text-muted">持仓需手工录入；当前未连接券商账户。<Link to="/portfolio-terminal" className="text-accent">打开持仓终端</Link></p>
   </section>
 }
 
