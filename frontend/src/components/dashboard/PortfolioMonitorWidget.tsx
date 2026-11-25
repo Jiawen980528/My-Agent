@@ -760,7 +760,7 @@ export function PortfolioMonitorWidget() {
   }, [boardInput, boardSearch.data?.items])
   const allItems = useMemo<Holding[]>(() => [...items, ...extraSymbols.filter(symbol => !items.some(item => item.symbol === symbol))
     .map(symbol => ({ symbol, name: extraSymbolNames[symbol] || symbol + ' · 名称待核对' }))], [items, extraSymbols, extraSymbolNames])
-  const active = allItems.find(item => item.symbol === selected) || allItems[0]
+  const previouslySelected = allItems.find(item => item.symbol === selected)
   const reportedDay = items.map(quoteDate).filter(day => /^\d{4}-\d{2}-\d{2}$/.test(day)).sort().at(-1) || ''
   // Public close snapshots are fetched on weekends too; their fetch timestamp
   // is not a trading-day timestamp. Never request a Saturday/Sunday minute
@@ -803,7 +803,11 @@ export function PortfolioMonitorWidget() {
     setUiPref('portfolio-terminal-visible', JSON.stringify(next))
     setMenu(null)
   }
-  const shown = listMode === 'recorded' ? allItems.filter(item => item.holding_source) : allItems
+  // 快照中的标的即使数量/成本尚未核实，也属于用户的已录入监控清单；
+  // 只有本地临时添加、没有 holding_source 字段的额外标的才归入“全部监控”。
+  const recordedItems = allItems.filter(item => item.holding_source !== undefined)
+  const shown = listMode === 'recorded' ? recordedItems : allItems
+  const active = shown.find(item => item.symbol === selected) || shown[0] || (listMode === 'all' ? previouslySelected : undefined)
   const chooseListMode = (mode: 'all' | 'recorded') => {
     setListMode(mode)
     setUiPref('portfolio-terminal-list-mode', JSON.stringify(mode))
@@ -934,7 +938,7 @@ export function PortfolioMonitorWidget() {
       style={layoutMode === 'side' ? { '--portfolio-left': `${paneWidths.left}px`, '--portfolio-right': `${paneWidths.right}px` } as React.CSSProperties : undefined}>
       {layoutMode === 'strip' && <div className="flex gap-1 overflow-x-auto rounded border border-border bg-base/50 p-1">{shown.map(item => <button key={item.symbol} type="button" onClick={() => { setSelected(item.symbol); setSelectedBoard('') }} className={`min-w-44 rounded border border-border px-2 py-1 text-left hover:bg-elevated ${active?.symbol === item.symbol ? 'bg-accent/15' : ''}`}><div className="flex justify-between gap-1 text-xs"><b className="truncate">{item.name}</b><span className={Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}>{pct(item.change_pct)}</span></div><div className="text-[10px] text-muted">{item.symbol} · {price(item.price)}</div></button>)}</div>}
       {layoutMode === 'side' && <aside className="min-w-0 rounded border border-border bg-base/50 p-1">
-        <div className="flex gap-1 border-b border-border p-1 text-[11px]"><button type="button" onClick={() => chooseListMode('recorded')} className={listMode === 'recorded' ? 'text-accent' : 'text-muted'}>已录持仓 {items.filter(x => x.holding_source).length}</button><button type="button" onClick={() => chooseListMode('all')} className={listMode === 'all' ? 'text-accent' : 'text-muted'}>全部监控 {allItems.length}</button></div>
+        <div className="flex gap-1 border-b border-border p-1 text-[11px]"><button type="button" onClick={() => chooseListMode('recorded')} className={listMode === 'recorded' ? 'text-accent' : 'text-muted'}>已录持仓 {recordedItems.length}</button><button type="button" onClick={() => chooseListMode('all')} className={listMode === 'all' ? 'text-accent' : 'text-muted'}>全部监控 {allItems.length}</button></div>
         <div className="max-h-[650px] overflow-auto">{shown.map(item => <button key={item.symbol} type="button" onClick={() => { setSelected(item.symbol); setSelectedBoard('') }}
           className={`block w-full border-b border-border/50 px-1.5 py-1 text-left hover:bg-elevated ${active?.symbol === item.symbol ? 'bg-accent/15' : ''}`}>
           <span className="flex justify-between gap-1 text-xs"><b className="truncate">{item.name}</b><span className={Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}>{pct(item.change_pct)}</span></span>
