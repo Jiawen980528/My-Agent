@@ -1590,6 +1590,9 @@ function CompareView({ onCreateSingle }: { onCreateSingle: (preferredId?: string
           </div>
         }
       />
+      <div className="mx-5 mt-2 rounded-card border border-warning/35 bg-warning/5 px-3 py-2 text-[11px] leading-relaxed text-warning">
+        <b>仅供研究模拟：</b>这里使用虚拟资金和真实行情价格进行模拟撮合，完全独立于真实持仓；不连接券商、QMT 或 PTrade，不会提交真实委托。
+      </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-5">
         {cmpQ.isLoading ? (
           <div className="py-16 text-center text-sm text-muted">加载中…</div>
