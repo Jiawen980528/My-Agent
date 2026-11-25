@@ -939,7 +939,15 @@ async def sector_kline(
             code, rows, timestamp = await _fetch_fuyao_board_history(sector.upper(), days)
             if not rows:
                 raise ValueError("扶摇未返回该板块历史行情")
-            result = {"sector": code, "name": code, "period": "daily", "rows": rows,
+            board_name = code
+            try:
+                catalog = await _fetch_fuyao_board_catalog()
+                board_name = next((str(item.get("name") or code) for item in catalog if str(item.get("code") or "").upper() == code.upper()), code)
+            except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+                # History remains usable if the optional name lookup is down;
+                # fall back to the verified provider code, never a fake label.
+                pass
+            result = {"sector": code, "name": board_name, "period": "daily", "rows": rows,
                       "latest_time": rows[-1]["time"],
                       "fetched_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
                       "stale": False, "provider": "fuyao",
