@@ -352,31 +352,24 @@ export function minSizeOf(t: WidgetType): { w: number; h: number } {
   return { w: d?.minW ?? 2, h: d?.minH ?? 4 }
 }
 
-/** 默认布局 — 首屏优先呈现指数/KPI、大盘实时曲线与量能、持仓综合监控；
- * 下方再放市场宽度、板块、资金流和新闻。这样首次打开就能进入“看盘”状态，
- * 其余窗口仍可通过自定义布局或右键添加。
+/** 默认布局 — 个人持仓研究模式。
+ * 首屏优先呈现持仓分时/关联板块/资金流/新闻/操作提醒，
+ * 同时保留大盘方向、量能、广度和情绪作为决策上下文。
+ * 泛市场榜单、行业热度和连板明细仍可通过“自定义布局”添加，
+ * 但不再占用个人持仓首屏空间。
  * 坐标必须是竖直压实后的稳定形态(列内不留空隙), 否则 RGL 渲染时会自动上提,
  * 导致「恢复默认」的 JSON 等值判断永不成立、每次都落 blob 而非 null。 */
 export const DEFAULT_LAYOUT: DashboardItem[] = [
   { i: 'indices', t: 'indices', x: 0, y: 0, w: 12, h: 2 },
   { i: 'kpi', t: 'kpi', x: 0, y: 2, w: 12, h: 2 },
-  { i: 'market-overview', t: 'market-overview', x: 0, y: 4, w: 12, h: 16 },
-  { i: 'portfolio-monitor', t: 'portfolio-monitor', x: 0, y: 20, w: 12, h: 24 },
-  { i: 'distribution', t: 'distribution', x: 0, y: 44, w: 3, h: 8 },
-  { i: 'radar', t: 'radar', x: 3, y: 44, w: 3, h: 8 },
-  { i: 'trend', t: 'trend', x: 6, y: 44, w: 3, h: 8 },
-  { i: 'ladder', t: 'ladder', x: 9, y: 44, w: 3, h: 8 },
-  { i: 'concept-rank', t: 'concept-rank', x: 0, y: 52, w: 4, h: 9 },
-  { i: 'industry-rank', t: 'industry-rank', x: 4, y: 52, w: 4, h: 9 },
-  { i: 'sector-watch', t: 'sector-watch', x: 8, y: 52, w: 4, h: 13 },
-  { i: 'gainers', t: 'gainers', x: 0, y: 61, w: 2, h: 13 },
-  { i: 'losers', t: 'losers', x: 2, y: 61, w: 2, h: 13 },
-  { i: 'turnover', t: 'turnover', x: 4, y: 61, w: 2, h: 13 },
-  { i: 'activity', t: 'activity', x: 6, y: 61, w: 2, h: 13 },
-  { i: 'monitor', t: 'monitor', x: 8, y: 65, w: 4, h: 18 },
-  { i: 'market-news', t: 'market-news', x: 0, y: 74, w: 6, h: 12 },
-  { i: 'fund-flow', t: 'fund-flow', x: 0, y: 86, w: 6, h: 13 },
-  { i: 'holdings', t: 'holdings', x: 6, y: 86, w: 6, h: 13 },
-  { i: 'recommendations', t: 'recommendations', x: 0, y: 99, w: 6, h: 12 },
-  { i: 'page-panel-decision-guide', t: 'page-panel', x: 6, y: 99, w: 6, h: 18, p: { path: '/decision-guide' } },
+  { i: 'portfolio-monitor', t: 'portfolio-monitor', x: 0, y: 4, w: 12, h: 24 },
+  { i: 'market-overview', t: 'market-overview', x: 0, y: 28, w: 8, h: 16 },
+  { i: 'distribution', t: 'distribution', x: 8, y: 28, w: 4, h: 8 },
+  { i: 'radar', t: 'radar', x: 8, y: 36, w: 4, h: 8 },
+  { i: 'fund-flow', t: 'fund-flow', x: 0, y: 44, w: 6, h: 13 },
+  { i: 'sector-watch', t: 'sector-watch', x: 6, y: 44, w: 6, h: 13 },
+  { i: 'holdings', t: 'holdings', x: 0, y: 57, w: 4, h: 13 },
+  { i: 'recommendations', t: 'recommendations', x: 4, y: 57, w: 4, h: 13 },
+  { i: 'market-news', t: 'market-news', x: 8, y: 57, w: 4, h: 13 },
+  { i: 'page-panel-decision-guide', t: 'page-panel', x: 0, y: 70, w: 12, h: 18, p: { path: '/decision-guide' } },
 ]
