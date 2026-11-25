@@ -116,8 +116,14 @@ function Require-Cmd($cmd, $hint) {
     }
 }
 
-Require-Cmd 'uv'   'powershell -c "irm https://astral.sh/uv/install.ps1 | iex"   OR   winget install --id=astral-sh.uv'
 Require-Cmd 'pnpm' 'npm i -g pnpm   OR   corepack enable; corepack prepare pnpm@9 --activate'
+
+# 已有 backend/.venv 时直接复用它即可启动; uv 只在首次安装/需要同步依赖
+# 时才是必需的。这样没有安装 uv 的 Windows 用户不会被无谓地挡在启动前。
+$HasBackendVenv = Test-Path (Join-Path $BackendDir '.venv\Scripts\python.exe')
+if (-not $HasBackendVenv) {
+    Require-Cmd 'uv' 'powershell -c "irm https://astral.sh/uv/install.ps1 | iex"   OR   winget install --id=astral-sh.uv'
+}
 
 # ===== 2. Port check - kill anything listening on the target ports =====
 function Free-Port($name, $port) {
@@ -196,6 +202,10 @@ if (-not [string]::IsNullOrWhiteSpace($BackendExtras)) {
 }
 
 if (-not (Test-Path (Join-Path $BackendDir '.venv')) -or $BackendExtraArgs.Count) {
+    if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+        Log-Err 'backend/.venv 不存在且未找到 uv，无法安装 Python 依赖'
+        exit 1
+    }
     if ($BackendExtraArgs.Count) {
         Log-Info "syncing Python deps with extras: $BackendExtras"
     } else {
