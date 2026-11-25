@@ -207,6 +207,26 @@ export function Recommendations() {
       .sort((a, b) => b.count - a.count || b.positive - a.positive)
       .slice(0, 6)
   }, [snapshots])
+  const sourceStats = useMemo(() => {
+    const groups = new Map<string, { count: number; positive: number; total: number }>()
+    for (const snapshot of snapshots) {
+      if (snapshot.status !== '已复盘') continue
+      const source = String(snapshot.data_source || '').trim() || '未标注来源'
+      for (const observation of snapshot.review?.observations || []) {
+        const value = Number(observation.observed_return_pct)
+        if (!Number.isFinite(value)) continue
+        const current = groups.get(source) || { count: 0, positive: 0, total: 0 }
+        current.count += 1
+        current.positive += value > 0 ? 1 : 0
+        current.total += value
+        groups.set(source, current)
+      }
+    }
+    return [...groups.entries()]
+      .map(([source, value]) => ({ source, ...value, ratio: value.count ? value.positive / value.count * 100 : null, average: value.count ? value.total / value.count : null }))
+      .sort((a, b) => b.count - a.count || b.positive - a.positive)
+      .slice(0, 6)
+  }, [snapshots])
   const reviewTrend = useMemo(() => snapshots
     .filter(snapshot => snapshot.status === '已复盘')
     .map(snapshot => {
@@ -341,6 +361,15 @@ export function Recommendations() {
         <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
           {sectorStats.map(stat => <div key={stat.sector} className="rounded border border-border/60 bg-surface px-2 py-1.5 text-[10px]">
             <div className="flex items-center justify-between gap-2"><b className="truncate" title={stat.sector}>{stat.sector}</b><span className="text-muted">样本 {stat.count}</span></div>
+            <div className="mt-0.5 text-muted">上涨率 {stat.ratio == null ? '—' : `${stat.ratio.toFixed(1)}%`} · 均值 {stat.average == null ? '—' : `${stat.average >= 0 ? '+' : ''}${stat.average.toFixed(2)}%`}</div>
+          </div>)}
+        </div>
+      </div>}
+      {!!sourceStats.length && <div className="mt-2 rounded border border-border/60 bg-base/40 p-2">
+        <div className="flex flex-wrap items-center justify-between gap-2"><b>按来源/模型归因</b><span className="text-[10px] text-muted">仅统计真实复盘样本；同一来源不代表独立验证</span></div>
+        <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+          {sourceStats.map(stat => <div key={stat.source} className="rounded border border-border/60 bg-surface px-2 py-1.5 text-[10px]">
+            <div className="flex items-center justify-between gap-2"><b className="truncate" title={stat.source}>{stat.source}</b><span className="text-muted">样本 {stat.count}</span></div>
             <div className="mt-0.5 text-muted">上涨率 {stat.ratio == null ? '—' : `${stat.ratio.toFixed(1)}%`} · 均值 {stat.average == null ? '—' : `${stat.average >= 0 ? '+' : ''}${stat.average.toFixed(2)}%`}</div>
           </div>)}
         </div>
