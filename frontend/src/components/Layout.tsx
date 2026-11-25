@@ -82,7 +82,6 @@ const nav = [
   { to: '/',                   label: '看板',       icon: IconDashboard },
   { to: '/portfolio-terminal', label: '我的持仓',   icon: IconWatchlist },
   { to: '/decision-guide',     label: '行情推演',   icon: Sparkles },
-  { to: '/watchlist',           label: '自选',       icon: IconWatchlist },
   { to: '/screener',            label: '个股搜索',   icon: IconStrategy },
   { to: '/fund-flow',           label: '市场总览',   icon: BarChart3 },
 ] as const
@@ -591,7 +590,7 @@ export function Layout() {
     if (alertsTotal != null) setAlertTotal(alertsTotal)
   }, [alertsTotal])
 
-  // 合并个人持仓决策链路 + 暗盘/复盘/提醒三个必要扩展入口。
+  // 主栏只保留个人持仓决策链路；自选、暗盘/复盘/提醒等作为可选入口收进“更多功能”。
   type NavIcon = (props: BrandIconProps) => ReactNode
   // arch: 'ext' = 扩展域页面 (官方扩展/自定义分析), 核心域 nav 常量不带标。
   // 与菜单设置 ARCH_CLASS 同口径: nav 常量 8 项全部核心, 其余两个来源全部扩展。
@@ -603,7 +602,10 @@ export function Layout() {
     badge: item.badge,
     arch: 'ext' as const,
   }))
-  const secondaryNav = extensionNav.filter(item => FOCUS_EXTENSION_PATHS.has(item.to))
+  const secondaryNav: NavItem[] = [
+    { to: '/watchlist', label: '自选', icon: IconWatchlist, arch: 'core' },
+    ...extensionNav.filter(item => FOCUS_EXTENSION_PATHS.has(item.to)),
+  ]
 
   // 扩展页仍保留路由，但不再并入主导航；否则旧用户保存过的侧栏顺序
   // 会把模拟盘/复盘/监控重新铺开，抵消个人持仓模式的精简目标。
@@ -642,9 +644,9 @@ export function Layout() {
 
   const hiddenIds = new Set(prefs?.nav_hidden ?? [])
   const visibleNavItems = navItems.filter(n => !hiddenIds.has(n.to) && !hiddenIds.has(n.to.replace(/^\/analysis\//, '')))
-  const [extensionsOpen, setExtensionsOpen] = useState(() => extensionNav.some(item => location.pathname === item.to))
+  const [extensionsOpen, setExtensionsOpen] = useState(() => secondaryNav.some(item => location.pathname === item.to))
   useEffect(() => {
-    if (extensionNav.some(item => location.pathname === item.to)) setExtensionsOpen(true)
+    if (secondaryNav.some(item => location.pathname === item.to)) setExtensionsOpen(true)
   }, [location.pathname])
   const [dragNavPath, setDragNavPath] = useState<string | null>(null)
   const moveNavItem = (targetPath: string) => {
