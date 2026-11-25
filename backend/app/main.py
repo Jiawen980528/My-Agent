@@ -23,6 +23,7 @@ from app.api import (
     definitions,
     events,
     ext_data,
+    external_market,
     ext_pages,
     factors,
     financials,
@@ -714,6 +715,7 @@ app.include_router(pipeline.router)
 app.include_router(position_policies.router)
 app.include_router(data.router)
 app.include_router(ext_data.router)
+app.include_router(external_market.router)
 app.include_router(ext_pages.router)
 app.include_router(task_registry.router)
 app.include_router(financials.router)

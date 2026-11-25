@@ -564,6 +564,27 @@ export interface OverviewMarket {
   industry_rank: { leading: OverviewDimensionRankItem[]; lagging: OverviewDimensionRankItem[] }
 }
 
+export interface ExternalMarketRow {
+  symbol: string
+  name: string
+  last: number | null
+  previous_close: number | null
+  change_pct: number | null
+  as_of: string | null
+  status: 'ok' | 'unavailable'
+}
+
+export interface ExternalMarketContext {
+  status: 'ok' | 'unavailable'
+  rows: ExternalMarketRow[]
+  source: string
+  generated_at: string
+  latency_ms?: number
+  cached?: boolean
+  errors?: string[]
+  notice?: string
+}
+
 /** 全市场成交额预测。预测只能建立在真实分钟成交额和可比历史交易日之上。 */
 export interface MarketVolumeForecast {
   status: 'ok' | 'unavailable'
@@ -3685,6 +3706,7 @@ export const api = {
   marketSnapshot: () =>
     request<{ as_of: string | null; rows: MarketSnapshotRow[] }>('/api/screener/market-snapshot'),
   overviewMarket: (asOf?: string) => request<OverviewMarket>(`/api/overview/market${asOf ? `?as_of=${asOf}` : ''}`),
+  externalMarketContext: () => request<ExternalMarketContext>('/api/external-market/context'),
   marketVolumeForecast: (tradeDate?: string) =>
     request<MarketVolumeForecast>(`/api/myagent/market-volume-forecast${tradeDate ? `?trade_date=${encodeURIComponent(tradeDate)}` : ''}`),
   portfolioSnapshot: () =>
