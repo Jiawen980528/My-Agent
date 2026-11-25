@@ -28,13 +28,16 @@ from app.polars_guard import guarded_collect
 logger = logging.getLogger(__name__)
 
 
-def default_probe(write_lock: threading.Lock | None = None) -> None:
+def default_probe(
+    write_lock: threading.Lock | None = None,
+    write_lock_expected: Callable[[], bool] | None = None,
+) -> None:
     """探测关键共享资源: polars collect 闸 + 仓库全局写锁。
 
     任一被悬死线程占住即超时 — 正是 2026-09-07 冻结事故中被毒化的两条路径。
     """
     guarded_collect(pl.LazyFrame({"probe": [1]}).sum())
-    if write_lock is not None:
+    if write_lock is not None and not (write_lock_expected and write_lock_expected()):
         acquired = write_lock.acquire(timeout=1.0)
         if not acquired:
             raise TimeoutError("repository write lock unavailable")
@@ -112,8 +115,12 @@ def start_watchdog(app_state, repo) -> HealthWatchdog | None:
     if not settings.watchdog_enabled:
         return None
     write_lock = getattr(repo, "_write_lock", None)
+    write_lock_expected = getattr(repo, "_long_write_active", None)
     watchdog = HealthWatchdog(
-        lambda: default_probe(write_lock),
+        lambda: default_probe(
+            write_lock,
+            write_lock_expected.is_set if write_lock_expected is not None else None,
+        ),
         exit_cb=lambda code: os._exit(code),
     )
     watchdog.start()

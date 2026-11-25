@@ -83,3 +83,16 @@ async def test_default_probe_passes_on_healthy_resources() -> None:
     lock = threading.Lock()
     default_probe(lock)  # 不抛即通过
     default_probe(None)
+
+
+def test_default_probe_skips_expected_long_write_lock() -> None:
+    import threading
+
+    lock = threading.Lock()
+    active = threading.Event()
+    active.set()
+    lock.acquire()
+    try:
+        default_probe(lock, active.is_set)
+    finally:
+        lock.release()

@@ -1927,6 +1927,9 @@ def sync_and_persist_minute(
             written_box[0] += _write_minute_partition(seg_df, minute_dir)
 
     segment_days = preferences.get_minute_sync_segment_days()
+    long_write_active = getattr(repo, "_long_write_active", None)
+    if long_write_active is not None:
+        long_write_active.set()
     try:
         sync_minute_batch(
             symbols, start_time=start_time, end_time=end_time,
@@ -1938,6 +1941,8 @@ def sync_and_persist_minute(
             raw_basis=minute_adjust.minute_basis_is_raw(repo.store.data_dir),
         )
     finally:
+        if long_write_active is not None:
+            long_write_active.clear()
         # 后续批次失败时，先前已落盘的股票/ETF 分区仍需可查询。
         if written_box[0]:
             d = repo.store.data_dir.as_posix()

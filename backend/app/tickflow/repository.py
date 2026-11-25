@@ -349,6 +349,9 @@ class KlineRepository:
         # 序列化 parquet 分区的读-改-写: 实时轮询线程、手动 refresh、盘后管道
         # 可能并发 merge/flush 同一分区文件, 无锁会互相覆盖丢数据
         self._write_lock = threading.Lock()
+        # 长批量同步会按分段持有写锁; 看门狗需要知道这是受控的长任务,
+        # 避免把合法的分区写入误判成死锁并重启服务。
+        self._long_write_active = threading.Event()
         # 自选/详情定向补齐的最新行。只供展示回退，不能混入全市场当日策略快照。
         self._prepared_daily_lock = threading.Lock()
         self._prepared_daily: OrderedDict = OrderedDict()
