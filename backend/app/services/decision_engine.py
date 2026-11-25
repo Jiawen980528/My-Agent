@@ -54,6 +54,7 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
     defensive = snapshot.get("defensive") if isinstance(snapshot.get("defensive"), dict) else {}
     external = snapshot.get("external_market") if isinstance(snapshot.get("external_market"), dict) else {}
     technical = snapshot.get("technical") if isinstance(snapshot.get("technical"), dict) else {}
+    news_context = snapshot.get("news_context") if isinstance(snapshot.get("news_context"), dict) else {}
     multi_period = snapshot.get("multi_period") if isinstance(snapshot.get("multi_period"), dict) else {}
     trades_today = snapshot.get("trades_today") if isinstance(snapshot.get("trades_today"), list) else []
     period_keys = ("daily", "minute_60", "minute_15", "minute_5")
@@ -162,6 +163,16 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
                     warnings.append("MACD柱为负，短线动能偏弱")
                 if kdj_j is not None and kdj_j >= 100:
                     warnings.append(f"KDJ-J={kdj_j:.1f}偏高，注意冲高回落")
+            if news_context:
+                basis.append("关联新闻标题情绪初判（需核对原文）")
+                positive = int(_num(news_context.get("positive")) or 0)
+                negative = int(_num(news_context.get("negative")) or 0)
+                pending = int(_num(news_context.get("pending")) or 0)
+                total = int(_num(news_context.get("count")) or positive + negative + pending)
+                if total > 0 and negative > positive:
+                    warnings.append(f"关联新闻标题初判偏空（利空{negative}、利好{positive}、待判断{pending}），先核对原文")
+                elif total > 0 and positive > negative:
+                    warnings.append(f"关联新闻标题初判偏多（利好{positive}、利空{negative}、待判断{pending}），不替代行情确认")
             if trades_today:
                 basis.append("当日已成交记录")
             if reasons:
@@ -195,6 +206,7 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
             "context_missing": context_missing,
             "external_market": external or None,
             "technical": technical or None,
+            "news_context": news_context or None,
         },
         "trigger_price": trigger,
         "invalidation_price": invalidation,

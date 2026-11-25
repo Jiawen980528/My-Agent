@@ -114,6 +114,20 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertEqual(result["evidence"]["technical"]["rsi_14"], 74)
         self.assertEqual(len(result["warnings"]), 3)
 
+    def test_news_context_is_a_labeled_warning_not_a_trade_signal(self):
+        result = build_decision({
+            "freshness": {"stale": False, "market_time": "2026-11-08T10:00:00+08:00"},
+            "quote": {"price": 9.95, "support": 9.9, "resistance": 10.5},
+            "market": {"pct": 0.5, "turnover_ratio": 1.1}, "board": {"pct": 0.8},
+            "account": {"available_cash": 20000, "source": "manual", "verified": False},
+            "news_context": {"count": 3, "positive": 0, "negative": 2, "pending": 1,
+                              "notice": "标题关键词初判，需核对原文"},
+        })
+        self.assertIn("关联新闻标题情绪初判（需核对原文）", result["basis"])
+        self.assertTrue(any("关联新闻标题初判偏空" in value for value in result["warnings"]))
+        self.assertEqual(result["action"], "CONDITIONAL_ADD")
+        self.assertEqual(result["evidence"]["news_context"]["negative"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()
