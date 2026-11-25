@@ -88,6 +88,12 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
     refetchInterval: 60_000,
     staleTime: 30_000,
   })
+  const externalMarket = useQuery({
+    queryKey: ['dashboard-external-market-context'],
+    queryFn: api.externalMarketContext,
+    refetchInterval: 180_000,
+    staleTime: 120_000,
+  })
   const review = useReviewState()
   const generating = isReviewGenerating()
   const selected = INDEXES.find(item => item.symbol === selectedSymbol) ?? INDEXES[0]
@@ -198,6 +204,21 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
         })}
       </div>
 
+      <div className="mb-2 rounded border border-border bg-elevated/30 p-2">
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5"><Globe2 className="h-3.5 w-3.5 text-accent" /><b className="text-xs">美股 / 外围影响</b><span className="text-[10px] text-muted">仅作背景参考，不混入 A 股资金流</span></div>
+          <span className="text-[9px] text-muted">{externalMarket.data?.source ?? (externalMarket.isLoading ? '读取中…' : '公共源不可用')}</span>
+        </div>
+        {externalMarket.data?.rows?.length ? <div className="grid grid-cols-2 gap-1.5 md:grid-cols-4">
+          {externalMarket.data.rows.map(row => <div key={row.symbol} className="rounded border border-border/70 bg-base/45 px-2 py-1.5">
+            <div className="flex items-center justify-between gap-1"><span className="text-[10px] text-muted">{row.name}</span><span className={cn('font-mono text-xs', tone(row.change_pct))}>{pct(row.change_pct)}</span></div>
+            <div className="font-mono text-sm">{row.last == null ? '—' : row.last.toFixed(2)}</div>
+            <div className="text-[9px] text-muted">{row.as_of ? new Date(row.as_of).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '无时间戳'} · {row.status === 'ok' ? '可用' : '不可用'}</div>
+          </div>)}
+        </div> : <div className="rounded bg-warning/10 px-2 py-1.5 text-[10px] text-warning">外围公共行情暂不可用；不会用 0 或 A 股数据代替。{externalMarket.data?.errors?.length ? ` ${externalMarket.data.errors.join('；')}` : ''}</div>}
+        <div className="mt-1 text-[9px] text-muted">{externalMarket.data?.notice ?? '未取得外围行情状态。'} 抓取：{externalMarket.data?.generated_at ?? '—'}</div>
+      </div>
+
       <div className="grid min-h-0 gap-3 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,0.85fr)]">
         <div className="min-h-0 rounded border border-border bg-base/35 p-2">
           <div className="mb-1 flex items-center justify-between gap-2 text-xs">
@@ -299,4 +320,5 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
     </section>
   )
 }
+
 
