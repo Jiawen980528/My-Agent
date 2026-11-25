@@ -14,6 +14,7 @@ type SectorSnapshot = { sector: string; generated_at: string; source: string; it
 type NewsItem = { title: string; url: string; source: string; published_at?: string; relevance: string; watch_reason: string;
   bias: '可能利好' | '可能利空' | '待判断'; bias_reason: string; sector_names: string[] }
 type NewsFeed = { items: NewsItem[]; fetched_at: string; source: string; status: string; notice: string }
+type ExternalNewsFeed = { items: { title: string; url: string; source: string; published_at?: string; bias: string }[]; source: string; status: string; notice: string; generated_at: string }
 type MinuteBatch = { data: Record<string, MinuteKlineRow[]>; source?: string; freshness?: Record<string, { market_time?: string | null; stale?: boolean }> }
 type RecommendationSnapshot = { id: number; period: string; status: '待复盘' | '已复盘'; generated_at: string; valid_until: string; symbols: string[]; data_source?: string; review?: { observations?: Array<{ observed_return_pct?: number | null }> } | null }
 type PaperSummaryRow = { account: string; name: string; status: 'active' | 'frozen'; total: number; cash: number; market_value: number; total_pnl: number; pnl_pct?: number | null; rounds: number; win_rate: number; profit_loss_ratio?: number | null; max_drawdown?: number | null; nav?: Array<{ date: string; nav: number }>; live_total?: number | null; live_pnl_pct?: number | null; estimating?: boolean }
@@ -69,6 +70,7 @@ export function MarketNewsWidget() {
   const [analysis, setAnalysis] = useState('')
   const [analyzing, setAnalyzing] = useState(false)
   const news = useQuery({ queryKey: ['myagent-quant-news'], queryFn: () => getJson<NewsFeed>(`${API}/news`), refetchInterval: 180_000 })
+  const externalNews = useQuery({ queryKey: ['external-market-news'], queryFn: () => getJson<ExternalNewsFeed>('/quant/api/external-market/news'), refetchInterval: 180_000 })
   const allRows = news.data?.items ?? []
   const sectorNames = [...new Set(allRows.flatMap(item => item.sector_names ?? []))].sort((a, b) => a.localeCompare(b, 'zh-CN'))
   const rows = allRows.filter(item => (bias === '全部' || item.bias === bias)
@@ -107,6 +109,13 @@ export function MarketNewsWidget() {
         <a href={item.url} target="_blank" rel="noopener noreferrer" className="mt-1 block text-xs hover:text-accent">{item.title}</a><div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted"><span>{item.watch_reason}</span><button type="button" onClick={() => analyze(item)} disabled={analyzing} className="ml-auto shrink-0 text-accent disabled:opacity-50">AI研判影响</button></div>
         <div className="mt-1 text-[11px] text-secondary">板块：{item.sector_names?.join('、') || '未识别具体板块'} <span className="text-muted">· {item.bias_reason}</span></div>
       </div>)}</>}
+    <div className="mt-3 border-t border-border pt-2">
+      <div className="flex flex-wrap items-center justify-between gap-1"><b className="text-xs">美股 / 外围新闻</b><span className="text-[10px] text-muted">{externalNews.data?.source || '公共源'} · 仅背景参考</span></div>
+      {externalNews.isLoading && <p className="mt-1 text-[10px] text-muted">正在获取外围新闻…</p>}
+      {externalNews.isError && <p className="mt-1 text-[10px] text-muted">外围新闻暂不可用，不影响 A 股行情。</p>}
+      {externalNews.data?.items?.length ? externalNews.data.items.slice(0, 4).map(item => <a key={item.url} href={item.url} target="_blank" rel="noopener noreferrer" className="mt-1 block truncate text-[11px] text-accent" title={item.title}>待判断 · {item.title} · {item.source}</a>) : externalNews.data && <p className="mt-1 text-[10px] text-muted">当前没有可核对的外围新闻。</p>}
+      <p className="mt-1 text-[10px] text-muted">{externalNews.data?.notice || '不替代 TickFlow 行情、资金流或操作建议。'}</p>
+    </div>
   </section>
 }
 

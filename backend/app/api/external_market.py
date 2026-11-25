@@ -23,8 +23,11 @@ _SYMBOLS = (
 )
 _CACHE: dict[str, object] | None = None
 _CACHE_AT = 0.0
+_NEWS_CACHE: dict[str, object] | None = None
+_NEWS_CACHE_AT = 0.0
 _LOCK = Lock()
 _TTL_SECONDS = 60.0
+_NEWS_TTL_SECONDS = 180.0
 
 
 def _parse_quote(symbol: str, name: str, payload: dict) -> dict:
@@ -87,6 +90,63 @@ def _fetch() -> dict:
     }
 
 
+def _parse_news(payload: dict, query: str) -> list[dict]:
+    rows: list[dict] = []
+    for item in payload.get("news") or []:
+        if not isinstance(item, dict) or not item.get("title") or not item.get("link"):
+            continue
+        published = item.get("providerPublishTime")
+        published_at = datetime.fromtimestamp(float(published), tz=timezone.utc).isoformat() if published else None
+        rows.append({
+            "title": str(item["title"]),
+            "url": str(item["link"]),
+            "source": str(item.get("publisher") or "Yahoo Finance"),
+            "published_at": published_at,
+            "query": query,
+            "bias": "待判断",
+            "notice": "美股/外围新闻仅作背景参考，需打开原文核对，不作为买卖信号。",
+        })
+    return rows
+
+
+def _fetch_news() -> dict:
+    generated_at = datetime.now(timezone.utc).isoformat()
+    queries = ("S&P 500 stock market", "Nasdaq stock market", "VIX volatility")
+    rows: list[dict] = []
+    errors: list[str] = []
+    started = time.monotonic()
+
+    def fetch_one(query: str) -> list[dict]:
+        response = httpx.get(
+            "https://query1.finance.yahoo.com/v1/finance/search",
+            params={"q": query, "newsCount": 8, "quotesCount": 0},
+            timeout=8.0,
+            headers={"User-Agent": "MyAgent/1.0"},
+        )
+        response.raise_for_status()
+        return _parse_news(response.json(), query)
+
+    with ThreadPoolExecutor(max_workers=len(queries), thread_name_prefix="external-news") as pool:
+        futures = {pool.submit(fetch_one, query): query for query in queries}
+        for future in as_completed(futures):
+            query = futures[future]
+            try:
+                rows.extend(future.result())
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{query}: {type(exc).__name__}")
+    unique: dict[str, dict] = {row["url"]: row for row in rows}
+    items = sorted(unique.values(), key=lambda row: row.get("published_at") or "", reverse=True)[:20]
+    return {
+        "status": "ok" if items else "unavailable",
+        "items": items,
+        "source": "Yahoo Finance search 公共新闻（可能延迟）",
+        "generated_at": generated_at,
+        "latency_ms": round((time.monotonic() - started) * 1000),
+        "errors": errors,
+        "notice": "美股/外围新闻只用于解释风险偏好和开盘背景；不替代 TickFlow 行情、资金流或交易信号。",
+    }
+
+
 @router.get("/context")
 def external_market_context() -> dict:
     global _CACHE, _CACHE_AT
@@ -97,4 +157,17 @@ def external_market_context() -> dict:
         data = _fetch()
         _CACHE = data
         _CACHE_AT = now
+        return {**data, "cached": False}
+
+
+@router.get("/news")
+def external_market_news() -> dict:
+    global _NEWS_CACHE, _NEWS_CACHE_AT
+    with _LOCK:
+        now = time.monotonic()
+        if _NEWS_CACHE is not None and now - _NEWS_CACHE_AT < _NEWS_TTL_SECONDS:
+            return {**_NEWS_CACHE, "cached": True}
+        data = _fetch_news()
+        _NEWS_CACHE = data
+        _NEWS_CACHE_AT = now
         return {**data, "cached": False}

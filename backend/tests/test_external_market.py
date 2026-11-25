@@ -1,4 +1,4 @@
-from app.api.external_market import _parse_quote
+from app.api.external_market import _parse_news, _parse_quote
 from app.services.market_overview_builder import _arms_index
 
 
@@ -24,6 +24,18 @@ def test_parse_quote_reports_unavailable_without_filling_zero():
     assert row["status"] == "unavailable"
     assert row["last"] is None
     assert row["change_pct"] is None
+
+
+def test_parse_news_keeps_public_source_and_does_not_invent_bias():
+    rows = _parse_news({"news": [{
+        "title": "Markets react to new data",
+        "link": "https://example.com/news/1",
+        "publisher": "Example News",
+        "providerPublishTime": 2,
+    }]}, "S&P 500 stock market")
+    assert rows[0]["source"] == "Example News"
+    assert rows[0]["bias"] == "待判断"
+    assert rows[0]["published_at"] == "1970-01-01T00:00:02+00:00"
 
 
 def test_arms_index_uses_real_volume_and_is_not_zero_filled():
