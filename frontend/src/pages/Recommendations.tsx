@@ -7,7 +7,7 @@ const MYAGENT_ROOT = '/quant/api/myagent'
 type Candidate = { symbol: string; name: string; sector?: string; price?: number; pct?: number; score?: number; priority?: string; entry_status?: string; pattern?: string; volume_multiple?: number; max_turnover?: number; latest_date?: string; quote_source?: string; reasons?: string[]; opposing_evidence?: string[] }
 type HoldingLink = { symbol?: string; name?: string; sector?: string; quantity?: number; cost?: number }
 type WatchLink = { symbol?: string; name?: string; sector?: string }
-type PoolLink = { name?: string; status?: string; config?: { symbols?: unknown } }
+type PoolLink = { symbol?: string; name?: string; theme?: string; status?: string; config?: { symbols?: unknown } }
 type LotLink = { symbol?: string; qty?: number; cost_price?: number }
 type TickflowStatus = { connected?: boolean; source?: string; message?: string }
 type AIStatus = { api_key_configured?: boolean; model?: string; providers?: Array<{ label?: string; configured?: boolean }> }
@@ -54,7 +54,7 @@ export function Recommendations() {
   const [watchlist, setWatchlist] = useState<WatchLink[]>([])
   const [researchPools, setResearchPools] = useState<PoolLink[]>([])
   const [lots, setLots] = useState<LotLink[]>([])
-  const [linkNotice, setLinkNotice] = useState('正在读取持仓、自选、持仓提醒与研究候选池…')
+  const [linkNotice, setLinkNotice] = useState('正在读取持仓、自选、持仓提醒与研究股票池…')
   const [tickflowStatus, setTickflowStatus] = useState<TickflowStatus | null>(null)
   const [aiStatus, setAiStatus] = useState<AIStatus | null>(null)
   const [legacySummary, setLegacySummary] = useState<LegacySummary | null>(null)
@@ -82,7 +82,7 @@ export function Recommendations() {
       const [holdingResult, watchResult, poolResult, lotResult] = await Promise.allSettled([
         fetch(`${API}/holdings`, { credentials: 'include' }).then(async response => { const body = await response.json() as { items?: HoldingLink[]; detail?: string }; if (!response.ok) throw new Error(body.detail || '持仓读取失败'); return body.items || [] }),
         fetch('/api/watchlist', { credentials: 'include' }).then(async response => { const body = await response.json() as { symbols?: WatchLink[]; detail?: string }; if (!response.ok) throw new Error(body.detail || '自选读取失败'); return body.symbols || [] }),
-        fetch('/api/backtest/candidates', { credentials: 'include' }).then(async response => { const body = await response.json() as { items?: PoolLink[]; detail?: string }; if (!response.ok) throw new Error(body.detail || '研究候选池读取失败'); return body.items || [] }),
+        fetch(`${API}/research-pool`, { credentials: 'include' }).then(async response => { const body = await response.json() as { items?: PoolLink[]; detail?: string }; if (!response.ok) throw new Error(body.detail || '研究股票池读取失败'); return body.items || [] }),
         fetch('/api/lots', { credentials: 'include' }).then(async response => { const body = await response.json() as { lots?: LotLink[]; detail?: string }; if (!response.ok) throw new Error(body.detail || '持仓提醒读取失败'); return body.lots || [] }),
       ])
       if (disposed) return
@@ -91,7 +91,7 @@ export function Recommendations() {
       const poolItems = poolResult.status === 'fulfilled' ? poolResult.value : []
       const lotItems = lotResult.status === 'fulfilled' ? lotResult.value : []
       setHoldings(holdingItems); setWatchlist(watchItems); setResearchPools(poolItems); setLots(lotItems)
-      const notices = [holdingResult.status === 'fulfilled' ? `持仓 ${holdingItems.length} 条` : '持仓不可用', lotResult.status === 'fulfilled' ? `提醒批次 ${lotItems.length} 条` : '提醒批次不可用', watchResult.status === 'fulfilled' ? `自选 ${watchItems.length} 条` : '自选不可用', poolResult.status === 'fulfilled' ? `研究候选池 ${poolItems.length} 条` : '研究候选池不可用']
+      const notices = [holdingResult.status === 'fulfilled' ? `持仓 ${holdingItems.length} 条` : '持仓不可用', lotResult.status === 'fulfilled' ? `提醒批次 ${lotItems.length} 条` : '提醒批次不可用', watchResult.status === 'fulfilled' ? `自选 ${watchItems.length} 条` : '自选不可用', poolResult.status === 'fulfilled' ? `研究股票池 ${poolItems.length} 条` : '研究股票池不可用']
       setLinkNotice(notices.join(' · '))
     }
     void loadLinks()
@@ -141,7 +141,7 @@ export function Recommendations() {
     const watchMatches = watchlist.filter(row => normalizeCode(row.symbol) === code)
     const sector = String(item.sector || '').trim()
     const sectorMatches = sector ? holdings.filter(row => String(row.sector || '').trim() === sector) : []
-    const poolMatches = researchPools.filter(pool => Array.isArray(pool.config?.symbols) && (pool.config?.symbols as unknown[]).some(symbol => normalizeCode(String(symbol)) === code))
+    const poolMatches = researchPools.filter(pool => normalizeCode(pool.symbol) === code || (Array.isArray(pool.config?.symbols) && (pool.config?.symbols as unknown[]).some(symbol => normalizeCode(String(symbol)) === code)))
     const lotMatches = lots.filter(row => normalizeCode(row.symbol) === code)
     return { holdingMatches, watchMatches, sectorMatches, poolMatches, lotMatches }
   }
@@ -318,7 +318,7 @@ export function Recommendations() {
   return <div className="h-full overflow-auto bg-base p-3 text-foreground">
     <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-card border border-border bg-surface p-3">
       <div><div className="flex items-center gap-2 text-sm font-semibold"><Target className="h-4 w-4 text-accent" />今日推荐 · 规则候选</div><p className="mt-1 text-[11px] text-muted">最多展示 5 只。它是可追溯的研究候选，不是几分钟后或全天必然走势，也不会自动下单。</p></div>
-      <div className="flex items-center gap-2"><Link to="/pick-model" className="rounded-btn border border-border px-3 py-2 text-xs text-accent hover:bg-elevated">拾贝对照</Link><button type="button" onClick={scan} disabled={loading} className="inline-flex items-center gap-1 rounded-btn bg-accent px-3 py-2 text-xs text-white disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />{loading ? '扫描中…' : '生成今日候选'}</button></div>
+      <div className="flex items-center gap-2"><Link to="/research-pool" className="rounded-btn border border-border px-3 py-2 text-xs text-accent hover:bg-elevated">我的股票池</Link><Link to="/pick-model" className="rounded-btn border border-border px-3 py-2 text-xs text-accent hover:bg-elevated">拾贝对照</Link><button type="button" onClick={scan} disabled={loading} className="inline-flex items-center gap-1 rounded-btn bg-accent px-3 py-2 text-xs text-white disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />{loading ? '扫描中…' : '生成今日候选'}</button></div>
     </div>
     <div className={`mb-3 flex flex-wrap items-center gap-2 rounded-card border p-2 text-[11px] ${tickflowStatus?.connected ? 'border-success/30 bg-success/5 text-success' : 'border-warning/40 bg-warning/5 text-warning'}`}><span><b>行情能力：</b>{tickflowStatus?.connected ? `TickFlow 已连接${tickflowStatus.source ? ` · ${tickflowStatus.source}` : ''}` : (tickflowStatus?.message || 'TickFlow 未连接，实时/分钟数据不可用；页面不会用模拟数据补足。')}</span>{!tickflowStatus?.connected && <Link to="/settings?tab=data-sources" className="rounded border border-warning/50 px-2 py-1 text-warning underline-offset-2 hover:underline">前往配置 TickFlow</Link>}</div>
     <div className={`mb-3 flex flex-wrap items-center gap-2 rounded-card border p-2 text-[11px] ${aiStatus?.api_key_configured ? 'border-accent/30 bg-accent/5 text-accent' : 'border-border bg-surface text-muted'}`}><span><b>AI复核：</b>{aiStatus?.api_key_configured ? `已配置${aiStatus.model ? ` · ${aiStatus.model}` : ''}` : '未配置，规则引擎仍可运行；AI复核按钮会保持不可用提示。'}</span>{!aiStatus?.api_key_configured && <Link to="/settings?tab=ai" className="rounded border border-accent/50 px-2 py-1 text-accent underline-offset-2 hover:underline">前往配置 AI</Link>}</div>

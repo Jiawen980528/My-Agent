@@ -81,6 +81,19 @@ def init_db():
             note TEXT NOT NULL DEFAULT '',
             updated_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS quant_research_pool(
+            symbol TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            theme TEXT NOT NULL DEFAULT '',
+            sub_theme TEXT NOT NULL DEFAULT '',
+            role TEXT NOT NULL DEFAULT '观察',
+            logic TEXT NOT NULL DEFAULT '',
+            evidence_source TEXT NOT NULL DEFAULT '',
+            focus_level TEXT NOT NULL DEFAULT '普通',
+            added_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_quant_research_pool_theme ON quant_research_pool(theme, sub_theme);
         CREATE TABLE IF NOT EXISTS quant_news_items(
             url TEXT PRIMARY KEY,
             title TEXT NOT NULL,
@@ -133,6 +146,7 @@ def init_db():
         if "recommendation_slot" not in columns:
             c.execute("ALTER TABLE quant_recommendation_snapshots ADD COLUMN recommendation_slot TEXT NOT NULL DEFAULT '未标注'")
         c.execute("INSERT OR IGNORE INTO schema_migrations VALUES(3,?)", (utc_now(),))
+        c.execute("INSERT OR IGNORE INTO schema_migrations VALUES(4,?)", (utc_now(),))
 
 def log_event(level,event,details="",task_id=None,actor="system"):
     with session() as c: c.execute("INSERT INTO audit_logs(level,event,details,task_id,actor,created_at) VALUES(?,?,?,?,?,?)",(level,event,str(details)[:4000],task_id,actor,utc_now()))
@@ -261,6 +275,30 @@ def list_quant_holdings():
 
 def delete_quant_holding(symbol):
     with session() as c: return c.execute("DELETE FROM quant_holdings WHERE symbol=?",(symbol,)).rowcount==1
+
+def upsert_quant_research_pool(symbol, name, theme="", sub_theme="", role="观察", logic="", evidence_source="", focus_level="普通"):
+    now = utc_now()
+    with session() as c:
+        c.execute("""INSERT INTO quant_research_pool(symbol,name,theme,sub_theme,role,logic,evidence_source,focus_level,added_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(symbol) DO UPDATE SET name=excluded.name,theme=excluded.theme,
+        sub_theme=excluded.sub_theme,role=excluded.role,logic=excluded.logic,evidence_source=excluded.evidence_source,
+        focus_level=excluded.focus_level,updated_at=excluded.updated_at""",
+        (symbol, name, theme, sub_theme, role, logic, evidence_source, focus_level, now, now))
+
+def list_quant_research_pool(query=""):
+    q = str(query or "").strip()[:80]
+    with session() as c:
+        if q:
+            rows = c.execute("""SELECT * FROM quant_research_pool
+                WHERE symbol LIKE ? OR name LIKE ? OR theme LIKE ? OR sub_theme LIKE ?
+                ORDER BY focus_level DESC, updated_at DESC""", (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")).fetchall()
+        else:
+            rows = c.execute("SELECT * FROM quant_research_pool ORDER BY focus_level DESC, updated_at DESC").fetchall()
+        return [dict(row) for row in rows]
+
+def delete_quant_research_pool(symbol):
+    with session() as c:
+        return c.execute("DELETE FROM quant_research_pool WHERE symbol=?", (symbol,)).rowcount == 1
 
 def save_sentiment_snapshot(payload):
     trade_date=str(payload.get("trade_date") or "")[:10]

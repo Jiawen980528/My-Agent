@@ -135,6 +135,16 @@ class QuantHoldingUpdate(BaseModel):
     sector: str = Field(default="", max_length=60)
     source: str = Field(default="manual", pattern=r"^(manual|screenshot|qmt)$")
 
+class QuantResearchPoolItem(BaseModel):
+    symbol: str = Field(pattern=r"^\d{6}$")
+    name: str = Field(min_length=1, max_length=80)
+    theme: str = Field(default="", max_length=120)
+    sub_theme: str = Field(default="", max_length=120)
+    role: str = Field(default="观察", pattern=r"^(龙头|跟随|观察)$")
+    logic: str = Field(default="", max_length=1000)
+    evidence_source: str = Field(default="", max_length=500)
+    focus_level: str = Field(default="普通", pattern=r"^(重点|普通|暂缓)$")
+
 class QuantTradeUpdate(BaseModel):
     trade_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     trade_time: str = Field(pattern=r"^\d{2}:\d{2}$")
@@ -853,6 +863,23 @@ def quant_recommendation_snapshot(req: QuantRecommendationSnapshotRequest):
     )
     db.log_event("INFO", "quant_recommendation_snapshot", f"id={snapshot_id}, count={len(req.symbols)}", actor="admin")
     return {"ok": True, "id": snapshot_id, "status": "待复盘"}
+
+@app.get("/api/quant/research-pool", dependencies=[Depends(require_auth)])
+def quant_research_pool(query: str = ""):
+    return {"items": db.list_quant_research_pool(query)}
+
+@app.put("/api/quant/research-pool", dependencies=[Depends(require_auth)])
+def quant_research_pool_upsert(req: QuantResearchPoolItem):
+    db.upsert_quant_research_pool(**req.model_dump())
+    return {"ok": True, "item": next((x for x in db.list_quant_research_pool(req.symbol) if x["symbol"] == req.symbol), None)}
+
+@app.delete("/api/quant/research-pool/{symbol}", dependencies=[Depends(require_auth)])
+def quant_research_pool_delete(symbol: str):
+    if not re.fullmatch(r"\d{6}", symbol):
+        raise HTTPException(status_code=400, detail="股票代码格式不正确")
+    if not db.delete_quant_research_pool(symbol):
+        raise HTTPException(status_code=404, detail="股票池中不存在该标的")
+    return {"ok": True, "symbol": symbol}
 
 @app.get("/api/quant/recommendation-snapshots", dependencies=[Depends(require_auth)])
 def quant_recommendation_snapshots(limit: int = 50):
