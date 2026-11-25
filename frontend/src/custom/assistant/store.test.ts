@@ -10,6 +10,9 @@ beforeEach(() => {
   vi.resetModules()
   vi.useFakeTimers()
   localStorage.clear()
+  // 本文件验证 TickFlow 的 NDJSON 工具事件；显式切到对应模式，避免
+  // 默认的 MyAgent JSON 接口与本测试的流式响应夹具混用。
+  localStorage.setItem('tf-assistant-mode', 'tickflow')
   requests = []
   replies = []
   vi.stubGlobal('fetch', vi.fn(async (url, init) => {
