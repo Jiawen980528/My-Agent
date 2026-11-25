@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from threading import Lock
 
@@ -60,14 +61,21 @@ def _fetch() -> dict:
     errors: list[str] = []
     started = time.monotonic()
     url = "https://query1.finance.yahoo.com/v8/finance/chart/"
-    # 逐个请求，避免部分 Yahoo 部署不支持多标的 chart 查询时整批失败。
-    for symbol, name in _SYMBOLS:
-        try:
-            one = httpx.get(f"{url}{symbol}", params={"range": "5d", "interval": "1d"}, timeout=8.0, headers={"User-Agent": "MyAgent/1.0"})
-            one.raise_for_status()
-            rows.append(_parse_quote(symbol, name, one.json()))
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"{symbol}: {type(exc).__name__}")
+    def fetch_one(symbol: str, name: str) -> dict:
+        one = httpx.get(f"{url}{symbol}", params={"range": "5d", "interval": "1d"}, timeout=8.0, headers={"User-Agent": "MyAgent/1.0"})
+        one.raise_for_status()
+        return _parse_quote(symbol, name, one.json())
+
+    # 并行请求，任何单个公共源失败都不影响其它标的返回；总等待时间由单项超时控制。
+    with ThreadPoolExecutor(max_workers=len(_SYMBOLS), thread_name_prefix="external-market") as pool:
+        futures = {pool.submit(fetch_one, symbol, name): symbol for symbol, name in _SYMBOLS}
+        for future in as_completed(futures):
+            symbol = futures[future]
+            try:
+                rows.append(future.result())
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{symbol}: {type(exc).__name__}")
+    rows.sort(key=lambda row: next(i for i, (symbol, _) in enumerate(_SYMBOLS) if symbol == row["symbol"]))
     return {
         "status": "ok" if any(row["status"] == "ok" for row in rows) else "unavailable",
         "rows": rows,
