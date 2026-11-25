@@ -782,7 +782,14 @@ export function PortfolioMonitorWidget() {
     enabled: !!tradeHistory.data?.trades.length, staleTime: 5 * 60_000 })
   const [visible, setVisible] = useState(loadVisible)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
-  const [listMode, setListMode] = useState<'all' | 'recorded'>('all')
+  // 默认只围绕用户已确认的真实/手工持仓给出操作建议。
+  // 额外监控标的仍保留在“全部监控”中，但不能因为用户临时搜索/添加了标的，
+  // 就自动混入个人持仓的 AI 复核和买卖/T 提醒。
+  const [listMode, setListMode] = useState<'all' | 'recorded'>(() => {
+    try {
+      return localStorage.getItem('portfolio-terminal-list-mode') === 'all' ? 'all' : 'recorded'
+    } catch { return 'recorded' }
+  })
   useEffect(() => {
     if (!menu) return
     const close = () => setMenu(null)
@@ -797,6 +804,10 @@ export function PortfolioMonitorWidget() {
     setMenu(null)
   }
   const shown = listMode === 'recorded' ? allItems.filter(item => item.holding_source) : allItems
+  const chooseListMode = (mode: 'all' | 'recorded') => {
+    setListMode(mode)
+    setUiPref('portfolio-terminal-list-mode', JSON.stringify(mode))
+  }
   const freshnessRows = Object.values(minute.data?.freshness || {})
   const latestFreshness = freshnessRows.find(row => row.market_time) || freshnessRows[0]
   const qualityRows = Object.values(minute.data?.quality || {})
@@ -923,7 +934,7 @@ export function PortfolioMonitorWidget() {
       style={layoutMode === 'side' ? { '--portfolio-left': `${paneWidths.left}px`, '--portfolio-right': `${paneWidths.right}px` } as React.CSSProperties : undefined}>
       {layoutMode === 'strip' && <div className="flex gap-1 overflow-x-auto rounded border border-border bg-base/50 p-1">{shown.map(item => <button key={item.symbol} type="button" onClick={() => { setSelected(item.symbol); setSelectedBoard('') }} className={`min-w-44 rounded border border-border px-2 py-1 text-left hover:bg-elevated ${active?.symbol === item.symbol ? 'bg-accent/15' : ''}`}><div className="flex justify-between gap-1 text-xs"><b className="truncate">{item.name}</b><span className={Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}>{pct(item.change_pct)}</span></div><div className="text-[10px] text-muted">{item.symbol} · {price(item.price)}</div></button>)}</div>}
       {layoutMode === 'side' && <aside className="min-w-0 rounded border border-border bg-base/50 p-1">
-        <div className="flex gap-1 border-b border-border p-1 text-[11px]"><button type="button" onClick={() => setListMode('all')} className={listMode === 'all' ? 'text-accent' : 'text-muted'}>全部监控 {allItems.length}</button><button type="button" onClick={() => setListMode('recorded')} className={listMode === 'recorded' ? 'text-accent' : 'text-muted'}>已录持仓 {items.filter(x => x.holding_source).length}</button></div>
+        <div className="flex gap-1 border-b border-border p-1 text-[11px]"><button type="button" onClick={() => chooseListMode('recorded')} className={listMode === 'recorded' ? 'text-accent' : 'text-muted'}>已录持仓 {items.filter(x => x.holding_source).length}</button><button type="button" onClick={() => chooseListMode('all')} className={listMode === 'all' ? 'text-accent' : 'text-muted'}>全部监控 {allItems.length}</button></div>
         <div className="max-h-[650px] overflow-auto">{shown.map(item => <button key={item.symbol} type="button" onClick={() => { setSelected(item.symbol); setSelectedBoard('') }}
           className={`block w-full border-b border-border/50 px-1.5 py-1 text-left hover:bg-elevated ${active?.symbol === item.symbol ? 'bg-accent/15' : ''}`}>
           <span className="flex justify-between gap-1 text-xs"><b className="truncate">{item.name}</b><span className={Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}>{pct(item.change_pct)}</span></span>
