@@ -177,7 +177,13 @@ export function Recommendations() {
       const response = await fetch(`${API}/recommendation-snapshots/${snapshot.id}/review`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ observations, note: '使用复盘时刻真实行情记录表现；未将表现直接解释为策略命中率。' }) })
       const body = await response.json() as { detail?: string }
       if (!response.ok) throw new Error(body.detail || `复盘保存失败 ${response.status}`)
-      setSnapshots(current => current.map(item => item.id === snapshot.id ? { ...item, status: '已复盘' } : item))
+      // The review response is intentionally compact. Reload the authoritative
+      // snapshot list so observed returns and the aggregate success-rate panel
+      // cannot remain stale after a successful review.
+      const refreshed = await fetch(`${API}/recommendation-snapshots?limit=20`, { credentials: 'include' })
+      const list = await refreshed.json() as { items?: Snapshot[]; detail?: string }
+      if (!refreshed.ok) throw new Error(list.detail || `复盘结果读取失败 ${refreshed.status}`)
+      setSnapshots(list.items || [])
     } catch (cause) { setError(cause instanceof Error ? cause.message : '推荐复盘失败') }
   }
   const askAI = async (item: Candidate) => {
