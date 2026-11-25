@@ -15,7 +15,7 @@ type NewsItem = { title: string; url: string; source: string; published_at?: str
   bias: '可能利好' | '可能利空' | '待判断'; bias_reason: string; sector_names: string[] }
 type NewsFeed = { items: NewsItem[]; fetched_at: string; source: string; status: string; notice: string }
 type MinuteBatch = { data: Record<string, MinuteKlineRow[]>; source?: string; freshness?: Record<string, { market_time?: string | null; stale?: boolean }> }
-type RecommendationSnapshot = { id: number; period: string; status: '待复盘' | '已复盘'; generated_at: string; valid_until: string; symbols: string[]; data_source?: string }
+type RecommendationSnapshot = { id: number; period: string; status: '待复盘' | '已复盘'; generated_at: string; valid_until: string; symbols: string[]; data_source?: string; review?: { observations?: Array<{ observed_return_pct?: number | null }> } | null }
 type AIConfig = { api_key_configured?: boolean; model?: string }
 type LegacySummary = { available?: boolean; label?: string; recommendations?: { records?: number; paper_status?: Record<string, number> }; reviews?: { days?: number }; research_pool?: { items?: number }; ai_reports?: { count?: number }; warnings?: string[] }
 
@@ -194,9 +194,14 @@ export function RecommendationWidget() {
   })
   const items = snapshots.data?.items || []
   const pending = items.filter(item => item.status === '待复盘')
+  const reviewedValues = items.flatMap(item => item.status === '已复盘' ? (item.review?.observations || []) : [])
+    .map(item => Number(item.observed_return_pct)).filter(Number.isFinite)
+  const reviewedPositive = reviewedValues.filter(value => value > 0).length
+  const reviewedRate = reviewedValues.length ? reviewedPositive / reviewedValues.length * 100 : null
+  const reviewedAverage = reviewedValues.length ? reviewedValues.reduce((sum, value) => sum + value, 0) / reviewedValues.length : null
   return <section className="h-full overflow-auto rounded-card border border-border bg-surface p-3 text-foreground">
     <div className="flex items-center justify-between gap-2"><div><h2 className="text-xs font-semibold">今日推荐 / 预测复盘</h2><p className="mt-0.5 text-[10px] text-muted">规则候选 · 只读研究 · 约 30 秒刷新</p></div><Link to="/recommendations" className="text-[11px] text-accent hover:underline">打开完整页</Link></div>
-    <div className="mt-2 flex flex-wrap gap-2 text-[10px]"><span className="rounded bg-accent/10 px-2 py-1 text-accent">待复盘 {pending.length}</span><span className="rounded bg-elevated px-2 py-1 text-muted">已记录 {items.length}</span><span className={`rounded px-2 py-1 ${ai.data?.api_key_configured ? 'bg-accent/10 text-accent' : 'bg-warning/10 text-warning'}`}>AI {ai.data?.api_key_configured ? '可用' : '未配置'}</span></div>
+    <div className="mt-2 flex flex-wrap gap-2 text-[10px]"><span className="rounded bg-accent/10 px-2 py-1 text-accent">待复盘 {pending.length}</span><span className="rounded bg-elevated px-2 py-1 text-muted">已记录 {items.length}</span><span className={`rounded px-2 py-1 ${ai.data?.api_key_configured ? 'bg-accent/10 text-accent' : 'bg-warning/10 text-warning'}`}>AI {ai.data?.api_key_configured ? '可用' : '未配置'}</span>{reviewedRate != null && <span className="rounded bg-elevated px-2 py-1 text-secondary">真实观察上涨率 {reviewedRate.toFixed(1)}%（{reviewedPositive}/{reviewedValues.length}）{reviewedAverage != null ? ` · 均值 ${reviewedAverage >= 0 ? '+' : ''}${reviewedAverage.toFixed(2)}%` : ''}</span>}</div>
     {snapshots.isLoading && <p className="mt-3 text-xs text-muted">读取推荐记录…</p>}
     {snapshots.error && <p className="mt-3 text-xs text-danger">推荐记录暂不可用：{(snapshots.error as Error).message}</p>}
     {legacy.data?.available && <div className="mt-2 rounded border border-warning/30 bg-warning/5 p-2 text-[10px]"><div className="flex items-center justify-between gap-2"><b className="text-warning">{legacy.data.label || '历史归档（只读）'}</b><span className="text-muted">不启用旧模拟逻辑</span></div><div className="mt-1 text-muted">历史推荐 {legacy.data.recommendations?.records ?? 0} 条 · 模拟触发 {legacy.data.recommendations?.paper_status?.submitted ?? 0} 次 · 复盘 {legacy.data.reviews?.days ?? 0} 天 · 研究池 {legacy.data.research_pool?.items ?? 0} 条</div>{legacy.data.warnings?.some(item => item.includes('异常口径')) && <div className="mt-1 text-warning">⚠ 历史复盘成功率口径异常，当前仅作参考</div>}</div>}
