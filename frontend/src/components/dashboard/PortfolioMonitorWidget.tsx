@@ -42,6 +42,7 @@ type MarketOverviewBrief = {
 type BoardMemberQuote = { price?: number | null; change_pct?: number | null; signal_limit_up?: boolean; signal_broken_limit_up?: boolean }
 type BoardMemberQuotes = { items?: { symbol: string; name: string; labels?: string[] }[]; quotes?: Record<string, BoardMemberQuote>; quote_source?: string; notice?: string }
 type TickFlowStatus = { connected?: boolean; source?: string | null; as_of?: string | null; message?: string | null }
+type StrictDecision = { action: string; rating: string; reasons?: string[]; basis?: string[]; suggested_qty?: number; max_risk_yuan?: number; trigger_price?: number | null; invalidation_price?: number | null; account_verified?: boolean; account_source?: string; valid_until?: string; evidence?: { context_missing?: string[] } }
 type Replay = { actual_vs_no_trade: string; realised_t_pnl: string; extra_position_effect: string;
   max_drawdown_yuan: string; max_drawdown_pct_of_snapshot_assets: string | null; hindsight_optimal_pnl: string;
   hindsight_quantity: number | null;
@@ -530,7 +531,7 @@ function HoldingOverviewCard({ item, rows, source, day, onSelect }: {
   </div>
 }
 
-function DecisionGuidePanel({ items, minuteData, source, aiText, aiBusy, onAiReview }: { items: Holding[]; minuteData: Record<string, Bar[]>; source?: string; aiText?: string; aiBusy: boolean; onAiReview: () => void }) {
+function DecisionGuidePanel({ items, day, minuteData, source, aiText, aiBusy, onAiReview }: { items: Holding[]; day: string; minuteData: Record<string, Bar[]>; source?: string; aiText?: string; aiBusy: boolean; onAiReview: () => void }) {
   const guides = items.map(item => {
     const rows = minuteData[item.symbol] || []
     const closes = rows.map(row => Number(row.close)).filter(Number.isFinite)
@@ -562,6 +563,49 @@ function DecisionGuidePanel({ items, minuteData, source, aiText, aiBusy, onAiRev
           : '等待多周期和板块同步确认，暂无强制操作'
     return { item, last, change, support, resistance, rangeWidth, trend, action, advice, pullbackPct, time: rows.at(-1)?.datetime }
   })
+  const strictDecisions = useQuery({
+    queryKey: ['portfolio-strict-decisions', day, items.map(item => item.symbol).join(','), guides.map(row => row.time).join(',')],
+    queryFn: async () => {
+      const get = async <T,>(url: string): Promise<T | null> => { try { return await json<T>(url) } catch { return null } }
+      const [market, forecast, snapshot, history] = await Promise.all([
+        get<{ breadth?: { up?: number; down?: number; flat?: number; avg_pct?: number | null } }>('/quant/api/overview/market'),
+        get<Record<string, unknown>>(`/quant/api/myagent/market-volume-forecast?trade_date=${day}`),
+        get<{ account?: Record<string, unknown>; account_source?: string; account_verified?: boolean; available_cash?: number; day_risk_used?: number }>(`${API}/portfolio/snapshot`),
+        get<{ trades?: unknown[] }>(`${API}/terminal/history?trade_date=${day}`),
+      ])
+      const periodSummary = (values: number[]) => values.length >= 2 ? { observations: values.length, trend: values.at(-1)! > values[0] ? 'up' : values.at(-1)! < values[0] ? 'down' : 'flat', first: values[0], last: values.at(-1) } : null
+      const result: Record<string, StrictDecision | null> = {}
+      await Promise.all(items.map(async item => {
+        const rows = minuteData[item.symbol] || []
+        const closes = rows.map(row => Number(row.close)).filter(Number.isFinite)
+        const localGuide = guides.find(row => row.item.symbol === item.symbol)
+        const board = await get<{ rows?: { close?: number }[]; board?: { name?: string; code?: string } }>(`${API}/portfolio/board/${encodeURIComponent(item.symbol)}?trade_date=${day}`)
+        const boardRows = board?.rows || []
+        const boardFirst = Number(boardRows[0]?.close), boardLast = Number(boardRows.at(-1)?.close)
+        const boardPct = Number.isFinite(boardFirst) && boardFirst > 0 && Number.isFinite(boardLast) ? (boardLast / boardFirst - 1) * 100 : null
+        const daily = await get<{ rows?: { close?: number }[] }>(`/quant/api/kline/daily?symbol=${encodeURIComponent(item.symbol)}&days=60`)
+        const dailyValues = (daily?.rows || []).map(row => Number(row.close)).filter(Number.isFinite)
+        const bucket = (minutes: number) => { const map = new Map<number, number>(); rows.forEach(row => { const match = String(row.datetime).match(/(\d{2}):(\d{2})/); if (match) map.set(Math.floor((Number(match[1]) * 60 + Number(match[2])) / minutes), Number(row.close)) }); return [...map.values()] }
+        const body = {
+          strict_context: true,
+          freshness: { market_time: rows.at(-1)?.datetime || null, stale: !rows.length },
+          quote: { price: closes.at(-1) ?? item.price, support: localGuide?.support, resistance: localGuide?.resistance },
+          market: { pct: market?.breadth?.avg_pct ?? null, turnover_ratio: forecast?.status === 'ok' && Number(forecast.forecast_amount) > 0 ? Number(forecast.current_cumulative_amount || 0) / Number(forecast.forecast_amount) : null },
+          board: boardPct == null ? {} : { pct: boardPct, name: board?.board?.name, code: board?.board?.code },
+          market_breadth: market?.breadth ? { up_count: market.breadth.up, down_count: market.breadth.down, flat_count: market.breadth.flat } : {},
+          defensive: {},
+          multi_period: { daily: periodSummary(dailyValues), minute_60: periodSummary(bucket(60)), minute_15: periodSummary(bucket(15)), minute_5: periodSummary(bucket(5)) },
+          account: snapshot?.account || { source: snapshot?.account_source || 'unavailable', verified: snapshot?.account_verified === true, available_cash: snapshot?.available_cash, day_risk_used: snapshot?.day_risk_used },
+          trades_today: history?.trades || [], turnover_forecast: forecast || {}, risk_budget: 5000,
+        }
+        try { const response = await fetch('/quant/api/myagent/decision/assist', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); result[item.symbol] = await response.json() as StrictDecision } catch { result[item.symbol] = null }
+      }))
+      return result
+    },
+    enabled: items.length > 0 && !!day,
+    refetchInterval: () => tradingNow() ? 30_000 : false,
+    staleTime: 20_000,
+  })
   const activeGuide = guides.find(row => /做T|冲高回落|接近支撑|接近压力/.test(row.action))
   const reminder = activeGuide
     ? `${activeGuide.item.name}：${activeGuide.action}`
@@ -577,7 +621,8 @@ function DecisionGuidePanel({ items, minuteData, source, aiText, aiBusy, onAiRev
       <div className="flex justify-between gap-1"><b className="truncate">{row.item.name}</b><span className={row.action.includes('持有') ? 'text-bull' : row.action.includes('暂') || row.action.includes('压力') ? 'text-warning' : 'text-accent'}>{row.action}</span></div>
       <div className="mt-0.5 flex justify-between text-[10px] text-muted"><span>{row.item.symbol} · {row.trend} · {row.change == null ? '—' : pct(row.change)}</span><span>最新 {row.last == null ? price(row.item.price) : price(row.last)}</span></div>
       <div className="mt-0.5 grid grid-cols-3 gap-1 text-[10px] text-muted"><span>支撑 {row.support == null ? '—' : price(row.support)}</span><span>压力 {row.resistance == null ? '—' : price(row.resistance)}</span><span>区间 {row.rangeWidth == null ? '—' : `${row.rangeWidth.toFixed(2)}%`}</span></div>
-      <div className="mt-1 rounded bg-elevated/60 px-1.5 py-1 text-[10px] leading-relaxed text-secondary"><b className="text-foreground">怎么做：</b>{row.advice}{row.pullbackPct != null && <span className="ml-1 text-muted">（距近端高点 {row.pullbackPct.toFixed(2)}%）</span>}</div>
+      <div className="mt-1 rounded bg-elevated/60 px-1.5 py-1 text-[10px] leading-relaxed text-secondary"><b className="text-foreground">技术观察：</b>{row.advice}{row.pullbackPct != null && <span className="ml-1 text-muted">（距近端高点 {row.pullbackPct.toFixed(2)}%）</span>}</div>
+      {(() => { const decision = strictDecisions.data?.[row.item.symbol]; return <div className="mt-1 rounded border border-warning/30 bg-warning/5 px-1.5 py-1 text-[10px] leading-relaxed"><div className="flex flex-wrap items-center justify-between gap-1"><b>严格决策：{decision?.rating || (strictDecisions.isLoading ? '计算中' : '不可用')}</b><span>{decision?.action || 'WAIT'} · 有效至 {decision?.valid_until?.slice(11, 16) || '—'}</span></div><div className="mt-0.5">{decision?.reasons?.join('；') || (strictDecisions.isError ? '决策接口暂不可用' : '等待真实市场、板块、量能和账户上下文')}</div>{decision?.evidence?.context_missing?.length ? <div className="mt-0.5 text-muted">缺少：{decision.evidence.context_missing.join('、')}</div> : null}<div className="mt-0.5 text-muted">建议数量 {decision?.suggested_qty ?? 0} · 最大风险 ¥{Number(decision?.max_risk_yuan || 0).toFixed(2)} · 仅研究，不自动下单</div></div> })()}
     </div>)}</div>
     {aiText && <div className="mt-1 rounded border border-accent/30 bg-accent/5 px-1.5 py-1 text-[10px] leading-relaxed text-secondary"><b className="text-accent">AI复核：</b>{aiText}</div>}
     <p className="mt-1 text-[10px] text-muted">数据源 {source || '—'} · 更新时间 {guides.map(row => row.time).filter(Boolean).sort().at(-1) || '—'} · 仅供研究，不自动下单。</p>
@@ -845,7 +890,7 @@ export function PortfolioMonitorWidget() {
         : <p className="p-4 text-xs text-muted">暂无监控标的</p>}
       {layoutMode === 'side' && <div role="separator" aria-label="拖动调整策略栏宽度" aria-orientation="vertical" title="拖动调整策略栏宽度"
         onPointerDown={event => resizePane('right', event)} className="portfolio-split-handle cursor-ew-resize touch-none bg-border/60 hover:bg-accent active:bg-accent" />}
-      {layoutMode === 'side' && <DecisionGuidePanel items={shown} minuteData={usableMinuteData} source={minute.data?.source} aiText={aiText} aiBusy={aiBusy} onAiReview={runAiReview} />}
+      {layoutMode === 'side' && <DecisionGuidePanel items={shown} day={latestDay} minuteData={usableMinuteData} source={minute.data?.source} aiText={aiText} aiBusy={aiBusy} onAiReview={runAiReview} />}
     </div>}</>}
     <section className="mt-2 rounded border border-border bg-base/50 p-2 text-xs">
       <div className="flex justify-between gap-2"><b>{day} 操作时间线 · {tradeHistory.data?.trades.length ?? 0} 笔</b><span className="text-muted">用户提供/手工记录，非券商实时成交</span></div>
