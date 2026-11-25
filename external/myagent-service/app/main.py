@@ -5,6 +5,11 @@ import threading
 import time
 import uuid
 import re
+import base64
+import csv
+import io
+import zipfile
+import xml.etree.ElementTree as ET
 import urllib.request
 import urllib.error
 import httpx
@@ -144,6 +149,10 @@ class QuantResearchPoolItem(BaseModel):
     logic: str = Field(default="", max_length=1000)
     evidence_source: str = Field(default="", max_length=500)
     focus_level: str = Field(default="普通", pattern=r"^(重点|普通|暂缓)$")
+
+class QuantResearchPoolImportRequest(BaseModel):
+    filename: str = Field(min_length=1, max_length=240)
+    content_base64: str = Field(min_length=1, max_length=15_000_000)
 
 class QuantTradeUpdate(BaseModel):
     trade_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
@@ -872,6 +881,98 @@ def quant_research_pool(query: str = ""):
 def quant_research_pool_upsert(req: QuantResearchPoolItem):
     db.upsert_quant_research_pool(**req.model_dump())
     return {"ok": True, "item": next((x for x in db.list_quant_research_pool(req.symbol) if x["symbol"] == req.symbol), None)}
+
+def _research_header(value: str) -> str:
+    return re.sub(r"[\\s_\\-（）()：:]+", "", str(value or "").strip().lower())
+
+def _research_rows_from_xlsx(raw: bytes) -> list[list[str]]:
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main", "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships"}
+    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+        shared: list[str] = []
+        if "xl/sharedStrings.xml" in archive.namelist():
+            root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+            shared = ["".join(node.itertext()) for node in root.findall("m:si", ns)]
+        sheet_names = [name for name in archive.namelist() if name.startswith("xl/worksheets/sheet") and name.endswith(".xml")]
+        if not sheet_names:
+            raise ValueError("XLSX 中没有可读取的工作表")
+        root = ET.fromstring(archive.read(sorted(sheet_names)[0]))
+        rows: list[list[str]] = []
+        for row in root.findall(".//m:sheetData/m:row", ns):
+            values: list[str] = []
+            for cell in row.findall("m:c", ns):
+                cell_type = cell.attrib.get("t", "")
+                value_node = cell.find("m:v", ns)
+                inline_node = cell.find("m:is", ns)
+                value = ""
+                if inline_node is not None:
+                    value = "".join(inline_node.itertext())
+                elif value_node is not None:
+                    value = value_node.text or ""
+                    if cell_type == "s" and value.isdigit() and int(value) < len(shared):
+                        value = shared[int(value)]
+                values.append(value.strip())
+            rows.append(values)
+        return rows
+
+def _research_import_rows(filename: str, raw: bytes) -> list[list[str]]:
+    suffix = Path(filename).suffix.lower()
+    if suffix == ".xlsx":
+        return _research_rows_from_xlsx(raw)
+    if suffix not in {".csv", ".tsv"}:
+        raise ValueError("仅支持 .xlsx、.csv、.tsv 文件")
+    text = raw.decode("utf-8-sig", errors="replace")
+    dialect = "excel-tab" if suffix == ".tsv" else "excel"
+    return [list(row) for row in csv.reader(io.StringIO(text), dialect=dialect)]
+
+@app.post("/api/quant/research-pool/import", dependencies=[Depends(require_auth)])
+def quant_research_pool_import(req: QuantResearchPoolImportRequest):
+    try:
+        raw = base64.b64decode(req.content_base64, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="文件内容不是有效的 Base64") from exc
+    if len(raw) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="导入文件不能超过 10MB")
+    try:
+        rows = _research_import_rows(req.filename, raw)
+    except (ValueError, zipfile.BadZipFile, ET.ParseError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not rows:
+        raise HTTPException(status_code=400, detail="文件没有数据")
+    aliases = {
+        "symbol": {"symbol", "code", "证券代码", "股票代码", "代码"},
+        "name": {"name", "stockname", "名称", "证券名称", "股票名称"},
+        "theme": {"theme", "sector", "题材", "概念", "板块"},
+        "sub_theme": {"subtheme", "细分方向", "细分题材", "细分"},
+        "role": {"role", "角色"},
+        "logic": {"logic", "逻辑", "备注", "理由"},
+        "evidence_source": {"evidencesource", "证据来源", "来源"},
+        "focus_level": {"focuslevel", "关注级别", "关注"},
+    }
+    headers = [_research_header(x) for x in rows[0]]
+    fields = {field: next((i for i, header in enumerate(headers) if header in {_research_header(a) for a in values}), None) for field, values in aliases.items()}
+    if fields["symbol"] is None or fields["name"] is None:
+        raise HTTPException(status_code=400, detail="首行必须包含代码和名称列（支持：代码/证券代码、名称/证券名称）")
+    imported = updated = 0
+    errors: list[dict] = []
+    for row_number, row in enumerate(rows[1:], start=2):
+        def cell(field: str) -> str:
+            index = fields[field]
+            return str(row[index]).strip() if index is not None and index < len(row) else ""
+        symbol = re.sub(r"\.(SH|SZ|BJ|SS)$", "", cell("symbol").upper())
+        name = cell("name")
+        if not re.fullmatch(r"\d{6}", symbol) or not name:
+            if any(str(x).strip() for x in row):
+                errors.append({"row": row_number, "message": "代码必须是六位数字且名称不能为空"})
+            continue
+        role = cell("role") or "观察"
+        focus = cell("focus_level") or "普通"
+        if role not in {"龙头", "跟随", "观察"}: role = "观察"
+        if focus not in {"重点", "普通", "暂缓"}: focus = "普通"
+        existed = any(item["symbol"] == symbol for item in db.list_quant_research_pool(symbol))
+        db.upsert_quant_research_pool(symbol=symbol, name=name, theme=cell("theme"), sub_theme=cell("sub_theme"), role=role, logic=cell("logic"), evidence_source=cell("evidence_source"), focus_level=focus)
+        updated += int(existed)
+        imported += int(not existed)
+    return {"ok": True, "filename": req.filename, "imported": imported, "updated": updated, "errors": errors[:100]}
 
 @app.delete("/api/quant/research-pool/{symbol}", dependencies=[Depends(require_auth)])
 def quant_research_pool_delete(symbol: str):

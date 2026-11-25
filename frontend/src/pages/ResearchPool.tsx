@@ -16,6 +16,7 @@ export function ResearchPool() {
   const [query, setQuery] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [importing, setImporting] = useState(false)
   const load = async (q = query) => {
     setBusy(true); setError('')
     try { const body = await read<{ items: Item[] }>(await fetch(`${API}?query=${encodeURIComponent(q)}`, { credentials: 'include' })); setItems(body.items || []) }
@@ -39,6 +40,23 @@ export function ResearchPool() {
     finally { setBusy(false) }
   }
   const set = (key: keyof Item, value: string) => setDraft(current => ({ ...current, [key]: value }))
+  const importFile = async (file?: File) => {
+    if (!file) return
+    setImporting(true); setError('')
+    try {
+      const content = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onerror = () => reject(new Error('读取文件失败'))
+        reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '')
+        reader.readAsDataURL(file)
+      })
+      const body = await read<{ imported: number; updated: number; errors: { row: number; message: string }[] }>(await fetch(`${API}/import`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: file.name, content_base64: content }) }))
+      const errorText = body.errors?.length ? `；${body.errors.length} 行未导入（第 ${body.errors.slice(0, 3).map(x => x.row).join('、')} 行有问题）` : ''
+      setError(`导入完成：新增 ${body.imported}，更新 ${body.updated}${errorText}`)
+      await load('')
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '导入失败') }
+    finally { setImporting(false) }
+  }
   return <div className="h-full overflow-auto bg-base p-3 text-foreground">
     <header className="mb-3 rounded-card border border-border bg-surface p-3"><h1 className="text-base font-semibold">我的股票池</h1><p className="mt-1 text-xs text-muted">手工研究标签，只用于候选重合、题材和证据标记；不会限制全市场扫描，也不会写入真实持仓。</p></header>
     <section className="mb-3 rounded-card border border-border bg-surface p-3">
@@ -52,6 +70,6 @@ export function ResearchPool() {
       </div>
       <div className="mt-2 flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={() => void save()} className="rounded-btn bg-accent px-3 py-1.5 text-xs text-white disabled:opacity-50">保存到股票池</button><button type="button" onClick={() => setDraft(empty)} className="rounded-btn border border-border px-3 py-1.5 text-xs text-muted">清空</button></div>
     </section>
-    <section className="rounded-card border border-border bg-surface p-3"><div className="mb-2 flex flex-wrap items-center justify-between gap-2"><b className="text-xs">研究池列表 · {items.length} 只</b><div className="flex gap-2"><input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void load() }} placeholder="搜索代码、名称、题材" className="h-8 w-48 rounded border border-border bg-base px-2 text-xs" /><button type="button" onClick={() => void load()} className="rounded border border-border px-2 text-xs text-accent">搜索</button></div></div>{error && <p className="mb-2 rounded border border-danger/40 bg-danger/5 p-2 text-xs text-danger">{error}</p>}{busy && <p className="mb-2 text-xs text-muted">处理中…</p>}<div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{items.map(item => <article key={item.symbol} className="rounded border border-border/70 bg-base/40 p-3 text-xs"><div className="flex items-start justify-between gap-2"><div><b>{item.name}</b><span className="ml-2 font-mono text-muted">{item.symbol}</span></div><span className="rounded border border-accent/40 px-1.5 py-0.5 text-[10px] text-accent">{item.focus_level || '普通'}</span></div><div className="mt-2 text-muted">{item.theme || '未标注题材'}{item.sub_theme ? ` · ${item.sub_theme}` : ''} · {item.role || '观察'}</div>{item.logic && <p className="mt-2 leading-5">{item.logic}</p>}{item.evidence_source && <p className="mt-1 truncate text-[10px] text-muted" title={item.evidence_source}>证据：{item.evidence_source}</p>}<div className="mt-2 flex justify-end gap-3"><button type="button" onClick={() => edit(item)} className="text-[11px] text-accent hover:underline">编辑</button><button type="button" onClick={() => void remove(item.symbol)} className="text-[11px] text-danger hover:underline">移除</button></div></article>)}{!items.length && !busy && <p className="col-span-full p-8 text-center text-xs text-muted">暂无研究股票池标的</p>}</div></section>
+    <section className="rounded-card border border-border bg-surface p-3"><div className="mb-2 flex flex-wrap items-center justify-between gap-2"><b className="text-xs">研究池列表 · {items.length} 只</b><div className="flex flex-wrap gap-2"><input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void load() }} placeholder="搜索代码、名称、题材" className="h-8 w-48 rounded border border-border bg-base px-2 text-xs" /><button type="button" onClick={() => void load()} className="rounded border border-border px-2 text-xs text-accent">搜索</button><label className="cursor-pointer rounded border border-accent/50 px-2 py-1.5 text-xs text-accent">{importing ? '导入中…' : '导入清单'}<input type="file" accept=".xlsx,.csv,.tsv" className="hidden" disabled={importing} onChange={e => { void importFile(e.target.files?.[0]); e.currentTarget.value = '' }} /></label></div></div>{error && <p className="mb-2 rounded border border-danger/40 bg-danger/5 p-2 text-xs text-danger">{error}</p>}<p className="mb-2 text-[11px] text-muted">支持 XLSX/CSV/TSV；首行用“代码、名称”列，可选题材、细分、角色、逻辑、证据来源、关注级别。仅更新研究池。</p>{busy && <p className="mb-2 text-xs text-muted">处理中…</p>}<div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{items.map(item => <article key={item.symbol} className="rounded border border-border/70 bg-base/40 p-3 text-xs"><div className="flex items-start justify-between gap-2"><div><b>{item.name}</b><span className="ml-2 font-mono text-muted">{item.symbol}</span></div><span className="rounded border border-accent/40 px-1.5 py-0.5 text-[10px] text-accent">{item.focus_level || '普通'}</span></div><div className="mt-2 text-muted">{item.theme || '未标注题材'}{item.sub_theme ? ` · ${item.sub_theme}` : ''} · {item.role || '观察'}</div>{item.logic && <p className="mt-2 leading-5">{item.logic}</p>}{item.evidence_source && <p className="mt-1 truncate text-[10px] text-muted" title={item.evidence_source}>证据：{item.evidence_source}</p>}<div className="mt-2 flex justify-end gap-3"><button type="button" onClick={() => edit(item)} className="text-[11px] text-accent hover:underline">编辑</button><button type="button" onClick={() => void remove(item.symbol)} className="text-[11px] text-danger hover:underline">移除</button></div></article>)}{!items.length && !busy && <p className="col-span-full p-8 text-center text-xs text-muted">暂无研究股票池标的</p>}</div></section>
   </div>
 }
