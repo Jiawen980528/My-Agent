@@ -32,6 +32,7 @@ import {
   DatabaseZap,
   Loader2,
   BarChart3,
+  Layers3,
   Sparkles,
   CheckCircle2,
   ChevronRight,
@@ -603,7 +604,9 @@ export function Layout() {
     arch: 'ext' as const,
   }))
 
-  const allNav: NavItem[] = [...nav, ...extensionNav.filter(item => FOCUS_EXTENSION_PATHS.has(item.to))]
+  // 扩展页仍保留路由，但不再并入主导航；否则旧用户保存过的侧栏顺序
+  // 会把模拟盘/复盘/监控重新铺开，抵消个人持仓模式的精简目标。
+  const allNav: NavItem[] = [...nav]
   const savedOrder = prefs?.nav_order ?? []
 
   const navItems = savedOrder.length > 0
@@ -638,6 +641,10 @@ export function Layout() {
 
   const hiddenIds = new Set(prefs?.nav_hidden ?? [])
   const visibleNavItems = navItems.filter(n => !hiddenIds.has(n.to) && !hiddenIds.has(n.to.replace(/^\/analysis\//, '')))
+  const [extensionsOpen, setExtensionsOpen] = useState(() => extensionNav.some(item => location.pathname === item.to))
+  useEffect(() => {
+    if (extensionNav.some(item => location.pathname === item.to)) setExtensionsOpen(true)
+  }, [location.pathname])
   const [dragNavPath, setDragNavPath] = useState<string | null>(null)
   const moveNavItem = (targetPath: string) => {
     if (!dragNavPath || dragNavPath === targetPath) return
@@ -968,18 +975,38 @@ export function Layout() {
               </div>
             )
           })}
-          <NavLink
-            to="/myagent-quant"
-            title={railMode ? 'MyAgent量化' : undefined}
-            className={cn(
-              'group relative flex items-center rounded-btn text-sm transition-all duration-150 ease-smooth',
-              railMode ? 'justify-center px-0 py-2' : 'gap-3 px-3 py-2',
-              'text-foreground/75 hover:bg-elevated/70 hover:text-foreground',
-            )}
-          >
-            <BarChart3 className="h-4 w-4 shrink-0 text-foreground/60 group-hover:text-foreground/85" />
-            {!railMode && <span className="truncate">MyAgent量化</span>}
-          </NavLink>
+          {!railMode && extensionNav.length > 0 && (
+            <div className="mt-2 border-t border-border/60 pt-2">
+              <button
+                type="button"
+                onClick={() => setExtensionsOpen(value => !value)}
+                className="flex w-full items-center gap-3 rounded-btn px-3 py-2 text-sm text-foreground/60 transition-colors hover:bg-elevated/70 hover:text-foreground"
+                aria-expanded={extensionsOpen}
+              >
+                <Layers3 className="h-4 w-4 shrink-0" />
+                <span className="flex-1 text-left">更多功能</span>
+                {extensionsOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              </button>
+              {extensionsOpen && (
+                <div className="mt-0.5 space-y-0.5">
+                  {extensionNav.filter(item => FOCUS_EXTENSION_PATHS.has(item.to)).map(({ to, label, icon: Icon, badge }) => (
+                    <NavLink
+                      key={to}
+                      to={to}
+                      className={({ isActive }) => cn(
+                        'flex items-center gap-3 rounded-btn px-3 py-1.5 pl-10 text-[12px] transition-colors',
+                        isActive ? 'bg-elevated text-accent font-medium' : 'text-foreground/60 hover:bg-elevated/50 hover:text-foreground',
+                      )}
+                    >
+                      <Icon className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{label}</span>
+                      {badge && <span className="ml-auto text-[9px] text-muted">{badge}</span>}
+                    </NavLink>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <ExtensionSlot
             name="layout.navigation.extra"
             context={{ collapsed: railMode, pathname: location.pathname }}
@@ -1234,3 +1261,4 @@ export function Layout() {
     </div>
   )
 }
+
