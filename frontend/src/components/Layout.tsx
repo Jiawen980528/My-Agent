@@ -603,7 +603,7 @@ export function Layout() {
     arch: 'ext' as const,
   }))
   const secondaryNav: NavItem[] = [
-    { to: '/watchlist', label: '自选', icon: IconWatchlist, arch: 'core' },
+    // 自选页仍保留路由和数据能力，但不在个人持仓模式的侧栏重复展示。
     ...extensionNav.filter(item => FOCUS_EXTENSION_PATHS.has(item.to)),
   ]
 
