@@ -67,9 +67,10 @@ describe('useDashboardLayout', () => {
     }
     mountHarness()
     // 旧布局会补齐新版看盘核心窗口，但保留原有指数窗口。
-    expect(latest!.items).toHaveLength(5)
+    expect(latest!.items).toHaveLength(6)
     expect(latest!.items.find(item => item.t === 'indices')?.w).toBe(12) // 越界已规范化
     expect(latest!.items.some(item => item.t === 'market-overview')).toBe(true)
+    expect(latest!.items.some(item => item.t === 'paper-summary')).toBe(true)
     expect(latest!.items.some(item => item.t === 'portfolio-monitor')).toBe(true)
     expect(latest!.items.some(item => item.t === 'recommendations')).toBe(true)
     expect(latest!.items.some(item => item.t === 'page-panel' && item.p?.path === '/decision-guide')).toBe(true)
