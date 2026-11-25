@@ -39,6 +39,7 @@ type MarketOverviewBrief = {
   breadth?: { up?: number; down?: number; flat?: number; avg_pct?: number | null }
   limit?: { limit_up?: number; broken?: number; limit_down?: number; max_boards?: number; seal_rate?: number | null }
 }
+type TickFlowStatus = { connected?: boolean; source?: string | null; as_of?: string | null; message?: string | null }
 type Replay = { actual_vs_no_trade: string; realised_t_pnl: string; extra_position_effect: string;
   max_drawdown_yuan: string; max_drawdown_pct_of_snapshot_assets: string | null; hindsight_optimal_pnl: string;
   hindsight_quantity: number | null;
@@ -591,6 +592,8 @@ export function PortfolioMonitorWidget() {
   })
   const sectorCatalog = useQuery({ queryKey: ['fund-flow-sector-catalog'], queryFn: () =>
     json<{ items: { code: string; name: string; pct?: number | null }[]; source: string }>(`${PUBLIC_API}/fund-flow/sectors?limit=1200`), staleTime: 10 * 60_000 })
+  const tickflowStatus = useQuery({ queryKey: ['portfolio-tickflow-status'], queryFn: () =>
+    json<TickFlowStatus>(`${PUBLIC_API}/quant/tickflow/status`), staleTime: 30_000, refetchInterval: 30_000 })
   // 目录可能超过一次返回上限；搜索时必须走后端目录检索，不能只在前端缓存的
   // 前 1200 条里筛选，否则扶摇同花顺板块会出现“明明存在但搜不到”。
   const boardSearch = useQuery({
@@ -746,7 +749,8 @@ export function PortfolioMonitorWidget() {
   return <section className="relative h-full overflow-auto rounded-card border border-border bg-surface p-2 text-foreground"
     onContextMenu={event => { event.preventDefault(); setMenu({ x: Math.max(8, Math.min(event.clientX, innerWidth - 220)), y: Math.max(8, Math.min(event.clientY, innerHeight - 440)) }) }}>
     <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 border-b border-border pb-1">
-      <div><h2 className="text-sm font-semibold">持仓看盘工作区</h2><p className="text-[11px] text-muted">左侧切换标的 · 右键选择显示内容 · {minute.data?.source || '分钟行情读取中'} · <span className={dataState === '行情可用' ? 'text-bull' : 'text-warning'}>{dataState}</span>{latestFreshness?.market_time ? ` · ${latestFreshness.market_time}` : ''}{badQuality ? ' · 已停止使用异常分钟数据' : ''}</p></div>
+      <div><h2 className="text-sm font-semibold">持仓看盘工作区</h2><p className="text-[11px] text-muted">左侧切换标的 · 右键选择显示内容 · {minute.data?.source || '分钟行情读取中'} · <span className={dataState === '行情可用' ? 'text-bull' : 'text-warning'}>{dataState}</span>{latestFreshness?.market_time ? ` · ${latestFreshness.market_time}` : ''}{badQuality ? ' · 已停止使用异常分钟数据' : ''}</p>
+        <p className={`text-[10px] ${tickflowStatus.data?.connected ? 'text-bull' : 'text-warning'}`}>TickFlow：{tickflowStatus.data?.connected ? `已连接${tickflowStatus.data.source ? ` · ${tickflowStatus.data.source}` : ''}` : (tickflowStatus.data?.message || '未连接，实时/分钟数据不可用')}</p></div>
       <div className="flex flex-wrap items-center justify-end gap-1 text-xs"><button type="button" onClick={() => chooseView('detail')} className={`rounded border border-border px-2 py-0.5 ${viewMode === 'detail' ? 'bg-accent/20 text-accent' : 'text-muted'}`}>个股详情</button>
         <button type="button" onClick={() => chooseView('overview')} className={`rounded border border-border px-2 py-0.5 ${viewMode === 'overview' ? 'bg-accent/20 text-accent' : 'text-muted'}`}>持仓实时总览</button>
         <input aria-label="交易日期" type="date" value={day} max={latestDay} onChange={e => setPickedDay(e.target.value)} className="rounded border border-border bg-base px-1 py-0.5" />
