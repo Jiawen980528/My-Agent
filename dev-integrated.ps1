@@ -20,7 +20,14 @@ param(
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 if ([string]::IsNullOrWhiteSpace($MyAgentRoot)) {
-    $MyAgentRoot = [IO.Path]::GetFullPath((Join-Path $Root '..\..\MyAgent'))
+    # 交接包常见的目录布局是桌面\MyAgent\MyAgent；同时保留旧的
+    # 桌面\MyAgent 布局，避免联合启动时找错主服务目录而丢失桥接。
+    $candidates = @(
+        [IO.Path]::GetFullPath((Join-Path $Root '..\..\MyAgent\MyAgent')),
+        [IO.Path]::GetFullPath((Join-Path $Root '..\..\MyAgent'))
+    )
+    $MyAgentRoot = $candidates | Where-Object { Test-Path (Join-Path $_ 'app\main.py') } | Select-Object -First 1
+    if ([string]::IsNullOrWhiteSpace($MyAgentRoot)) { $MyAgentRoot = $candidates[0] }
 }
 
 function Require-Path([string]$Path, [string]$Description) {
