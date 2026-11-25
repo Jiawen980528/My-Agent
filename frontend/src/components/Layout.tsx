@@ -603,6 +603,7 @@ export function Layout() {
     badge: item.badge,
     arch: 'ext' as const,
   }))
+  const secondaryNav = extensionNav.filter(item => FOCUS_EXTENSION_PATHS.has(item.to))
 
   // 扩展页仍保留路由，但不再并入主导航；否则旧用户保存过的侧栏顺序
   // 会把模拟盘/复盘/监控重新铺开，抵消个人持仓模式的精简目标。
@@ -975,7 +976,20 @@ export function Layout() {
               </div>
             )
           })}
-          {!railMode && extensionNav.length > 0 && (
+          {railMode && secondaryNav.length > 0 && secondaryNav.map(({ to, label, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              title={label}
+              className={({ isActive }) => cn(
+                'group relative flex items-center justify-center rounded-btn px-0 py-2 text-sm transition-all duration-150 ease-smooth',
+                isActive ? 'bg-elevated text-foreground font-medium' : 'text-foreground/60 hover:bg-elevated/70 hover:text-foreground',
+              )}
+            >
+              {({ isActive }) => <Icon className={cn('h-4 w-4 shrink-0', isActive ? 'text-accent' : 'text-foreground/60 group-hover:text-foreground/85')} />}
+            </NavLink>
+          ))}
+          {!railMode && secondaryNav.length > 0 && (
             <div className="mt-2 border-t border-border/60 pt-2">
               <button
                 type="button"
@@ -989,7 +1003,7 @@ export function Layout() {
               </button>
               {extensionsOpen && (
                 <div className="mt-0.5 space-y-0.5">
-                  {extensionNav.filter(item => FOCUS_EXTENSION_PATHS.has(item.to)).map(({ to, label, icon: Icon, badge }) => (
+                  {secondaryNav.map(({ to, label, icon: Icon, badge }) => (
                     <NavLink
                       key={to}
                       to={to}
