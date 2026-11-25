@@ -16,6 +16,7 @@ type NewsItem = { title: string; url: string; source: string; published_at?: str
 type NewsFeed = { items: NewsItem[]; fetched_at: string; source: string; status: string; notice: string }
 type MinuteBatch = { data: Record<string, MinuteKlineRow[]>; source?: string; freshness?: Record<string, { market_time?: string | null; stale?: boolean }> }
 type RecommendationSnapshot = { id: number; period: string; status: '待复盘' | '已复盘'; generated_at: string; valid_until: string; symbols: string[]; data_source?: string; review?: { observations?: Array<{ observed_return_pct?: number | null }> } | null }
+type PaperSummaryRow = { account: string; name: string; status: 'active' | 'frozen'; total: number; cash: number; market_value: number; total_pnl: number; pnl_pct?: number | null; rounds: number; win_rate: number; profit_loss_ratio?: number | null; max_drawdown?: number | null; nav?: Array<{ date: string; nav: number }>; live_total?: number | null; live_pnl_pct?: number | null; estimating?: boolean }
 type AIConfig = { api_key_configured?: boolean; model?: string }
 type LegacySummary = { available?: boolean; label?: string; recommendations?: { records?: number; paper_status?: Record<string, number> }; reviews?: { days?: number }; research_pool?: { items?: number }; ai_reports?: { count?: number }; warnings?: string[] }
 
@@ -48,6 +49,16 @@ function minuteRows(batch: MinuteBatch | undefined, symbol: string) {
   const key = qualified(symbol)
   const raw = batch?.data?.[key] || batch?.data?.[symbol] || []
   return raw.filter(row => Number.isFinite(Number(row.close)) && row.datetime).slice(-240)
+}
+
+function PaperMiniCurve({ nav }: { nav: Array<{ date: string; nav: number }> }) {
+  const values = nav.map(row => Number(row.nav)).filter(Number.isFinite)
+  if (values.length < 2) return <div className="flex h-12 items-center justify-center text-[10px] text-muted">暂无权益曲线</div>
+  const min = Math.min(...values), max = Math.max(...values), span = max - min || 1
+  const points = values.map((value, index) => `${(index / (values.length - 1)) * 100},${42 - ((value - min) / span) * 34}`).join(' ')
+  return <svg viewBox="0 0 100 48" preserveAspectRatio="none" className="h-12 w-full rounded border border-border bg-base/50" role="img" aria-label="模拟盘权益曲线">
+    <polyline points={points} fill="none" stroke="#8B5CF6" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+  </svg>
 }
 
 export function MarketNewsWidget() {
@@ -215,6 +226,29 @@ export function RecommendationWidget() {
     {legacy.data?.available && <div className="mt-2 rounded border border-warning/30 bg-warning/5 p-2 text-[10px]"><div className="flex items-center justify-between gap-2"><b className="text-warning">{legacy.data.label || '历史归档（只读）'}</b><span className="text-muted">不启用旧模拟逻辑</span></div><div className="mt-1 text-muted">历史推荐 {legacy.data.recommendations?.records ?? 0} 条 · 模拟触发 {legacy.data.recommendations?.paper_status?.submitted ?? 0} 次 · 复盘 {legacy.data.reviews?.days ?? 0} 天 · 研究池 {legacy.data.research_pool?.items ?? 0} 条</div>{legacy.data.warnings?.some(item => item.includes('异常口径')) && <div className="mt-1 text-warning">⚠ 历史复盘成功率口径异常，当前仅作参考</div>}</div>}
     {!snapshots.isLoading && !holdings.isLoading && !snapshots.error && !items.length && <p className="mt-3 text-xs text-muted">当前没有涉及持仓的推荐快照；全市场候选请前往“个股搜索/推荐”，不会把非持仓候选混入看板。</p>}
     <div className="mt-2 grid gap-1.5">{items.slice(0, 3).map(item => <div key={item.id} className="rounded border border-border/70 bg-base/40 p-2 text-[10px]"><div className="flex justify-between gap-2"><b>{item.period}</b><span className={item.status === '待复盘' ? 'text-warning' : 'text-bull'}>{item.status}</span></div><div className="mt-1 text-muted">{item.generated_at} · {item.symbols.join('、')}</div><div className="mt-1 text-muted">有效至 {item.valid_until}</div></div>)}</div>
+  </section>
+}
+
+export function PaperSummaryWidget() {
+  const paper = useQuery({
+    queryKey: ['myagent-paper-dashboard-summary'],
+    queryFn: () => getJson<{ accounts: PaperSummaryRow[] }>('/quant/api/paper/compare'),
+    refetchInterval: 30_000,
+  })
+  const account = paper.data?.accounts?.find(row => row.account === 'myagent_auto') || paper.data?.accounts?.[0]
+  const total = account?.live_total ?? account?.total
+  const pnlPct = account?.live_pnl_pct ?? account?.pnl_pct
+  return <section className="h-full overflow-auto rounded-card border border-border bg-surface p-3 text-foreground">
+    <div className="flex items-center justify-between gap-2"><div><h2 className="text-xs font-semibold">暗黑模拟盘摘要</h2><p className="mt-0.5 text-[10px] text-muted">只读统计 · 不连接券商 · 不自动下单</p></div><Link to="/paper" className="text-[11px] text-accent hover:underline">打开模拟盘</Link></div>
+    {paper.isLoading && <p className="mt-3 text-xs text-muted">读取模拟账户…</p>}
+    {paper.error && <p className="mt-3 text-xs text-warning">模拟盘摘要暂不可用：{(paper.error as Error).message}</p>}
+    {!paper.isLoading && !paper.error && !account && <p className="mt-3 text-xs text-muted">尚未创建模拟账户；打开模拟盘后可建立独立的虚拟账户。</p>}
+    {account && <>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px]"><span className="rounded bg-accent/10 px-2 py-1 text-accent">{account.name || account.account}</span><span className={account.status === 'active' ? 'rounded bg-bull/10 px-2 py-1 text-bull' : 'rounded bg-warning/10 px-2 py-1 text-warning'}>{account.status === 'active' ? '运行中' : '已冻结'}</span>{account.estimating && <span className="rounded bg-warning/10 px-2 py-1 text-warning">盘中估算</span>}</div>
+      <div className="mt-2 grid grid-cols-2 gap-1.5 text-[11px] sm:grid-cols-4"><span className="rounded bg-elevated p-2">权益<br /><b>{total == null ? '—' : `¥${Number(total).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`}</b></span><span className="rounded bg-elevated p-2">收益率<br /><b className={Number(pnlPct) >= 0 ? 'text-bull' : 'text-bear'}>{pnlPct == null ? '—' : `${Number(pnlPct) >= 0 ? '+' : ''}${Number(pnlPct).toFixed(2)}%`}</b></span><span className="rounded bg-elevated p-2">胜率<br /><b>{account.rounds ? `${Number(account.win_rate).toFixed(1)}%` : '—'}</b></span><span className="rounded bg-elevated p-2">最大回撤<br /><b>{account.max_drawdown == null ? '—' : `${Number(account.max_drawdown).toFixed(2)}%`}</b></span></div>
+      <div className="mt-2"><PaperMiniCurve nav={account.nav || []} /></div>
+      <p className="mt-1 text-[10px] text-muted">已完成回合 {account.rounds} · 现金 ¥{Number(account.cash || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })} · 统计来自独立模拟账户。</p>
+    </>}
   </section>
 }
 
