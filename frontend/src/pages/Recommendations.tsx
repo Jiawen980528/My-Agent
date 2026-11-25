@@ -22,6 +22,7 @@ type LegacySummary = {
 }
 type ScanResult = { items?: Candidate[]; count?: number; universe_count?: number; data_source?: string; generated_at?: string; history_id?: number }
 type Snapshot = { id: number | string; generated_at?: string; generatedAt?: string; recommendation_slot?: '集合竞价' | '盘中' | '轮动' | '未标注' | string; period: string; valid_until?: string; validUntil?: string; scan_id?: number; historyId?: number; symbols: string[]; status: '待复盘' | '已复盘'; data_source?: string; payload?: Candidate[]; review?: { observations?: Array<{ symbol?: string; observed_return_pct?: number | null }>; note?: string } | null }
+type RecommendationScope = 'holdings' | 'market' | 'research-pool'
 const periodOptions = [
   { value: '盘中观察', label: '盘中观察', hint: '只用于当前交易时段的观察，不代表收盘预测' },
   { value: '当日收盘', label: '当日收盘', hint: '等待收盘数据后复盘当天表现' },
@@ -48,6 +49,7 @@ export function Recommendations() {
   const [aiLoading, setAiLoading] = useState(false)
   const [aiReply, setAiReply] = useState('')
   const [aiSymbol, setAiSymbol] = useState('')
+  const [scope, setScope] = useState<RecommendationScope>('holdings')
   const [quoteUpdatedAt, setQuoteUpdatedAt] = useState('')
   const [quoteNotice, setQuoteNotice] = useState('')
   const [holdings, setHoldings] = useState<HoldingLink[]>([])
@@ -133,8 +135,22 @@ export function Recommendations() {
       setResult(body)
     } catch (cause) { setError(cause instanceof Error ? cause.message : '扫描失败') } finally { setLoading(false) }
   }
-  const items = useMemo(() => [...(result?.items || [])].sort((a, b) => Number(b.score || 0) - Number(a.score || 0)).slice(0, 5), [result])
   const normalizeCode = (value?: string) => String(value || '').replace(/\D/g, '').slice(-6)
+  const holdingCodes = useMemo(() => new Set(holdings.map(row => normalizeCode(row.symbol)).filter(Boolean)), [holdings])
+  const researchPoolCodes = useMemo(() => new Set(researchPools.flatMap(pool => {
+    const direct = pool.symbol ? [normalizeCode(pool.symbol)] : []
+    const configured = Array.isArray(pool.config?.symbols) ? (pool.config.symbols as unknown[]).map(symbol => normalizeCode(String(symbol))) : []
+    return [...direct, ...configured].filter(Boolean)
+  })), [researchPools])
+  const items = useMemo(() => {
+    const sorted = [...(result?.items || [])].sort((a, b) => Number(b.score || 0) - Number(a.score || 0))
+    const filtered = scope === 'holdings'
+      ? sorted.filter(item => holdingCodes.has(normalizeCode(item.symbol)))
+      : scope === 'research-pool'
+        ? sorted.filter(item => researchPoolCodes.has(normalizeCode(item.symbol)))
+        : sorted
+    return filtered.slice(0, 5)
+  }, [result, scope, holdingCodes, researchPoolCodes])
   const linkFor = (item: Candidate) => {
     const code = normalizeCode(item.symbol)
     const holdingMatches = holdings.filter(row => normalizeCode(row.symbol) === code)
@@ -336,13 +352,14 @@ export function Recommendations() {
       </div>
       {!!legacySummary.warnings?.length && <div className="mt-2 space-y-1 border-t border-warning/20 pt-2 text-warning">{legacySummary.warnings.map(warning => <div key={warning}>⚠ {warning}</div>)}</div>}
     </div>}
+    <div className="mb-3 rounded-card border border-accent/30 bg-accent/5 p-3 text-[11px]"><div className="flex flex-wrap items-center justify-between gap-2"><b>推荐范围</b><span className="text-muted">只影响当前候选展示和保存快照，不改变底层扫描</span></div><div className="mt-2 flex flex-wrap gap-2">{([['holdings','仅我的持仓','只给已录入持仓生成操作观察'],['market','全市场候选','用于单独搜索可研究标的'],['research-pool','研究池重合','只看与你的题材/拾贝研究池重合的候选']] as const).map(([value,label,hint]) => <button key={value} type="button" title={hint} onClick={() => setScope(value)} className={`rounded border px-2.5 py-1.5 ${scope === value ? 'border-accent bg-accent/15 text-accent' : 'border-border text-muted hover:text-foreground'}`}>{label}</button>)}</div><p className="mt-2 text-muted">当前：{scope === 'holdings' ? '仅我的持仓；非持仓候选不会进入买卖/做T提醒。' : scope === 'research-pool' ? '研究池重合；仍需在持仓页确认是否属于你的实际持仓。' : '全市场研究；不会自动变成持仓操作建议。'}</p></div>
     <div className="mb-3 grid gap-3 rounded-card border border-border bg-surface p-3 md:grid-cols-[1fr_auto]">
       <div><div className="text-xs font-semibold">本次推荐时段</div><div className="mt-2 flex flex-wrap gap-2">{(['集合竞价', '盘中', '轮动'] as const).map(slot => <button key={slot} type="button" onClick={() => setRecommendationSlot(slot)} className={`rounded border px-2.5 py-1.5 text-[11px] ${recommendationSlot === slot ? 'border-accent bg-accent/15 text-accent' : 'border-border text-muted'}`}>{slot}</button>)}</div><div className="mt-3 text-xs font-semibold">本次推荐周期</div><div className="mt-2 flex flex-wrap gap-2">{periodOptions.map(option => <button key={option.value} type="button" onClick={() => setPeriod(option.value)} className={`rounded border px-2.5 py-1.5 text-[11px] ${period === option.value ? 'border-accent bg-accent/15 text-accent' : 'border-border text-muted'}`}>{option.label}</button>)}</div><p className="mt-2 text-[11px] text-muted">{selectedPeriod.hint}；时段和周期会写入不可变推荐快照。</p></div>
       <div className="flex items-end"><button type="button" onClick={saveSnapshot} disabled={!result || !items.length} className="rounded-btn border border-accent/60 px-3 py-2 text-xs text-accent disabled:opacity-40">保存推荐快照</button></div>
     </div>
     <div className="mb-3 grid grid-cols-2 gap-2 rounded-card border border-border bg-surface p-3 md:grid-cols-5">{([['baseline_days','长期地量天数'],['max_avg_turnover','换手上限%'],['recent_days','异动窗口天数'],['volume_multiple','放量倍数'],['max_market_cap_yi','市值上限亿']] as const).map(([key, label]) => <label key={key} className="grid gap-1 text-[11px] text-muted">{label}<input type="number" value={criteria[key]} onChange={e => setCriteria({ ...criteria, [key]: Number(e.target.value) })} className="h-8 rounded border border-border bg-elevated px-2 text-xs text-foreground" /></label>)}</div>
     {error && <div className="mb-3 flex items-center gap-2 rounded border border-danger/30 bg-danger/10 p-2 text-xs text-danger"><AlertTriangle className="h-4 w-4" />{error}</div>}
-    {result && <div className="mb-2 flex flex-wrap gap-3 text-[11px] text-muted"><span>生成于 {result.generated_at || '未标注'}</span><span>数据源：{result.data_source || '未标注'}</span><span>全市场样本 {result.universe_count ?? '—'} · 原始候选 {result.count ?? 0} · 展示 {items.length}/5</span>{result.history_id != null && <span>记录 #{result.history_id}</span>}{quoteUpdatedAt && <span>行情更新 {quoteUpdatedAt} · {quoteNotice}</span>}<span>关联：{linkNotice}</span></div>}
+    {result && <div className="mb-2 flex flex-wrap gap-3 text-[11px] text-muted"><span>生成于 {result.generated_at || '未标注'}</span><span>数据源：{result.data_source || '未标注'}</span><span>全市场样本 {result.universe_count ?? '—'} · 原始候选 {result.count ?? 0} · 当前范围展示 {items.length}/5</span>{result.history_id != null && <span>记录 #{result.history_id}</span>}{quoteUpdatedAt && <span>行情更新 {quoteUpdatedAt} · {quoteNotice}</span>}<span>关联：{linkNotice}</span></div>}
     {result && <div className="mb-3 rounded-card border border-border bg-surface p-3 text-[11px]">
       <div className="flex flex-wrap items-center justify-between gap-2"><b>候选重合对照</b><span className="text-muted">只统计当前真实返回的候选，不代表独立命中率</span></div>
       <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
@@ -400,7 +417,7 @@ export function Recommendations() {
       {!!snapshots.length && <div className="mt-2 grid gap-1 text-muted">{snapshots.slice(0, 3).map(snapshot => <div key={snapshot.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-1"><span>{snapshot.generated_at || snapshot.generatedAt || '—'} · {snapshot.period} · {snapshot.symbols.join('、')}{reviewSummary(snapshot) && <span className="ml-2 text-foreground">{reviewSummary(snapshot)}</span>}</span><span className="flex items-center gap-2">{snapshot.status} · 有效至 {snapshot.valid_until || snapshot.validUntil || '—'}{snapshot.status === '待复盘' && <button type="button" onClick={() => reviewSnapshot(snapshot)} className="rounded border border-accent/60 px-1.5 py-0.5 text-accent">用当前真实行情复盘</button>}</span></div>)}</div>}
     </div>
     {!result && !loading && <div className="rounded-card border border-dashed border-border bg-surface p-10 text-center text-xs text-muted">点击“生成今日候选”后才读取真实扫描结果。</div>}
-    {result && !items.length && <div className="rounded-card border border-warning/30 bg-warning/5 p-6 text-center text-xs text-warning">当前没有满足条件的候选。请检查数据时间、TickFlow/公开行情权限和筛选条件；不会用虚构标的补足。</div>}
+    {result && !items.length && <div className="rounded-card border border-warning/30 bg-warning/5 p-6 text-center text-xs text-warning">当前范围没有候选。{scope === 'holdings' ? '这不代表全市场没有候选；可切换“全市场候选”，但非持仓标的不会进入你的持仓操作提醒。' : '请检查数据时间、TickFlow/公开行情权限和筛选条件；不会用虚构标的补足。'}</div>}
     {!!items.length && <div className="grid gap-2">{items.map((item, index) => { const action = actionFor(item); const links = linkFor(item); return <article key={item.symbol} className="rounded-card border border-border bg-surface p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><span className="mr-2 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] text-accent">#{index + 1}</span><b>{item.name}</b><span className="ml-2 font-mono text-[11px] text-muted">{item.symbol}</span><div className="mt-1 text-[11px] text-muted">板块 {item.sector || '未识别'} · 生成日 {item.latest_date || '—'}</div></div><div className="text-right"><b className="font-mono">{item.price == null ? '—' : Number(item.price).toFixed(2)}</b><div className={Number(item.pct) >= 0 ? 'text-bull' : 'text-bear'}>{item.pct == null ? '—' : `${Number(item.pct) >= 0 ? '+' : ''}${Number(item.pct).toFixed(2)}%`}</div></div></div><div className="mt-2 flex flex-wrap gap-1.5 text-[10px]"><span className={`rounded border px-1.5 py-0.5 ${links.holdingMatches.length ? 'border-warning/50 bg-warning/10 text-warning' : 'border-border text-muted'}`}>{links.holdingMatches.length ? `同标的持仓 ${links.holdingMatches[0].quantity ?? 0} 股` : '非当前持仓'}</span><span className={`rounded border px-1.5 py-0.5 ${links.lotMatches.length ? 'border-orange-400/50 bg-orange-400/10 text-orange-300' : 'border-border text-muted'}`}>{links.lotMatches.length ? `提醒批次 ${links.lotMatches.length} 个` : '无提醒批次'}</span><span className={`rounded border px-1.5 py-0.5 ${links.watchMatches.length ? 'border-accent/50 bg-accent/10 text-accent' : 'border-border text-muted'}`}>{links.watchMatches.length ? '已在自选' : '未在自选'}</span><span className={`rounded border px-1.5 py-0.5 ${links.sectorMatches.length ? 'border-blue-400/50 bg-blue-400/10 text-blue-300' : 'border-border text-muted'}`}>{links.sectorMatches.length ? `同板块持仓 ${links.sectorMatches.length} 只` : '无同板块持仓'}</span><span className={`rounded border px-1.5 py-0.5 ${links.poolMatches.length ? 'border-success/50 bg-success/10 text-success' : 'border-border text-muted'}`}>{links.poolMatches.length ? `研究池命中 ${links.poolMatches.length} 个` : researchPools.length ? '未命中研究池' : '研究池未配置'}</span></div><div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4"><span>评分 <b className="text-accent">{item.score ?? '—'}</b></span><span>优先级 <b>{item.priority || '—'}</b></span><span>阶段 <b>{item.entry_status || '—'}</b></span><span>放量 <b>{item.volume_multiple == null ? '—' : `${item.volume_multiple}x`}</b></span></div><div className="mt-2 rounded border border-accent/20 bg-accent/5 p-2 text-[11px]"><div className="font-semibold">推荐依据（算法实际返回）</div>{item.reasons?.length ? <ul className="mt-1 list-disc space-y-0.5 pl-4 text-muted">{item.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul> : <div className="mt-1 text-muted">旧扫描记录未保存明细依据</div>}{!!item.opposing_evidence?.length && <><div className="mt-2 font-semibold text-warning">反向证据</div><ul className="mt-1 list-disc space-y-0.5 pl-4 text-muted">{item.opposing_evidence.map(reason => <li key={reason}>{reason}</li>)}</ul></>}<div className="mt-2 border-t border-border/50 pt-2">条件式操作：<b className="text-accent">{action.label}</b><div className="mt-1 text-muted">触发依据：{action.detail}</div><div className="mt-1 text-muted">信号失效：{action.invalid}</div></div></div><p className="mt-2 text-[11px] text-muted">技术候选需进一步核对板块、资金、情绪和个股数据；缺少确认项时只观察，不生成下单动作。</p><button type="button" onClick={() => askAI(item)} className="mt-2 rounded border border-accent/60 px-2 py-1 text-[11px] text-accent">AI复核这只候选</button></article>})}</div>}
   </div>
 }
