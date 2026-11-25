@@ -177,6 +177,11 @@ export function HoldingsWidget() {
 }
 
 export function RecommendationWidget() {
+  const holdings = useQuery({
+    queryKey: ['myagent-quant-holdings-for-recommendations'],
+    queryFn: () => getJson<{ items: Holding[] }>(`${API}/holdings`),
+    refetchInterval: 30_000,
+  })
   const snapshots = useQuery({
     queryKey: ['myagent-recommendation-snapshots'],
     queryFn: () => getJson<{ items: RecommendationSnapshot[] }>(`${API}/recommendation-snapshots?limit=5`),
@@ -192,7 +197,10 @@ export function RecommendationWidget() {
     queryFn: () => getJson<LegacySummary>(`${API}/legacy-summary`),
     refetchInterval: 180_000,
   })
-  const items = snapshots.data?.items || []
+  const holdingCodes = new Set((holdings.data?.items || []).map(item => String(item.symbol).replace(/\D/g, '')))
+  const items = (snapshots.data?.items || []).filter(snapshot =>
+    holdingCodes.size > 0 && snapshot.symbols.some(symbol => holdingCodes.has(String(symbol).replace(/\D/g, ''))),
+  )
   const pending = items.filter(item => item.status === '待复盘')
   const reviewedValues = items.flatMap(item => item.status === '已复盘' ? (item.review?.observations || []) : [])
     .map(item => Number(item.observed_return_pct)).filter(Number.isFinite)
@@ -200,12 +208,12 @@ export function RecommendationWidget() {
   const reviewedRate = reviewedValues.length ? reviewedPositive / reviewedValues.length * 100 : null
   const reviewedAverage = reviewedValues.length ? reviewedValues.reduce((sum, value) => sum + value, 0) / reviewedValues.length : null
   return <section className="h-full overflow-auto rounded-card border border-border bg-surface p-3 text-foreground">
-    <div className="flex items-center justify-between gap-2"><div><h2 className="text-xs font-semibold">今日推荐 / 预测复盘</h2><p className="mt-0.5 text-[10px] text-muted">规则候选 · 只读研究 · 约 30 秒刷新</p></div><Link to="/recommendations" className="text-[11px] text-accent hover:underline">打开完整页</Link></div>
+    <div className="flex items-center justify-between gap-2"><div><h2 className="text-xs font-semibold">我的持仓提醒 / 预测复盘</h2><p className="mt-0.5 text-[10px] text-muted">只显示涉及当前手工持仓的快照 · 约 30 秒刷新</p></div><Link to="/recommendations" className="text-[11px] text-accent hover:underline">打开全市场推荐</Link></div>
     <div className="mt-2 flex flex-wrap gap-2 text-[10px]"><span className="rounded bg-accent/10 px-2 py-1 text-accent">待复盘 {pending.length}</span><span className="rounded bg-elevated px-2 py-1 text-muted">已记录 {items.length}</span><span className={`rounded px-2 py-1 ${ai.data?.api_key_configured ? 'bg-accent/10 text-accent' : 'bg-warning/10 text-warning'}`}>AI {ai.data?.api_key_configured ? '可用' : '未配置'}</span>{reviewedRate != null && <span className="rounded bg-elevated px-2 py-1 text-secondary">真实观察上涨率 {reviewedRate.toFixed(1)}%（{reviewedPositive}/{reviewedValues.length}）{reviewedAverage != null ? ` · 均值 ${reviewedAverage >= 0 ? '+' : ''}${reviewedAverage.toFixed(2)}%` : ''}</span>}</div>
     {snapshots.isLoading && <p className="mt-3 text-xs text-muted">读取推荐记录…</p>}
     {snapshots.error && <p className="mt-3 text-xs text-danger">推荐记录暂不可用：{(snapshots.error as Error).message}</p>}
     {legacy.data?.available && <div className="mt-2 rounded border border-warning/30 bg-warning/5 p-2 text-[10px]"><div className="flex items-center justify-between gap-2"><b className="text-warning">{legacy.data.label || '历史归档（只读）'}</b><span className="text-muted">不启用旧模拟逻辑</span></div><div className="mt-1 text-muted">历史推荐 {legacy.data.recommendations?.records ?? 0} 条 · 模拟触发 {legacy.data.recommendations?.paper_status?.submitted ?? 0} 次 · 复盘 {legacy.data.reviews?.days ?? 0} 天 · 研究池 {legacy.data.research_pool?.items ?? 0} 条</div>{legacy.data.warnings?.some(item => item.includes('异常口径')) && <div className="mt-1 text-warning">⚠ 历史复盘成功率口径异常，当前仅作参考</div>}</div>}
-    {!snapshots.isLoading && !snapshots.error && !items.length && <p className="mt-3 text-xs text-muted">还没有推荐快照。打开完整页生成候选后，可保存并在收盘/下一交易日复盘。</p>}
+    {!snapshots.isLoading && !holdings.isLoading && !snapshots.error && !items.length && <p className="mt-3 text-xs text-muted">当前没有涉及持仓的推荐快照；全市场候选请前往“个股搜索/推荐”，不会把非持仓候选混入看板。</p>}
     <div className="mt-2 grid gap-1.5">{items.slice(0, 3).map(item => <div key={item.id} className="rounded border border-border/70 bg-base/40 p-2 text-[10px]"><div className="flex justify-between gap-2"><b>{item.period}</b><span className={item.status === '待复盘' ? 'text-warning' : 'text-bull'}>{item.status}</span></div><div className="mt-1 text-muted">{item.generated_at} · {item.symbols.join('、')}</div><div className="mt-1 text-muted">有效至 {item.valid_until}</div></div>)}</div>
   </section>
 }
@@ -264,3 +272,4 @@ export function SectorWatchWidget() {
     <p className="mt-2 text-[10px] text-muted">异动：较上次快照涨幅增加 ≥0.8 个百分点，或量比 ≥2 且日涨幅 ≥2%。页面关闭时不持续监控；公开源非逐笔行情。</p>
   </section>
 }
+
