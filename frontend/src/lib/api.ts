@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 50475)
-Total output lines: 5565
-
 // 后端 API 客户端 — 全项目统一入口
 //
 // Dev: Vite 按启动脚本解析出的 BACKEND_HOST/BACKEND_PORT 代理 /api
@@ -551,6 +548,7 @@ export interface OverviewMarket {
     strong_up?: number
     strong_down?: number
   }
+  arms?: { value: number | null; status: 'ok' | 'unavailable'; advances: number; declines: number }
   amount: { total: number; avg: number }
   boards: { board: string; count: number; up: number; down: number; up_pct: number; amount: number }[]
   limit: { limit_up: number; broken: number; failed: number; limit_down: number; max_boards: number; seal_rate?: number; tiers: { boards: number; count: number; stocks?: { symbol: string; name?: string; amount?: number }[] }[]; sealed_ready?: boolean; fake_up?: number; fake_down?: number }
@@ -3102,7 +3100,48 @@ export const api = {
       pipeline_pull_index: boolean
     }>('/api/settings/preferences/pipeline-pull-types', {
       method: 'PUT',
-      bod…475 tokens truncated…: number
+      body: JSON.stringify(cfg),
+    }),
+  updatePipelineRegimeEnabled: (enabled: boolean) =>
+    request<{ pipeline_regime_enabled: boolean }>('/api/settings/preferences/pipeline-regime-enabled', {
+      method: 'PUT',
+      body: JSON.stringify({ pipeline_regime_enabled: enabled }),
+    }),
+  updateRegimeBatchParams: (params: { batch_days?: number; warmup_days?: number }) =>
+    request<{ regime_batch_days: number; regime_warmup_days: number }>('/api/settings/preferences/regime-batch-params', {
+      method: 'PUT',
+      body: JSON.stringify(params),
+    }),
+  updatePipelineIndexSymbols: (symbols: string) =>
+    request<{ pipeline_index_symbols: string }>('/api/settings/preferences/pipeline-index-symbols', {
+      method: 'PUT',
+      body: JSON.stringify({ symbols }),
+    }),
+  updateRealtimeQuotes: (enabled: boolean) =>
+    request<{ realtime_quotes_enabled: boolean; realtime_allowed?: boolean; mode?: string; error?: string }>('/api/settings/preferences/realtime-quotes', {
+      method: 'PUT',
+      body: JSON.stringify({ realtime_quotes_enabled: enabled }),
+    }),
+  updateRealtimeQuoteScope: (cfg: Partial<Pick<Preferences, 'realtime_pull_stock' | 'realtime_pull_etf'>>) =>
+    request<Partial<Preferences>>('/api/settings/preferences/realtime-quote-scope', {
+      method: 'PUT',
+      body: JSON.stringify(cfg),
+    }),
+  updateWatchlistGroupsInNav: (enabled: boolean) =>
+    request<{ watchlist_groups_in_nav: boolean }>('/api/settings/preferences/watchlist-groups-in-nav', {
+      method: 'PUT',
+      body: JSON.stringify({ watchlist_groups_in_nav: enabled }),
+    }),
+  quoteStatus: () =>
+    request<{
+      enabled: boolean
+      running: boolean
+      paused?: boolean
+      mode?: 'none' | 'watchlist' | 'full_market'
+      realtime_allowed?: boolean
+      interval_s: number
+      symbol_count: number
+      watchlist_symbol_count?: number
       index_symbol_count?: number
       etf_symbol_count?: number
       quote_age_ms: number | null
