@@ -23,16 +23,18 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertLessEqual(result["max_risk_yuan"], 5000)
         self.assertIsNotNone(result["invalidation_price"])
 
-    def test_unverified_manual_account_cannot_generate_add_signal(self):
+    def test_manual_account_can_generate_research_only_add_signal(self):
         result = build_decision({
             "freshness": {"stale": False, "market_time": "2026-11-08T10:00:00+08:00"},
             "quote": {"price": 9.95, "support": 9.9, "resistance": 10.5},
             "market": {"pct": 0.5, "turnover_ratio": 1.1},
             "board": {"pct": 0.8}, "account": {"available_cash": 20000, "source": "manual", "verified": False},
         })
-        self.assertEqual(result["action"], "WAIT")
+        self.assertEqual(result["action"], "CONDITIONAL_ADD")
         self.assertFalse(result["account_verified"])
-        self.assertIn("未核验", "；".join(result["reasons"]))
+        self.assertEqual(result["account_mode"], "manual")
+        self.assertTrue(result["research_only"])
+        self.assertTrue(any("手工持仓成本/数量" in value for value in result["basis"]))
 
     def test_context_evidence_and_cash_cap_are_exposed(self):
         result = build_decision({

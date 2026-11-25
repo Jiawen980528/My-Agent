@@ -41,7 +41,12 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
     account = snapshot.get("account") if isinstance(snapshot.get("account"), dict) else {}
     account_source = str(account.get("source") or "unknown")
     account_verified = account.get("verified") is True and account_source in {"qmt", "ptrade", "broker_realtime"}
-    if not account_verified:
+    # Manual holdings are a valid research context for conditional guidance.
+    # They are deliberately not treated as broker-verified and can never
+    # authorize an order; the frontend must label the result as research-only.
+    account_mode = str(account.get("mode") or "").strip().lower()
+    manual_research = account_mode == "manual" or account_source in {"manual", "manual_holdings", "local_manual"}
+    if not account_verified and not manual_research:
         reasons.append(f"账户数据来源为 {account_source}，未核验为券商实时账户")
 
     breadth = snapshot.get("market_breadth") if isinstance(snapshot.get("market_breadth"), dict) else {}
@@ -93,6 +98,8 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
             max_qty = min(max_qty, int(max(0.0, budget - used_risk) / risk_per_share)) if risk_per_share > 0 else 0
             max_loss = round(max_qty * risk_per_share, 2)
             basis.extend(["个股价格/支撑/压力", "大盘涨跌", "关联板块涨跌", "账户风险预算"])
+            if manual_research:
+                basis.append("手工持仓成本/数量（非券商同步）")
             if period_ready:
                 basis.append("日线/60分钟/15分钟/5分钟多周期")
                 daily = multi_period.get("daily") if isinstance(multi_period.get("daily"), dict) else {}
@@ -161,6 +168,8 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
         "risk_budget_yuan": round(budget, 2),
         "account_source": account_source,
         "account_verified": account_verified,
+        "account_mode": "manual" if manual_research else ("broker" if account_verified else "unknown"),
+        "research_only": not account_verified,
         "generated_at": generated.isoformat(timespec="seconds"),
         "valid_until": expires.isoformat(timespec="seconds"),
         "status": "WAIT" if reasons and action == "WAIT" else "OK",

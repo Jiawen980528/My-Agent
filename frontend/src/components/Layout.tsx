@@ -31,7 +31,6 @@ import {
   Settings,
   DatabaseZap,
   Loader2,
-  Tags,
   BarChart3,
   Newspaper,
   Sparkles,
@@ -54,11 +53,6 @@ import {
   IconDashboard,
   IconWatchlist,
   IconStrategy,
-  IconFactors,
-  IconBacktest,
-  IconRegime,
-  IconIndices,
-  IconData,
   type BrandIconProps,
 } from './BrandIcons'
 import { Logo } from './Logo'
@@ -87,19 +81,17 @@ type CoreIndex = (typeof CORE_INDEXES)[number]
 const nav = [
   { to: '/',                 label: '看板',     icon: IconDashboard },
   { to: '/watchlist',        label: '自选',     icon: IconWatchlist },
-  { to: '/screener',         label: '策略',     icon: IconStrategy },
-  { to: '/pick-model',       label: '拾贝模型', icon: IconStrategy },
-  { to: '/recommendations',  label: '今日推荐', icon: Sparkles },
   { to: '/portfolio-terminal', label: '我的持仓', icon: IconWatchlist },
-  { to: '/fund-flow',        label: '资金流向', icon: BarChart3 },
-  { to: '/market-news',      label: '市场新闻', icon: Newspaper },
   { to: '/decision-guide',   label: '行情推演', icon: Sparkles },
-  { to: '/factors',          label: '因子',     icon: IconFactors },
-  { to: '/backtest',         label: '回测',     icon: IconBacktest },
-  { to: '/regime',           label: '市场环境', icon: IconRegime },
-  { to: '/indices',          label: '指数',     icon: IconIndices },
-  { to: '/data',             label: '数据',     icon: IconData },
+  { to: '/recommendations',  label: '个股推荐', icon: Sparkles },
+  { to: '/screener',         label: '个股搜索', icon: IconStrategy },
+  { to: '/fund-flow',        label: '市场总览', icon: BarChart3 },
+  { to: '/market-news',      label: '个股/市场新闻', icon: Newspaper },
 ] as const
+
+// 量化侧栏只展示个人持仓决策链路。拾贝、回测、因子、数据同步等旧页面
+// 仍保留路由和数据，不再占用主导航；需要时可从看板组件或设置页进入。
+const FOCUS_EXTENSION_PATHS = new Set(['/paper', '/review', '/monitor'])
 
 /** 亮/暗主题切换 — 状态存 localStorage, 生效见 lib/theme.ts */
 function ThemeToggle() {
@@ -409,10 +401,6 @@ export function Layout() {
   })
   // poll=true: 全局唯一开启条件轮询 (非交易时段 60s 兜底, 交易时段靠 SSE)
   const { data: quoteStatus } = useQuoteStatus({ poll: true })
-  const { data: analysisMenus } = useQuery({
-    queryKey: QK.analysisMenus,
-    queryFn: api.analysisMenus,
-  })
 
   // 自选分组 — 仅当用户开启「显示在侧边栏」时拉取
   const groupsInNav = prefs?.watchlist_groups_in_nav ?? false
@@ -605,14 +593,11 @@ export function Layout() {
     if (alertsTotal != null) setAlertTotal(alertsTotal)
   }, [alertsTotal])
 
-  // 合并内置页面 + 可见的扩展分析菜单
+  // 合并个人持仓决策链路 + 暗盘/复盘/提醒三个必要扩展入口。
   type NavIcon = (props: BrandIconProps) => ReactNode
   // arch: 'ext' = 扩展域页面 (官方扩展/自定义分析), 核心域 nav 常量不带标。
   // 与菜单设置 ARCH_CLASS 同口径: nav 常量 8 项全部核心, 其余两个来源全部扩展。
   type NavItem = { to: string; label: string; icon: NavIcon; badge?: string; arch?: 'core' | 'ext' }
-  const analysisNav: NavItem[] = (analysisMenus?.items ?? [])
-    .filter(m => m.visible)
-    .map(m => ({ to: `/analysis/${m.id}`, label: m.label, icon: m.icon === 'tags' ? Tags : BarChart3, arch: 'ext' as const }))
   const extensionNav: NavItem[] = getFrontendExtensionNavigation().map(item => ({
     to: item.route.path,
     label: item.label,
@@ -621,7 +606,7 @@ export function Layout() {
     arch: 'ext' as const,
   }))
 
-  const allNav: NavItem[] = [...nav, ...analysisNav, ...extensionNav]
+  const allNav: NavItem[] = [...nav, ...extensionNav.filter(item => FOCUS_EXTENSION_PATHS.has(item.to))]
   const savedOrder = prefs?.nav_order ?? []
 
   const navItems = savedOrder.length > 0
