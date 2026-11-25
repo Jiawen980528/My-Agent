@@ -567,12 +567,18 @@ function DecisionGuidePanel({ items, day, minuteData, source, aiText, aiBusy, on
     queryKey: ['portfolio-strict-decisions', day, items.map(item => item.symbol).join(','), guides.map(row => row.time).join(',')],
     queryFn: async () => {
       const get = async <T,>(url: string): Promise<T | null> => { try { return await json<T>(url) } catch { return null } }
-      const [market, forecast, snapshot, history] = await Promise.all([
+      const [market, forecast, snapshot, history, defensiveCatalog] = await Promise.all([
         get<{ breadth?: { up?: number; down?: number; flat?: number; avg_pct?: number | null } }>('/quant/api/overview/market'),
         get<Record<string, unknown>>(`/quant/api/myagent/market-volume-forecast?trade_date=${day}`),
         get<{ account?: Record<string, unknown>; account_source?: string; account_verified?: boolean; available_cash?: number; day_risk_used?: number }>(`${API}/portfolio/snapshot`),
         get<{ trades?: unknown[] }>(`${API}/terminal/history?trade_date=${day}`),
+        get<{ items?: { code: string; name: string }[] }>('/quant/api/myagent/fund-flow/sectors?q=%E9%93%B6%E8%A1%8C&limit=20'),
       ])
+      const defensive = defensiveCatalog?.items?.find(item => item.name === '银行' || item.name.includes('银行'))
+      const defensiveSeries = defensive?.code ? await get<{ rows?: { close?: number }[] }>(`/quant/api/myagent/fund-flow/sector-kline?sector=${encodeURIComponent(defensive.code)}&period=1m`) : null
+      const defensiveRows = defensiveSeries?.rows || []
+      const defensiveFirst = Number(defensiveRows[0]?.close), defensiveLast = Number(defensiveRows.at(-1)?.close)
+      const defensivePct = Number.isFinite(defensiveFirst) && defensiveFirst > 0 && Number.isFinite(defensiveLast) ? (defensiveLast / defensiveFirst - 1) * 100 : null
       const periodSummary = (values: number[]) => values.length >= 2 ? { observations: values.length, trend: values.at(-1)! > values[0] ? 'up' : values.at(-1)! < values[0] ? 'down' : 'flat', first: values[0], last: values.at(-1) } : null
       const result: Record<string, StrictDecision | null> = {}
       await Promise.all(items.map(async item => {
@@ -593,7 +599,7 @@ function DecisionGuidePanel({ items, day, minuteData, source, aiText, aiBusy, on
           market: { pct: market?.breadth?.avg_pct ?? null, turnover_ratio: forecast?.status === 'ok' && Number(forecast.forecast_amount) > 0 ? Number(forecast.current_cumulative_amount || 0) / Number(forecast.forecast_amount) : null },
           board: boardPct == null ? {} : { pct: boardPct, name: board?.board?.name, code: board?.board?.code },
           market_breadth: market?.breadth ? { up_count: market.breadth.up, down_count: market.breadth.down, flat_count: market.breadth.flat } : {},
-          defensive: {},
+          defensive: defensivePct == null ? {} : { name: defensive?.name, code: defensive?.code, pct: defensivePct },
           multi_period: { daily: periodSummary(dailyValues), minute_60: periodSummary(bucket(60)), minute_15: periodSummary(bucket(15)), minute_5: periodSummary(bucket(5)) },
           account: snapshot?.account || { source: snapshot?.account_source || 'unavailable', verified: snapshot?.account_verified === true, available_cash: snapshot?.available_cash, day_risk_used: snapshot?.day_risk_used },
           trades_today: history?.trades || [], turnover_forecast: forecast || {}, risk_budget: 5000,
