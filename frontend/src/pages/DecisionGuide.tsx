@@ -191,12 +191,14 @@ export function DecisionGuide() {
     refetchInterval: tradingNow() ? 60_000 : false,
     staleTime: 60_000,
   })
-  const accountContext = snapshot.data?.account || {
-    source: snapshot.data?.account_source || 'unavailable',
-    mode: snapshot.data?.account_verified === true ? 'broker' as const : 'manual' as const,
+  const rawAccount = snapshot.data?.account || {}
+  const accountContext: AccountContext = {
+    ...rawAccount,
+    source: rawAccount.source || snapshot.data?.account_source || 'unavailable',
+    mode: snapshot.data?.account_verified === true ? 'broker' : 'manual',
     verified: snapshot.data?.account_verified === true,
-    available_cash: snapshot.data?.available_cash,
-    day_risk_used: snapshot.data?.day_risk_used,
+    available_cash: rawAccount.available_cash ?? snapshot.data?.available_cash,
+    day_risk_used: rawAccount.day_risk_used ?? snapshot.data?.day_risk_used,
   }
   const decision = useQuery({
     queryKey: ['decision-guide-assist', selected?.item.symbol, selected?.last, selected?.bars.at(-1)?.datetime, linkedBoardCode, boardPct, defensiveBoard?.code, defensivePct, accountContext.verified, tradeHistory.data?.trades?.length, marketOverview.data?.as_of, marketVolumeForecast.data?.as_of, multiPeriod.data?.as_of],
