@@ -5,6 +5,7 @@ import { MiniIntraday } from '@/components/stock-table/MiniIntraday'
 import type { MinuteKlineRow } from '@/lib/api'
 
 const API = '/quant/api/myagent/quant'
+const MYAGENT_ROOT = '/quant/api/myagent'
 
 type Holding = { symbol: string; name: string; sector: string; quantity: number; cost: number; price?: number; pct?: number; profit?: number; profit_pct?: number }
 type Sector = { sector: string; theme: string }
@@ -15,6 +16,7 @@ type NewsItem = { title: string; url: string; source: string; published_at?: str
 type NewsFeed = { items: NewsItem[]; fetched_at: string; source: string; status: string; notice: string }
 type MinuteBatch = { data: Record<string, MinuteKlineRow[]>; source?: string; freshness?: Record<string, { market_time?: string | null; stale?: boolean }> }
 type RecommendationSnapshot = { id: number; period: string; status: '待复盘' | '已复盘'; generated_at: string; valid_until: string; symbols: string[]; data_source?: string }
+type AIConfig = { api_key_configured?: boolean; model?: string }
 
 async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { credentials: 'include' })
@@ -179,11 +181,16 @@ export function RecommendationWidget() {
     queryFn: () => getJson<{ items: RecommendationSnapshot[] }>(`${API}/recommendation-snapshots?limit=5`),
     refetchInterval: 30_000,
   })
+  const ai = useQuery({
+    queryKey: ['myagent-ai-config'],
+    queryFn: () => getJson<AIConfig>(`${MYAGENT_ROOT}/config`),
+    staleTime: 60_000,
+  })
   const items = snapshots.data?.items || []
   const pending = items.filter(item => item.status === '待复盘')
   return <section className="h-full overflow-auto rounded-card border border-border bg-surface p-3 text-foreground">
     <div className="flex items-center justify-between gap-2"><div><h2 className="text-xs font-semibold">今日推荐 / 预测复盘</h2><p className="mt-0.5 text-[10px] text-muted">规则候选 · 只读研究 · 约 30 秒刷新</p></div><Link to="/recommendations" className="text-[11px] text-accent hover:underline">打开完整页</Link></div>
-    <div className="mt-2 flex flex-wrap gap-2 text-[10px]"><span className="rounded bg-accent/10 px-2 py-1 text-accent">待复盘 {pending.length}</span><span className="rounded bg-elevated px-2 py-1 text-muted">已记录 {items.length}</span></div>
+    <div className="mt-2 flex flex-wrap gap-2 text-[10px]"><span className="rounded bg-accent/10 px-2 py-1 text-accent">待复盘 {pending.length}</span><span className="rounded bg-elevated px-2 py-1 text-muted">已记录 {items.length}</span><span className={`rounded px-2 py-1 ${ai.data?.api_key_configured ? 'bg-accent/10 text-accent' : 'bg-warning/10 text-warning'}`}>AI {ai.data?.api_key_configured ? '可用' : '未配置'}</span></div>
     {snapshots.isLoading && <p className="mt-3 text-xs text-muted">读取推荐记录…</p>}
     {snapshots.error && <p className="mt-3 text-xs text-danger">推荐记录暂不可用：{(snapshots.error as Error).message}</p>}
     {!snapshots.isLoading && !snapshots.error && !items.length && <p className="mt-3 text-xs text-muted">还没有推荐快照。打开完整页生成候选后，可保存并在收盘/下一交易日复盘。</p>}
