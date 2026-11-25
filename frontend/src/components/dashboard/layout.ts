@@ -19,7 +19,7 @@ export type WidgetType =
   | 'indices' | 'kpi' | 'market-overview' | 'distribution' | 'radar' | 'trend'
   | 'concept-rank' | 'industry-rank'
   | 'gainers' | 'losers' | 'turnover' | 'activity'
-  | 'ladder' | 'monitor' | 'fund-flow' | 'holdings' | 'recommendations' | 'portfolio-monitor' | 'sector-watch' | 'market-news' | 'page-panel' | 'ext-link'
+  | 'ladder' | 'monitor' | 'fund-flow' | 'holdings' | 'recommendations' | 'paper-summary' | 'portfolio-monitor' | 'sector-watch' | 'market-news' | 'page-panel' | 'ext-link'
 
 export interface DashboardItem {
   /** 实例 id: 内置组件 = type; 外部链接 = ext-link-<seq> */
@@ -142,3 +142,4 @@ export function compactLayout<T extends { i: string; x: number; y: number; w: nu
 export function toBlob(items: DashboardItem[]): DashboardLayoutBlob {
   return { v: 1, items: cloneItems(items) }
 }
+
