@@ -37,12 +37,13 @@ type MarketOverviewBrief = {
   quote_status?: { source?: string | null; quote_age_ms?: number | null; is_trading_hours?: boolean }
   indices?: { symbol: string; name: string; last_price?: number | null; change_pct?: number | null }[]
   breadth?: { up?: number; down?: number; flat?: number; avg_pct?: number | null }
+  arms?: { value?: number | null; status?: 'ok' | 'unavailable'; advances?: number; declines?: number }
   limit?: { limit_up?: number; broken?: number; limit_down?: number; max_boards?: number; seal_rate?: number | null }
 }
 type BoardMemberQuote = { price?: number | null; change_pct?: number | null; signal_limit_up?: boolean; signal_broken_limit_up?: boolean }
 type BoardMemberQuotes = { items?: { symbol: string; name: string; labels?: string[] }[]; quotes?: Record<string, BoardMemberQuote>; quote_source?: string; notice?: string }
 type TickFlowStatus = { connected?: boolean; source?: string | null; as_of?: string | null; message?: string | null }
-type StrictDecision = { action: string; rating: string; reasons?: string[]; basis?: string[]; suggested_qty?: number; max_risk_yuan?: number; trigger_price?: number | null; invalidation_price?: number | null; account_verified?: boolean; account_source?: string; account_mode?: string; research_only?: boolean; valid_until?: string; evidence?: { context_missing?: string[] } }
+type StrictDecision = { action: string; rating: string; reasons?: string[]; warnings?: string[]; basis?: string[]; suggested_qty?: number; max_risk_yuan?: number; trigger_price?: number | null; invalidation_price?: number | null; account_verified?: boolean; account_source?: string; account_mode?: string; research_only?: boolean; valid_until?: string; evidence?: { context_missing?: string[] } }
 type Replay = { actual_vs_no_trade: string; realised_t_pnl: string; extra_position_effect: string;
   max_drawdown_yuan: string; max_drawdown_pct_of_snapshot_assets: string | null; hindsight_optimal_pnl: string;
   hindsight_quantity: number | null;
@@ -591,12 +592,13 @@ function DecisionGuidePanel({ items, day, minuteData, source, aiText, aiBusy, ex
     queryKey: ['portfolio-strict-decisions', day, items.map(item => item.symbol).join(','), guides.map(row => row.time).join(',')],
     queryFn: async () => {
       const get = async <T,>(url: string): Promise<T | null> => { try { return await json<T>(url) } catch { return null } }
-      const [market, forecast, snapshot, history, defensiveCatalog] = await Promise.all([
-        get<{ breadth?: { up?: number; down?: number; flat?: number; avg_pct?: number | null } }>('/quant/api/overview/market'),
+      const [market, forecast, snapshot, history, defensiveCatalog, external] = await Promise.all([
+        get<MarketOverviewBrief>('/quant/api/overview/market'),
         get<Record<string, unknown>>(`/quant/api/myagent/market-volume-forecast?trade_date=${day}`),
         get<{ account?: Record<string, unknown>; account_source?: string; account_verified?: boolean; available_cash?: number; day_risk_used?: number }>(`${API}/portfolio/snapshot`),
         get<{ trades?: unknown[] }>(`${API}/terminal/history?trade_date=${day}`),
         get<{ items?: { code: string; name: string }[] }>('/quant/api/myagent/fund-flow/sectors?q=%E9%93%B6%E8%A1%8C&limit=20'),
+        get<ExternalMarketContext>('/quant/api/external-market/context'),
       ])
       const defensive = defensiveCatalog?.items?.find(item => item.name === '银行' || item.name.includes('银行'))
       const defensiveSeries = defensive?.code ? await get<{ rows?: { close?: number }[] }>(`/quant/api/myagent/fund-flow/sector-kline?sector=${encodeURIComponent(defensive.code)}&period=${/\.TI$/i.test(defensive.code) ? 'daily' : '1m'}`) : null
@@ -622,11 +624,11 @@ function DecisionGuidePanel({ items, day, minuteData, source, aiText, aiBusy, ex
           quote: { price: closes.at(-1) ?? item.price, support: localGuide?.support, resistance: localGuide?.resistance },
           market: { pct: market?.breadth?.avg_pct ?? null, turnover_ratio: forecast?.status === 'ok' && Number(forecast.forecast_amount) > 0 ? Number(forecast.current_cumulative_amount || 0) / Number(forecast.forecast_amount) : null },
           board: boardPct == null ? {} : { pct: boardPct, name: board?.board?.name, code: board?.board?.code },
-          market_breadth: market?.breadth ? { up_count: market.breadth.up, down_count: market.breadth.down, flat_count: market.breadth.flat } : {},
+          market_breadth: market?.breadth ? { up_count: market.breadth.up, down_count: market.breadth.down, flat_count: market.breadth.flat, arms: market.arms || null } : {},
           defensive: defensivePct == null ? {} : { name: defensive?.name, code: defensive?.code, pct: defensivePct },
           multi_period: { daily: periodSummary(dailyValues), minute_60: periodSummary(bucket(60)), minute_15: periodSummary(bucket(15)), minute_5: periodSummary(bucket(5)) },
           account: { ...(snapshot?.account || {}), source: snapshot?.account?.source || snapshot?.account_source || 'unavailable', mode: snapshot?.account_verified === true ? 'broker' : 'manual', verified: snapshot?.account_verified === true, available_cash: snapshot?.account?.available_cash ?? snapshot?.available_cash, day_risk_used: snapshot?.account?.day_risk_used ?? snapshot?.day_risk_used },
-          trades_today: history?.trades || [], turnover_forecast: forecast || {}, risk_budget: 5000,
+          trades_today: history?.trades || [], turnover_forecast: forecast || {}, external_market: external || { status: 'unavailable', rows: [], source: 'unavailable', generated_at: new Date().toISOString() }, risk_budget: 5000,
         }
         try { const response = await fetch('/quant/api/myagent/decision/assist', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); result[item.symbol] = await response.json() as StrictDecision } catch { result[item.symbol] = null }
       }))
@@ -652,7 +654,7 @@ function DecisionGuidePanel({ items, day, minuteData, source, aiText, aiBusy, ex
       <div className="mt-0.5 flex justify-between text-[10px] text-muted"><span>{row.item.symbol} · {row.trend} · {row.change == null ? '—' : pct(row.change)}</span><span>最新 {row.last == null ? price(row.item.price) : price(row.last)}</span></div>
       <div className="mt-0.5 grid grid-cols-3 gap-1 text-[10px] text-muted"><span>支撑 {row.support == null ? '—' : price(row.support)}</span><span>压力 {row.resistance == null ? '—' : price(row.resistance)}</span><span>区间 {row.rangeWidth == null ? '—' : `${row.rangeWidth.toFixed(2)}%`}</span></div>
       <div className="mt-1 rounded bg-elevated/60 px-1.5 py-1 text-[10px] leading-relaxed text-secondary"><b className="text-foreground">技术观察：</b>{row.advice}{row.pullbackPct != null && <span className="ml-1 text-muted">（距近端高点 {row.pullbackPct.toFixed(2)}%）</span>}</div>
-      {(() => { const decision = strictDecisions.data?.[row.item.symbol]; return <div className="mt-1 rounded border border-warning/30 bg-warning/5 px-1.5 py-1 text-[10px] leading-relaxed"><div className="flex flex-wrap items-center justify-between gap-1"><b>严格决策：{decision?.rating || (strictDecisions.isLoading ? '计算中' : '不可用')}</b><span>{decision?.action || 'WAIT'} · 有效至 {decision?.valid_until?.slice(11, 16) || '—'}</span></div><div className="mt-0.5">{decision?.reasons?.join('；') || (strictDecisions.isError ? '决策接口暂不可用' : '等待真实市场、板块、量能和账户上下文')}</div>{decision?.evidence?.context_missing?.length ? <div className="mt-0.5 text-muted">缺少：{decision.evidence.context_missing.join('、')}</div> : null}<div className="mt-0.5 text-muted">建议数量 {decision?.suggested_qty ?? 0} · 最大风险 ¥{Number(decision?.max_risk_yuan || 0).toFixed(2)} · 仅研究，不自动下单</div></div> })()}
+      {(() => { const decision = strictDecisions.data?.[row.item.symbol]; return <div className="mt-1 rounded border border-warning/30 bg-warning/5 px-1.5 py-1 text-[10px] leading-relaxed"><div className="flex flex-wrap items-center justify-between gap-1"><b>严格决策：{decision?.rating || (strictDecisions.isLoading ? '计算中' : '不可用')}</b><span>{decision?.action || 'WAIT'} · 有效至 {decision?.valid_until?.slice(11, 16) || '—'}</span></div><div className="mt-0.5">{decision?.reasons?.join('；') || (strictDecisions.isError ? '决策接口暂不可用' : '等待真实市场、板块、量能和账户上下文')}</div>{decision?.warnings?.length ? <div className="mt-0.5 text-warning">外围/情绪提示：{decision.warnings.join('；')}</div> : null}{decision?.evidence?.context_missing?.length ? <div className="mt-0.5 text-muted">缺少：{decision.evidence.context_missing.join('、')}</div> : null}<div className="mt-0.5 text-muted">建议数量 {decision?.suggested_qty ?? 0} · 最大风险 ¥{Number(decision?.max_risk_yuan || 0).toFixed(2)} · 仅研究，不自动下单</div></div> })()}
     </div>)}</div>
     {aiText && <div className="mt-1 rounded border border-accent/30 bg-accent/5 px-1.5 py-1 text-[10px] leading-relaxed text-secondary"><b className="text-accent">AI复核：</b>{aiText}</div>}
     <p className="mt-1 text-[10px] text-muted">数据源 {source || '—'} · 更新时间 {guides.map(row => row.time).filter(Boolean).sort().at(-1) || '—'} · 仅供研究，不自动下单。</p>

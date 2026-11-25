@@ -52,6 +52,7 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
     breadth = snapshot.get("market_breadth") if isinstance(snapshot.get("market_breadth"), dict) else {}
     turnover = snapshot.get("turnover_forecast") if isinstance(snapshot.get("turnover_forecast"), dict) else {}
     defensive = snapshot.get("defensive") if isinstance(snapshot.get("defensive"), dict) else {}
+    external = snapshot.get("external_market") if isinstance(snapshot.get("external_market"), dict) else {}
     multi_period = snapshot.get("multi_period") if isinstance(snapshot.get("multi_period"), dict) else {}
     trades_today = snapshot.get("trades_today") if isinstance(snapshot.get("trades_today"), list) else []
     period_keys = ("daily", "minute_60", "minute_15", "minute_5")
@@ -74,6 +75,7 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
     max_loss = 0.0
     max_qty = 0
     basis: list[str] = []
+    warnings: list[str] = []
     if not reasons:
         quote = snapshot["quote"]
         market = snapshot["market"]
@@ -120,6 +122,14 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
                 basis.append("市场广度")
                 if up is not None and down is not None and down > up:
                     reasons.append("市场下跌家数多于上涨家数")
+                arms = breadth.get("arms") if isinstance(breadth.get("arms"), dict) else {}
+                arms_value = _num(arms.get("value"))
+                if arms_value is not None:
+                    basis.append("阿姆斯/TRIN")
+                    if arms_value >= 1.2:
+                        warnings.append(f"阿姆斯/TRIN={arms_value:.2f}，上涨成交量相对不足，降低追涨容忍度")
+                    elif arms_value <= 0.8:
+                        warnings.append(f"阿姆斯/TRIN={arms_value:.2f}，上涨成交量相对占优")
             if turnover:
                 basis.append("全市场真实成交额预测")
                 if turnover.get("status") != "ok":
@@ -129,6 +139,15 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
                 basis.append("防守板块相对强弱")
                 if defensive_pct is not None and market_pct is not None and defensive_pct > market_pct + 1:
                     reasons.append("防守板块明显强于大盘，风险偏好偏弱")
+            if external:
+                external_rows = external.get("rows") if isinstance(external.get("rows"), list) else []
+                external_ok = external.get("status") == "ok" and any(isinstance(row, dict) and row.get("status") == "ok" for row in external_rows)
+                if external_ok:
+                    basis.append("美股/外围市场背景（公共行情，可能延迟）")
+                    by_symbol = {str(row.get("symbol")): row for row in external_rows if isinstance(row, dict)}
+                    vix = _num((by_symbol.get("^VIX") or {}).get("last"))
+                    if vix is not None and vix >= 30:
+                        warnings.append(f"VIX={vix:.1f}处于高位，外围风险偏好偏弱，优先等待确认")
             if trades_today:
                 basis.append("当日已成交记录")
             if reasons:
@@ -160,6 +179,7 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
             "multi_period": multi_period or None,
             "trades_today_count": len(trades_today),
             "context_missing": context_missing,
+            "external_market": external or None,
         },
         "trigger_price": trigger,
         "invalidation_price": invalidation,
@@ -173,5 +193,6 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
         "generated_at": generated.isoformat(timespec="seconds"),
         "valid_until": expires.isoformat(timespec="seconds"),
         "status": "WAIT" if reasons and action == "WAIT" else "OK",
+        "warnings": warnings,
         "disclaimer": "仅为条件式决策辅助，不自动下单；任何过期数据都必须重新计算。",
     }
