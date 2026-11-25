@@ -1257,30 +1257,48 @@ def sync_minute_batch(
         for i, chunk in enumerate(chunks):
             sleep_between_batches(step, rpm)
             step += 1
-            try:
-                if cur_start and cur_end:
-                    raw = _sdk_call_with_deadline(lambda: tf.klines.batch(
-                        chunk, period="1m",
-                        start_time=_datetime_to_ms(cur_start),
-                        end_time=_datetime_to_ms(cur_end),
-                        count=10000,
-                        adjust="none" if raw_basis else "forward",
-                        as_dataframe=False, show_progress=False,
-                    ))
-                else:
-                    raw = _sdk_call_with_deadline(lambda: tf.klines.batch(
-                        chunk, period="1m", count=count or 1200,
-                        adjust="none" if raw_basis else "forward",
-                        as_dataframe=False, show_progress=False))
-            except SDKCallTimeoutError as e:
-                logger.warning("minute batch fetch timed out for %d symbols: %s", len(chunk), e)
+            raw = None
+            last_error: Exception | None = None
+            # 临时网络/限流/SDK 超时不应让全市场同步静默丢掉一批。
+            # 每批最多三次，退避时间短于批间隔；最终失败仍跳过并保留
+            # 已落盘批次，供下一轮缺口同步继续补齐。
+            for attempt in range(1, 4):
+                try:
+                    if cur_start and cur_end:
+                        raw = _sdk_call_with_deadline(lambda: tf.klines.batch(
+                            chunk, period="1m",
+                            start_time=_datetime_to_ms(cur_start),
+                            end_time=_datetime_to_ms(cur_end),
+                            count=10000,
+                            adjust="none" if raw_basis else "forward",
+                            as_dataframe=False, show_progress=False,
+                        ))
+                    else:
+                        raw = _sdk_call_with_deadline(lambda: tf.klines.batch(
+                            chunk, period="1m", count=count or 1200,
+                            adjust="none" if raw_basis else "forward",
+                            as_dataframe=False, show_progress=False))
+                    last_error = None
+                    break
+                except SDKCallTimeoutError as exc:
+                    last_error = exc
+                    logger.warning(
+                        "minute batch fetch timed out (%d/%d) for %d symbols: %s",
+                        attempt, 3, len(chunk), exc,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    last_error = exc
+                    logger.warning(
+                        "minute batch fetch failed (%d/%d) for %d symbols: %s",
+                        attempt, 3, len(chunk), exc,
+                    )
+                if attempt < 3:
+                    time.sleep(min(2.0 * attempt, 5.0))
+            if last_error is not None or raw is None:
                 if on_chunk_done:
-                    # 心跳: 持续超时时保留进度上报与取消检查点(分钟路径的成功
-                    # 分支才回调, 这里补齐失败分支), 防僵尸线程滞留独占槽。
+                    # 心跳: 失败批次也回调进度与取消检查点，避免长任务被
+                    # watchdog 误判为卡死；下一轮同步仍会再次尝试该批次。
                     on_chunk_done(step, total_steps, seg_label)
-                continue
-            except Exception as e:  # noqa: BLE001
-                logger.warning("minute batch fetch failed for %d symbols: %s", len(chunk), e)
                 continue
 
             seg = _normalize_minute(_compact_klines_to_df(raw))
