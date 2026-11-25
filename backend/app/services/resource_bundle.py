@@ -53,6 +53,22 @@ class StrategyBundleError(ValueError):
     """包形状/依赖错误 — API 层转 400, 不与引擎异常混淆。"""
 
 
+def _decode_strategy_source(raw: bytes, filename: str) -> str:
+    """Decode strategy sources saved by either the API or a Windows editor."""
+    for encoding in ("utf-8-sig", "gb18030", "cp936"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    raise UnicodeDecodeError(
+        "strategy-source",
+        raw,
+        0,
+        min(len(raw), 1),
+        f"unsupported source encoding for {filename}",
+    )
+
+
 @dataclass
 class BundleSummary:
     """导出闭包的结果摘要 (进 manifest, 供 UI 展示)。"""
@@ -227,14 +243,16 @@ def collect_resources(
 
         factor_refs.update(child.scoring_columns)
         factor_refs.update(ref for ref in child.required_features if ref.startswith(("uf_", "cf_", "ext_")))
-        code = entries.get(rel, b"").decode("utf-8") if rel else ""
+        code = _decode_strategy_source(entries.get(rel, b""), rel or "") if rel else ""
         native_signals = child.execution_backend == "matrix_native"
         code_factors, code_signals = _strategy_refs_from_code(code, include_signal_outputs=not native_signals)
         factor_refs.update(code_factors)
         helper_signals: list[str] = []
         if rel is not None:
             for helper in (data_dir / rel).parent.glob("_*.py"):
-                helper_factors, helper_signal_refs = _strategy_refs_from_code(helper.read_text(encoding="utf-8"))
+                helper_factors, helper_signal_refs = _strategy_refs_from_code(
+                    _decode_strategy_source(helper.read_bytes(), helper.name)
+                )
                 factor_refs.update(helper_factors)
                 helper_signals.extend(helper_signal_refs)
 

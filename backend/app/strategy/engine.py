@@ -414,6 +414,30 @@ class StrategyEngine:
         return None
 
     @staticmethod
+    def _read_source_text(path: Path) -> str:
+        """Read a user strategy using UTF-8 first, then common Windows CJK encodings.
+
+        Strategies saved from the Windows desktop can still be written with the
+        system code page (typically GBK/CP936), while strategies saved through
+        the API are UTF-8.  Decoding the source before the AST safety check keeps
+        the fail-closed validation intact and avoids silently losing otherwise
+        valid Chinese strategy files on Windows.
+        """
+        raw = path.read_bytes()
+        for encoding in ("utf-8-sig", "gb18030", "cp936"):
+            try:
+                return raw.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+        raise UnicodeDecodeError(
+            "strategy-source",
+            raw,
+            0,
+            min(len(raw), 1),
+            f"unsupported source encoding for {path.name}",
+        )
+
+    @staticmethod
     def _load_file(path: Path) -> StrategyDef:
         """从 Python 文件加载策略定义"""
         # 纵深防御: 执行前再跑一次 AST 安全校验, 防止策略文件被直接篡改
@@ -425,7 +449,7 @@ class StrategyEngine:
         ]
         dependency_names = frozenset(candidate.stem for candidate in dependency_paths)
         try:
-            code = path.read_text(encoding="utf-8")
+            code = StrategyEngine._read_source_text(path)
             from app.strategy.ai_generator import AIStrategyGenerator
             AIStrategyGenerator._validate_safety(
                 code,
@@ -433,7 +457,7 @@ class StrategyEngine:
             )
             for dependency_path in dependency_paths:
                 AIStrategyGenerator._validate_safety(
-                    dependency_path.read_text(encoding="utf-8"),
+                    StrategyEngine._read_source_text(dependency_path),
                     extra_allowed_import_modules=frozenset({
                         "collections.abc",
                         "types",
@@ -461,7 +485,12 @@ class StrategyEngine:
             try:
                 for dependency_name in dependency_names:
                     sys.modules.pop(dependency_name, None)
-                spec.loader.exec_module(mod)
+                # SourceFileLoader re-reads the file as UTF-8 and therefore
+                # bypasses the Windows code-page fallback above.  Execute the
+                # already decoded, safety-checked source instead so legacy
+                # GBK/CP936 strategy files behave exactly like UTF-8 files.
+                mod.__file__ = str(path)
+                exec(compile(code, str(path), "exec"), mod.__dict__)
             except Exception:
                 if previous_module is None:
                     sys.modules.pop(spec.name, None)
