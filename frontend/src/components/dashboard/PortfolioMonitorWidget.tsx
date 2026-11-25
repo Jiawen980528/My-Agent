@@ -43,7 +43,7 @@ type MarketOverviewBrief = {
 type BoardMemberQuote = { price?: number | null; change_pct?: number | null; signal_limit_up?: boolean; signal_broken_limit_up?: boolean }
 type BoardMemberQuotes = { items?: { symbol: string; name: string; labels?: string[] }[]; quotes?: Record<string, BoardMemberQuote>; quote_source?: string; notice?: string }
 type TickFlowStatus = { connected?: boolean; source?: string | null; as_of?: string | null; message?: string | null }
-type StrictDecision = { action: string; rating: string; reasons?: string[]; warnings?: string[]; basis?: string[]; suggested_qty?: number; max_risk_yuan?: number; trigger_price?: number | null; invalidation_price?: number | null; account_verified?: boolean; account_source?: string; account_mode?: string; research_only?: boolean; valid_until?: string; evidence?: { context_missing?: string[] } }
+type StrictDecision = { action: string; rating: string; reasons?: string[]; warnings?: string[]; basis?: string[]; suggested_qty?: number; max_risk_yuan?: number; trigger_price?: number | null; invalidation_price?: number | null; account_verified?: boolean; account_source?: string; account_mode?: string; research_only?: boolean; valid_until?: string; evidence?: { context_missing?: string[]; technical?: Record<string, number | null> } }
 type Replay = { actual_vs_no_trade: string; realised_t_pnl: string; extra_position_effect: string;
   max_drawdown_yuan: string; max_drawdown_pct_of_snapshot_assets: string | null; hindsight_optimal_pnl: string;
   hindsight_quantity: number | null;
@@ -615,8 +615,10 @@ function DecisionGuidePanel({ items, day, minuteData, source, aiText, aiBusy, ex
         const boardRows = board?.rows || []
         const boardFirst = Number(boardRows[0]?.close), boardLast = Number(boardRows.at(-1)?.close)
         const boardPct = Number.isFinite(boardFirst) && boardFirst > 0 && Number.isFinite(boardLast) ? (boardLast / boardFirst - 1) * 100 : null
-        const daily = await get<{ rows?: { close?: number }[] }>(`/quant/api/kline/daily?symbol=${encodeURIComponent(item.symbol)}&days=60`)
-        const dailyValues = (daily?.rows || []).map(row => Number(row.close)).filter(Number.isFinite)
+        const daily = await get<{ rows?: { close?: number; rsi_14?: number | null; macd_hist?: number | null; kdj_j?: number | null; boll_position?: number | null; atr_pct?: number | null; vol_ratio_5d?: number | null }[] }>(`/quant/api/kline/daily?symbol=${encodeURIComponent(item.symbol)}&days=60`)
+        const dailyRows = daily?.rows || []
+        const dailyValues = dailyRows.map(row => Number(row.close)).filter(Number.isFinite)
+        const latestDaily = dailyRows.at(-1)
         const bucket = (minutes: number) => { const map = new Map<number, number>(); rows.forEach(row => { const match = String(row.datetime).match(/(\d{2}):(\d{2})/); if (match) map.set(Math.floor((Number(match[1]) * 60 + Number(match[2])) / minutes), Number(row.close)) }); return [...map.values()] }
         const body = {
           strict_context: true,
@@ -627,6 +629,7 @@ function DecisionGuidePanel({ items, day, minuteData, source, aiText, aiBusy, ex
           market_breadth: market?.breadth ? { up_count: market.breadth.up, down_count: market.breadth.down, flat_count: market.breadth.flat, arms: market.arms || null } : {},
           defensive: defensivePct == null ? {} : { name: defensive?.name, code: defensive?.code, pct: defensivePct },
           multi_period: { daily: periodSummary(dailyValues), minute_60: periodSummary(bucket(60)), minute_15: periodSummary(bucket(15)), minute_5: periodSummary(bucket(5)) },
+          technical: latestDaily ? { rsi_14: latestDaily.rsi_14, macd_hist: latestDaily.macd_hist, kdj_j: latestDaily.kdj_j, boll_position: latestDaily.boll_position, atr_pct: latestDaily.atr_pct, vol_ratio_5d: latestDaily.vol_ratio_5d } : {},
           account: { ...(snapshot?.account || {}), source: snapshot?.account?.source || snapshot?.account_source || 'unavailable', mode: snapshot?.account_verified === true ? 'broker' : 'manual', verified: snapshot?.account_verified === true, available_cash: snapshot?.account?.available_cash ?? snapshot?.available_cash, day_risk_used: snapshot?.account?.day_risk_used ?? snapshot?.day_risk_used },
           trades_today: history?.trades || [], turnover_forecast: forecast || {}, external_market: external || { status: 'unavailable', rows: [], source: 'unavailable', generated_at: new Date().toISOString() }, risk_budget: 5000,
         }
