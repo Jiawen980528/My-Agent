@@ -32,7 +32,6 @@ import {
   DatabaseZap,
   Loader2,
   BarChart3,
-  Newspaper,
   Sparkles,
   CheckCircle2,
   ChevronRight,
@@ -79,18 +78,16 @@ export const CORE_INDEXES = DEFAULT_INDEXES
 type CoreIndex = (typeof CORE_INDEXES)[number]
 
 const nav = [
-  { to: '/',                 label: '看板',     icon: IconDashboard },
-  { to: '/watchlist',        label: '自选',     icon: IconWatchlist },
-  { to: '/portfolio-terminal', label: '我的持仓', icon: IconWatchlist },
-  { to: '/decision-guide',   label: '行情推演', icon: Sparkles },
-  { to: '/recommendations',  label: '个股推荐', icon: Sparkles },
-  { to: '/screener',         label: '个股搜索', icon: IconStrategy },
-  { to: '/fund-flow',        label: '市场总览', icon: BarChart3 },
-  { to: '/market-news',      label: '个股/市场新闻', icon: Newspaper },
+  { to: '/',                   label: '看板',       icon: IconDashboard },
+  { to: '/portfolio-terminal', label: '我的持仓',   icon: IconWatchlist },
+  { to: '/decision-guide',     label: '行情推演',   icon: Sparkles },
+  { to: '/watchlist',           label: '自选',       icon: IconWatchlist },
+  { to: '/screener',            label: '个股搜索',   icon: IconStrategy },
+  { to: '/fund-flow',           label: '市场总览',   icon: BarChart3 },
 ] as const
 
-// 量化侧栏只展示个人持仓决策链路。拾贝、回测、因子、数据同步等旧页面
-// 仍保留路由和数据，不再占用主导航；需要时可从看板组件或设置页进入。
+// 量化侧栏只展示个人持仓决策链路。新闻、个股推荐等内容已并入看板/个股搜索，
+// 拾贝、回测、因子、数据同步等旧页面仍保留路由和数据，不再占用主导航。
 const FOCUS_EXTENSION_PATHS = new Set(['/paper', '/review', '/monitor'])
 
 /** 亮/暗主题切换 — 状态存 localStorage, 生效见 lib/theme.ts */
