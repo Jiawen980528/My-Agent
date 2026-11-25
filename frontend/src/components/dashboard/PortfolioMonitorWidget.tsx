@@ -401,7 +401,7 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
         </span><datalist id={boardListId}>{boardOptions.map(option => <option key={option.code} value={`${option.name} (${option.code})`} />)}</datalist></label>
         <button type="button" onClick={applyBoardSearch} className="rounded border border-border px-1.5 py-0.5 text-[11px] text-accent">应用</button>
         <button type="button" onClick={() => { setBoardSearch(''); onLinkedBoardChange(''); setBoardChoiceError('') }} className="px-1 text-[11px] text-muted">自动</button>
-        <span className="text-[11px] text-muted">{item.holding_source ? `已录入 ${item.quantity ?? '—'} 股/份` : '监控标的 · 持仓未核实'}</span>
+        <span className="text-[11px] text-muted">{item.holding_source ? `已录入 ${item.quantity ?? '—'} 股/份` : item.holding_source !== undefined ? '持仓未核实' : '监控标的 · 持仓未核实'}</span>
         {boardChoiceError && <span className="basis-full text-right text-[10px] text-danger">{boardChoiceError}</span>}</div>
     </header>
     {visible.chart && <section className="rounded border border-border bg-base/50 p-1.5">
