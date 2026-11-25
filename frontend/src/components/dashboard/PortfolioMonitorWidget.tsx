@@ -41,8 +41,21 @@ type Replay = { actual_vs_no_trade: string; realised_t_pnl: string; extra_positi
 type Panel = 'chart' | 'board' | 'flow' | 'news' | 'signal'
 type LayoutMode = 'side' | 'strip' | 'grid'
 type ChartPeriod = '1m' | '5m' | '15m' | '30m' | '60m' | '1d' | '1w'
+export type BoardSearchOption = { code: string; name: string; pct?: number | null }
 const PANEL_LABEL: Record<Panel, string> = { chart: '个股分时', board: '关联板块', flow: '资金流向', news: '关联新闻', signal: '做T观察' }
 const defaults: Record<Panel, boolean> = { chart: true, board: true, flow: true, news: true, signal: true }
+
+/** Resolve a board name/code against both remote search results and local options. */
+export function resolveBoardSearchOption(rawValue: string, remote: BoardSearchOption[], local: BoardSearchOption[]) {
+  const raw = rawValue.trim()
+  if (!raw) return undefined
+  const code = raw.match(/(?:BK\d{4}|\d{6}(?:\.(?:TI|SH|SZ))?)/i)?.[0]?.toUpperCase()
+  const normalizedCode = code && /^\d{6}$/.test(code) ? `${code}.TI` : code
+  const candidates = [...remote, ...local]
+    .filter((option, index, all) => all.findIndex(item => item.code === option.code) === index)
+  return candidates.find(option => option.code.toUpperCase() === normalizedCode || option.name === raw || raw.includes(option.code))
+    || candidates.find(option => option.name.includes(raw) || raw.includes(option.name))
+}
 
 function usableBoardName(name?: string | null) {
   const text = String(name || '').trim()
@@ -220,14 +233,9 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
   const applyBoardSearch = () => {
     const raw = boardSearch.trim()
     if (!raw) { onLinkedBoardChange(''); setBoardChoiceError(''); return }
-    const code = raw.match(/(?:BK\d{4}|\d{6}(?:\.(?:TI|SH|SZ))?)/i)?.[0]?.toUpperCase()
-    const normalizedCode = code && /^\d{6}$/.test(code) ? `${code}.TI` : code
     // 搜索结果来自统一板块目录，不一定已经出现在“当前持仓板块”列表。
     // 应用时必须同时匹配远程搜索结果，否则输入名称虽能搜到，下方仍会提示未找到。
-    const candidates = [...(boardSearchQuery.data?.items || []), ...boardOptions]
-      .filter((option, index, all) => all.findIndex(item => item.code === option.code) === index)
-    const match = candidates.find(option => option.code.toUpperCase() === normalizedCode || option.name === raw || raw.includes(option.code))
-      || candidates.find(option => option.name.includes(raw) || raw.includes(option.name))
+    const match = resolveBoardSearchOption(raw, boardSearchQuery.data?.items || [], boardOptions)
     if (!match) { setBoardChoiceError('未找到该板块，请输入名称、BK 代码或同花顺指数代码'); return }
     onLinkedBoardChange(match.code); setBoardSearch(`${match.name} (${match.code})`); setBoardChoiceError('')
   }
