@@ -56,6 +56,11 @@ function marketState(data: OverviewMarket, chartRows: Array<{ close?: number }>)
   return { label: '震荡', detail: '多空未形成一致方向，优先等待支撑/压力确认', cls: 'text-warning' }
 }
 
+function armsLabel(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '不可用'
+  return value.toFixed(2)
+}
+
 export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket; tradeDate?: string }) {
   const [selectedSymbol, setSelectedSymbol] = useState(INDEXES[0].symbol)
   const [forecastTab, setForecastTab] = useState<'model' | 'ai' | 'public'>('model')
@@ -115,6 +120,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
     { label: '上涨 / 下跌', value: hasMarketSnapshot ? `${data.breadth.up} / ${data.breadth.down}` : '不可用', sub: hasMarketSnapshot ? `上涨率 ${data.breadth.up_pct.toFixed(1)}%` : '未取得市场广度', cls: 'text-foreground' },
     { label: '涨停 / 跌停', value: hasMarketSnapshot ? `${data.limit.limit_up} / ${data.limit.limit_down}` : '不可用', sub: hasMarketSnapshot ? `封板率 ${(data.limit.seal_rate ?? 0).toFixed(0)}%` : '未取得涨跌停数据', cls: 'text-foreground' },
     { label: '市场情绪', value: hasMarketSnapshot ? `${data.emotion.score}` : '不可用', sub: hasMarketSnapshot ? data.emotion.label : '未取得市场情绪', cls: 'text-foreground' },
+    { label: '阿姆斯 / TRIN', value: armsLabel(data.arms?.value), sub: data.arms?.status === 'ok' ? (Number(data.arms.value) >= 1 ? '量能偏向下跌' : '量能偏向上涨') : '缺少真实上涨/下跌成交量', cls: data.arms?.value == null ? 'text-muted' : Number(data.arms.value) >= 1 ? 'text-bear' : 'text-bull' },
   ], [data, hasMarketSnapshot, state.label, state.detail, state.cls])
 
   const runAI = () => {
