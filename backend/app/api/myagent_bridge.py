@@ -216,28 +216,32 @@ async def market_volume_forecast(request: Request, trade_date: date | None = Que
         raise HTTPException(status_code=400, detail="不能查询未来日期")
     repo = request.app.state.repo
 
-    def load() -> tuple[list[dict], list[list[dict]], int, list[str]]:
+    def load() -> tuple[list[dict], list[list[dict]], int, int]:
         instruments = repo.get_instruments_asset("stock")
         symbols = [str(value) for value in instruments["symbol"].drop_nulls().to_list()] if not instruments.is_empty() else []
         if not symbols:
-            return [], [], 0, []
-        current_frame = repo.get_minute_batch(symbols, selected, asset_type="stock")
+            return [], [], 0, 0
+        current_frame, covered = repo.get_minute_amount_summary(selected, asset_type="stock")
         current_rows = current_frame.to_dicts() if not current_frame.is_empty() else []
         historical: list[list[dict]] = []
         cursor = selected
-        for _ in range(5):
+        # 分区可能因接口限流、停牌或历史同步中断而不连续；向前扫描更宽
+        # 的真实交易日窗口，最多取 5 个可用样本，避免把“缺一个分区”误判
+        # 成没有历史数据。forecast_amount 仍会强制至少 3 个样本。
+        for _ in range(30):
             cursor = cursor.fromordinal(cursor.toordinal() - 1)
             while cursor.weekday() >= 5:
                 cursor = cursor.fromordinal(cursor.toordinal() - 1)
-            frame = repo.get_minute_batch(symbols, cursor, asset_type="stock")
+            frame, _ = repo.get_minute_amount_summary(cursor, asset_type="stock")
             rows = frame.to_dicts() if not frame.is_empty() else []
             if rows:
                 historical.append(rows)
-        covered = len({str(row.get("symbol")) for row in current_rows if row.get("symbol")})
-        return current_rows, historical, covered, symbols
+            if len(historical) >= 5:
+                break
+        return current_rows, historical, covered, len(symbols)
 
     try:
-        current_rows, historical, covered_symbols, symbols = await asyncio.to_thread(load)
+        current_rows, historical, covered_symbols, symbol_count = await asyncio.to_thread(load)
         result = forecast_market_amount(current_rows, historical)
         result["source"] = f"{selected_minute_source()}全市场分钟分区"
         result["forecast_window"] = "当前数据时点 → 当日收盘"
@@ -246,7 +250,7 @@ async def market_volume_forecast(request: Request, trade_date: date | None = Que
             **result,
             "trade_date": selected.isoformat(),
             "scope": "全A股票（已落盘分钟分区）",
-            "symbol_count": len(symbols),
+            "symbol_count": symbol_count,
             "covered_symbol_count": covered_symbols,
             "historical_days_available": len(historical),
             "data_is_real": True,

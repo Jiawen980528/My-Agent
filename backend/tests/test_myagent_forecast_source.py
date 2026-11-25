@@ -37,7 +37,7 @@ def test_symbol_forecast_reports_selected_minute_source(monkeypatch):
 def test_market_forecast_reports_selected_minute_source(monkeypatch):
     repo = SimpleNamespace(
         get_instruments_asset=lambda _asset: pl.DataFrame({"symbol": ["600519.SH"]}),
-        get_minute_batch=lambda *_args, **_kwargs: pl.DataFrame(),
+        get_minute_amount_summary=lambda *_args, **_kwargs: (pl.DataFrame(), 0),
     )
     monkeypatch.setattr(myagent_bridge, "forecast_market_amount", lambda *_args: {"status": "unavailable"})
     monkeypatch.setattr(myagent_bridge, "selected_minute_source", lambda: "CustomMinute")

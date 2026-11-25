@@ -1837,6 +1837,53 @@ class KlineRepository:
             logger.warning("批量分钟K查询失败: %s", e)
             return pl.DataFrame()
 
+    def get_minute_amount_summary(
+        self,
+        trade_date: date,
+        asset_type: str = "stock",
+    ) -> tuple[pl.DataFrame, int]:
+        """按分钟聚合成交额，不把全市场分钟K展开到 Python 内存。
+
+        返回 ``(分钟总成交额, 覆盖标的数)``。全市场量能预测只读取
+        datetime/amount/symbol，并在 Parquet 扫描阶段完成聚合；不使用价格
+        或涨跌幅推算成交额。
+        """
+        try:
+            part = self._minute_partition_path(asset_type, trade_date)
+            source = part if part is not None else self._minute_glob_for(asset_type)
+            schema = pl.scan_parquet(source).collect_schema()
+            required = {"datetime", "amount", "symbol"}
+            if not required.issubset(set(schema.names())):
+                return pl.DataFrame({"datetime": [], "amount": []}), 0
+            frame = guarded_collect(
+                pl.scan_parquet(source)
+                .select(["datetime", "amount", "symbol"])
+                .filter(pl.col("datetime").dt.date() == trade_date)
+                .with_columns(
+                    pl.col("amount").cast(pl.Float64, strict=False).alias("amount"),
+                    pl.col("datetime").dt.truncate("1m").alias("datetime"),
+                )
+                .filter(pl.col("amount").is_not_null() & pl.col("symbol").is_not_null())
+                .group_by("datetime")
+                .agg(pl.col("amount").sum().alias("amount"))
+                .sort("datetime"),
+                streaming=True,
+            )
+            covered = guarded_collect(
+                pl.scan_parquet(source)
+                .select(["datetime", "symbol"])
+                .filter(
+                    (pl.col("datetime").dt.date() == trade_date)
+                    & pl.col("symbol").is_not_null()
+                )
+                .select(pl.col("symbol").n_unique().alias("covered")),
+                streaming=True,
+            ).item()
+            return frame, int(covered or 0)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("分钟成交额聚合失败: %s", e)
+            return pl.DataFrame({"datetime": [], "amount": []}), 0
+
     def get_minute_range(
         self,
         symbols: list[str],
