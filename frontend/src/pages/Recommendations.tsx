@@ -144,6 +144,16 @@ export function Recommendations() {
     const lotMatches = lots.filter(row => normalizeCode(row.symbol) === code)
     return { holdingMatches, watchMatches, sectorMatches, poolMatches, lotMatches }
   }
+  const linkStats = useMemo(() => {
+    const linked = items.map(item => linkFor(item))
+    return {
+      holdings: linked.filter(row => row.holdingMatches.length > 0).length,
+      pools: linked.filter(row => row.poolMatches.length > 0).length,
+      watchlist: linked.filter(row => row.watchMatches.length > 0).length,
+      sectors: linked.filter(row => row.sectorMatches.length > 0).length,
+      lots: linked.filter(row => row.lotMatches.length > 0).length,
+    }
+  }, [items, holdings, watchlist, researchPools, lots])
   const selectedPeriod = periodOptions.find(item => item.value === period) || periodOptions[0]
   const latestSnapshot = snapshots[0]
   const reviewSummary = (snapshot: Snapshot) => {
@@ -255,6 +265,17 @@ export function Recommendations() {
     <div className="mb-3 grid grid-cols-2 gap-2 rounded-card border border-border bg-surface p-3 md:grid-cols-5">{([['baseline_days','长期地量天数'],['max_avg_turnover','换手上限%'],['recent_days','异动窗口天数'],['volume_multiple','放量倍数'],['max_market_cap_yi','市值上限亿']] as const).map(([key, label]) => <label key={key} className="grid gap-1 text-[11px] text-muted">{label}<input type="number" value={criteria[key]} onChange={e => setCriteria({ ...criteria, [key]: Number(e.target.value) })} className="h-8 rounded border border-border bg-elevated px-2 text-xs text-foreground" /></label>)}</div>
     {error && <div className="mb-3 flex items-center gap-2 rounded border border-danger/30 bg-danger/10 p-2 text-xs text-danger"><AlertTriangle className="h-4 w-4" />{error}</div>}
     {result && <div className="mb-2 flex flex-wrap gap-3 text-[11px] text-muted"><span>生成于 {result.generated_at || '未标注'}</span><span>数据源：{result.data_source || '未标注'}</span><span>全市场样本 {result.universe_count ?? '—'} · 原始候选 {result.count ?? 0} · 展示 {items.length}/5</span>{result.history_id != null && <span>记录 #{result.history_id}</span>}{quoteUpdatedAt && <span>行情更新 {quoteUpdatedAt} · {quoteNotice}</span>}<span>关联：{linkNotice}</span></div>}
+    {result && <div className="mb-3 rounded-card border border-border bg-surface p-3 text-[11px]">
+      <div className="flex flex-wrap items-center justify-between gap-2"><b>候选重合对照</b><span className="text-muted">只统计当前真实返回的候选，不代表独立命中率</span></div>
+      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
+        <span className="rounded border border-warning/30 bg-warning/5 px-2 py-1">当前持仓 <b>{linkStats.holdings}/{items.length}</b></span>
+        <span className="rounded border border-success/30 bg-success/5 px-2 py-1">上传研究池 <b>{linkStats.pools}/{items.length}</b></span>
+        <span className="rounded border border-accent/30 bg-accent/5 px-2 py-1">自选 <b>{linkStats.watchlist}/{items.length}</b></span>
+        <span className="rounded border border-border px-2 py-1">同板块持仓 <b>{linkStats.sectors}/{items.length}</b></span>
+        <span className="rounded border border-border px-2 py-1">提醒批次 <b>{linkStats.lots}/{items.length}</b></span>
+      </div>
+      <p className="mt-2 text-muted">拾贝模型对照：当前推荐页与“拾贝模型”页面调用同一个扫描接口，因此两者重合属于同源结果，不能当作独立验证。独立成功率只看保存后的真实行情复盘。</p>
+    </div>}
     {(aiLoading || aiReply) && <div className="mb-3 rounded-card border border-accent/40 bg-accent/5 p-3"><div className="flex items-center justify-between gap-2 text-xs font-semibold">AI复核 · {aiSymbol}<span className="text-[10px] font-normal text-muted">研究辅助，不自动下单</span></div><p className="mt-2 whitespace-pre-wrap text-[11px] leading-5 text-muted">{aiLoading ? '正在结合候选条件和当前可用数据分析…' : aiReply}</p></div>}
     <div className="mb-3 rounded-card border border-border bg-surface p-3 text-[11px]">
       <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">推荐复盘</span><span className="text-muted">当前快照：{latestSnapshot ? `${latestSnapshot.period} · ${latestSnapshot.status}` : '尚未保存'}</span></div>
