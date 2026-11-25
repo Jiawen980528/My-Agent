@@ -184,6 +184,16 @@ export function Recommendations() {
       average: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null,
     }
   }), [snapshots])
+  const reviewTrend = useMemo(() => snapshots
+    .filter(snapshot => snapshot.status === '已复盘')
+    .map(snapshot => {
+      const values = (snapshot.review?.observations || []).map(item => Number(item.observed_return_pct)).filter(value => Number.isFinite(value))
+      const positive = values.filter(value => value > 0).length
+      const average = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null
+      return { id: snapshot.id, period: snapshot.period, generated: snapshot.generated_at || snapshot.generatedAt || '—', count: values.length, positive, ratio: values.length ? positive / values.length * 100 : null, average }
+    })
+    .filter(row => row.count > 0)
+    .slice(0, 10), [snapshots])
   const saveSnapshot = async () => {
     if (!result || !items.length) return
     const validUntil = period === '次日跟踪' ? '下一交易日收盘后' : period === '当日收盘' ? '今日收盘后' : '本次盘中观察结束'
@@ -303,6 +313,14 @@ export function Recommendations() {
           <div className="mt-0.5 text-muted">上涨率 {stat.ratio == null ? '—' : `${stat.ratio.toFixed(1)}%`} · 均值 {stat.average == null ? '—' : `${stat.average >= 0 ? '+' : ''}${stat.average.toFixed(2)}%`}</div>
         </div>)}
       </div>
+      {!!reviewTrend.length && <div className="mt-2 rounded border border-border/60 bg-base/40 p-2">
+        <div className="flex flex-wrap items-center justify-between gap-2"><b>成功率历史趋势</b><span className="text-[10px] text-muted">每行一次已复盘快照 · 仅真实行情样本</span></div>
+        <div className="mt-1.5 space-y-1.5">{reviewTrend.map(row => <div key={row.id} className="grid grid-cols-[88px_72px_1fr_88px] items-center gap-2 text-[10px]">
+          <span className="truncate text-muted" title={row.generated}>{row.generated === '—' ? '—' : row.generated.slice(0, 10)}</span><span className="truncate">{row.period}</span>
+          <div className="h-1.5 overflow-hidden rounded bg-border/60"><div className="h-full rounded bg-accent" style={{ width: `${Math.max(0, Math.min(100, row.ratio || 0))}%` }} /></div>
+          <span className="text-right font-mono">{row.ratio == null ? '—' : `${row.ratio.toFixed(1)}%`} · {row.average == null ? '—' : `${row.average >= 0 ? '+' : ''}${row.average.toFixed(2)}%`}</span>
+        </div>)}</div>
+      </div>}
       {!!snapshots.length && <div className="mt-2 grid gap-1 text-muted">{snapshots.slice(0, 3).map(snapshot => <div key={snapshot.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-1"><span>{snapshot.generated_at || snapshot.generatedAt || '—'} · {snapshot.period} · {snapshot.symbols.join('、')}{reviewSummary(snapshot) && <span className="ml-2 text-foreground">{reviewSummary(snapshot)}</span>}</span><span className="flex items-center gap-2">{snapshot.status} · 有效至 {snapshot.valid_until || snapshot.validUntil || '—'}{snapshot.status === '待复盘' && <button type="button" onClick={() => reviewSnapshot(snapshot)} className="rounded border border-accent/60 px-1.5 py-0.5 text-accent">用当前真实行情复盘</button>}</span></div>)}</div>}
     </div>
     {!result && !loading && <div className="rounded-card border border-dashed border-border bg-surface p-10 text-center text-xs text-muted">点击“生成今日候选”后才读取真实扫描结果。</div>}
