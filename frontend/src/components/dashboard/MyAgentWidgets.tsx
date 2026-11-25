@@ -17,6 +17,7 @@ type NewsFeed = { items: NewsItem[]; fetched_at: string; source: string; status:
 type MinuteBatch = { data: Record<string, MinuteKlineRow[]>; source?: string; freshness?: Record<string, { market_time?: string | null; stale?: boolean }> }
 type RecommendationSnapshot = { id: number; period: string; status: '待复盘' | '已复盘'; generated_at: string; valid_until: string; symbols: string[]; data_source?: string }
 type AIConfig = { api_key_configured?: boolean; model?: string }
+type LegacySummary = { available?: boolean; label?: string; recommendations?: { records?: number; paper_status?: Record<string, number> }; reviews?: { days?: number }; research_pool?: { items?: number }; ai_reports?: { count?: number }; warnings?: string[] }
 
 async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { credentials: 'include' })
@@ -186,6 +187,11 @@ export function RecommendationWidget() {
     queryFn: () => getJson<AIConfig>(`${MYAGENT_ROOT}/config`),
     staleTime: 60_000,
   })
+  const legacy = useQuery({
+    queryKey: ['myagent-legacy-summary'],
+    queryFn: () => getJson<LegacySummary>(`${API}/legacy-summary`),
+    refetchInterval: 180_000,
+  })
   const items = snapshots.data?.items || []
   const pending = items.filter(item => item.status === '待复盘')
   return <section className="h-full overflow-auto rounded-card border border-border bg-surface p-3 text-foreground">
@@ -193,6 +199,7 @@ export function RecommendationWidget() {
     <div className="mt-2 flex flex-wrap gap-2 text-[10px]"><span className="rounded bg-accent/10 px-2 py-1 text-accent">待复盘 {pending.length}</span><span className="rounded bg-elevated px-2 py-1 text-muted">已记录 {items.length}</span><span className={`rounded px-2 py-1 ${ai.data?.api_key_configured ? 'bg-accent/10 text-accent' : 'bg-warning/10 text-warning'}`}>AI {ai.data?.api_key_configured ? '可用' : '未配置'}</span></div>
     {snapshots.isLoading && <p className="mt-3 text-xs text-muted">读取推荐记录…</p>}
     {snapshots.error && <p className="mt-3 text-xs text-danger">推荐记录暂不可用：{(snapshots.error as Error).message}</p>}
+    {legacy.data?.available && <div className="mt-2 rounded border border-warning/30 bg-warning/5 p-2 text-[10px]"><div className="flex items-center justify-between gap-2"><b className="text-warning">{legacy.data.label || '历史归档（只读）'}</b><span className="text-muted">不启用旧模拟逻辑</span></div><div className="mt-1 text-muted">历史推荐 {legacy.data.recommendations?.records ?? 0} 条 · 模拟触发 {legacy.data.recommendations?.paper_status?.submitted ?? 0} 次 · 复盘 {legacy.data.reviews?.days ?? 0} 天 · 研究池 {legacy.data.research_pool?.items ?? 0} 条</div>{legacy.data.warnings?.some(item => item.includes('异常口径')) && <div className="mt-1 text-warning">⚠ 历史复盘成功率口径异常，当前仅作参考</div>}</div>}
     {!snapshots.isLoading && !snapshots.error && !items.length && <p className="mt-3 text-xs text-muted">还没有推荐快照。打开完整页生成候选后，可保存并在收盘/下一交易日复盘。</p>}
     <div className="mt-2 grid gap-1.5">{items.slice(0, 3).map(item => <div key={item.id} className="rounded border border-border/70 bg-base/40 p-2 text-[10px]"><div className="flex justify-between gap-2"><b>{item.period}</b><span className={item.status === '待复盘' ? 'text-warning' : 'text-bull'}>{item.status}</span></div><div className="mt-1 text-muted">{item.generated_at} · {item.symbols.join('、')}</div><div className="mt-1 text-muted">有效至 {item.valid_until}</div></div>)}</div>
   </section>
