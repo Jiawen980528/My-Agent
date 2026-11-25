@@ -257,9 +257,11 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
   const board = useQuery({ queryKey: ['portfolio-board-widget', item.symbol, day],
     queryFn: () => json<Board>(`${API}/portfolio/board/${item.symbol}?trade_date=${day}`),
     staleTime: 30_000, refetchInterval: isLatest && tradingNow() ? 60_000 : false })
-  const linkedBoard = useQuery({ queryKey: ['portfolio-linked-board-widget', linkedBoardCode, day, chartPeriod], queryFn: () =>
+  const fuyaoBoard = Boolean(linkedBoardCode && /\.TI$/i.test(linkedBoardCode))
+  const linkedBoardPeriod = fuyaoBoard || chartPeriod === '1d' || chartPeriod === '1w' ? 'daily' : chartPeriod
+  const linkedBoard = useQuery({ queryKey: ['portfolio-linked-board-widget', linkedBoardCode, day, linkedBoardPeriod], queryFn: () =>
     json<{ name: string; rows: { time: string; close: number; high: number; low: number; volume: number }[]; source: string; latest_time: string }>(
-      `${PUBLIC_API}/fund-flow/sector-kline?sector=${encodeURIComponent(linkedBoardCode || '')}&period=${chartPeriod === '1d' || chartPeriod === '1w' ? 'daily' : chartPeriod}`),
+      `${PUBLIC_API}/fund-flow/sector-kline?sector=${encodeURIComponent(linkedBoardCode || '')}&period=${linkedBoardPeriod}`),
     enabled: !!linkedBoardCode, staleTime: 30_000, refetchInterval: isLatest && tradingNow() ? 60_000 : false })
   const selectedFlow = useQuery({ queryKey: ['portfolio-selected-flow', flowScope, linkedBoardCode],
     queryFn: () => json<{ rows: { time: string; main: number }[]; source: string; latest_time: string }>(
@@ -399,9 +401,9 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
       {!!fetchedHistory.data?.failed && <p className="px-1 text-[11px] text-warning">{fetchedHistory.data.failed} 个候选日期读取失败，曲线仅展示成功取得的真实数据。</p>}
     </section>}
     {visible.board && <section className="rounded border border-border bg-base/50 p-1.5">
-      <div className="flex flex-wrap items-center justify-between gap-1 px-1 text-xs"><b>{boardName} · {chartPeriod === '1d' || chartPeriod === '1w' ? '板块K线' : '板块分时'}</b><span className="text-muted">{linkedBoard.data?.source || board.data?.source || '数据源待确认'}</span></div>
+      <div className="flex flex-wrap items-center justify-between gap-1 px-1 text-xs"><b>{boardName} · {fuyaoBoard || chartPeriod === '1d' || chartPeriod === '1w' ? '板块日K' : '板块分时'}</b><span className="text-muted">{linkedBoard.data?.source || board.data?.source || '数据源待确认'}</span></div>
       <TimeChart rows={boardRows} title={boardName} color="#e3a54d" height={150} />
-      <p className="px-1 text-[11px] text-muted">区间涨跌 {pct(boardMove)} · {linkedBoard.data?.latest_time || board.data?.last_market_time || '暂无时间'}；{linkedBoardCode ? `自选板块 ${linkedBoardCode}` : autoBoardName ? '自动关联行业板块' : '请先选择真实行业/指数板块'}</p>
+      <p className="px-1 text-[11px] text-muted">区间涨跌 {pct(boardMove)} · {linkedBoard.data?.latest_time || board.data?.last_market_time || '暂无时间'}；{linkedBoardCode ? `自选板块 ${linkedBoardCode}` : autoBoardName ? '自动关联行业板块' : '请先选择真实行业/指数板块'}{fuyaoBoard ? ' · 扶摇当前仅提供板块日K' : ''}</p>
       {linkedBoard.isError && <p className="px-1 text-[11px] text-warning">板块行情暂不可用：{linkedBoard.error instanceof Error ? linkedBoard.error.message : '数据源未返回曲线'}。当前不使用个股K线替代板块曲线。</p>}
       {board.isError && !linkedBoardCode && <p className="px-1 text-[11px] text-warning">自动关联板块读取失败：{board.error instanceof Error ? board.error.message : '数据源未返回曲线'}。</p>}
     </section>}
@@ -429,9 +431,10 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
 }
 
 function BoardDetail({ code, day, news, visible, onSelectSymbol }: { code: string; day: string; news: News['items']; visible: Record<Panel, boolean>; onSelectSymbol: (symbol: string) => void }) {
+  const fuyaoBoard = /\.TI$/i.test(code)
   const quote = useQuery({ queryKey: ['portfolio-custom-board', code], queryFn: () =>
     json<{ name: string; rows: { time: string; close: number; high: number; low: number; volume: number }[]; source: string; latest_time: string }>(
-      `${PUBLIC_API}/fund-flow/sector-kline?sector=${code}&period=1m`),
+      `${PUBLIC_API}/fund-flow/sector-kline?sector=${encodeURIComponent(code)}&period=${fuyaoBoard ? 'daily' : '1m'}`),
     refetchInterval: tradingNow() ? 60_000 : false })
   const flow = useQuery({ queryKey: ['portfolio-custom-board-flow', code], queryFn: () =>
     json<{ rows: { time: string; main: number }[]; source: string; latest_time: string }>(`${PUBLIC_API}/fund-flow/live?sector=${code}`),
@@ -448,9 +451,9 @@ function BoardDetail({ code, day, news, visible, onSelectSymbol }: { code: strin
   return <div className="min-w-0 space-y-1.5">
     <header className="rounded border border-border bg-base/70 px-2 py-1 text-sm font-semibold">{boardName} <span className="ml-1 font-mono text-xs text-muted">{code}</span></header>
     {visible.board && <section className="rounded border border-border bg-base/50 p-2">
-      <div className="flex justify-between text-xs"><b>板块分时</b><span className="text-muted">{quote.data?.source || '读取中'}</span></div>
+      <div className="flex justify-between text-xs"><b>{fuyaoBoard ? '板块日K' : '板块分时'}</b><span className="text-muted">{quote.data?.source || '读取中'}</span></div>
       <TimeChart rows={shownRows} title={boardName} color="#e3a54d" height={350} />
-      <p className="text-[11px] text-muted">数据时点 {quote.data?.latest_time || '—'} · 当前公开接口只提供最近 120 根分钟K；所选历史日无数据时明确留空。</p>
+      <p className="text-[11px] text-muted">数据时点 {quote.data?.latest_time || '—'} · {fuyaoBoard ? '扶摇当前提供板块日K，不能用分钟K替代。' : '当前公开接口只提供最近 120 根分钟K；所选历史日无数据时明确留空。'}</p>
       {quote.isError && <p className="text-xs text-danger">板块行情读取失败，请核对代码或数据源。</p>}
     </section>}
     {visible.flow && <section className="rounded border border-border bg-base/50 p-2 text-xs">
@@ -575,7 +578,7 @@ function DecisionGuidePanel({ items, day, minuteData, source, aiText, aiBusy, on
         get<{ items?: { code: string; name: string }[] }>('/quant/api/myagent/fund-flow/sectors?q=%E9%93%B6%E8%A1%8C&limit=20'),
       ])
       const defensive = defensiveCatalog?.items?.find(item => item.name === '银行' || item.name.includes('银行'))
-      const defensiveSeries = defensive?.code ? await get<{ rows?: { close?: number }[] }>(`/quant/api/myagent/fund-flow/sector-kline?sector=${encodeURIComponent(defensive.code)}&period=1m`) : null
+      const defensiveSeries = defensive?.code ? await get<{ rows?: { close?: number }[] }>(`/quant/api/myagent/fund-flow/sector-kline?sector=${encodeURIComponent(defensive.code)}&period=${/\.TI$/i.test(defensive.code) ? 'daily' : '1m'}`) : null
       const defensiveRows = defensiveSeries?.rows || []
       const defensiveFirst = Number(defensiveRows[0]?.close), defensiveLast = Number(defensiveRows.at(-1)?.close)
       const defensivePct = Number.isFinite(defensiveFirst) && defensiveFirst > 0 && Number.isFinite(defensiveLast) ? (defensiveLast / defensiveFirst - 1) * 100 : null
