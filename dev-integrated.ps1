@@ -95,7 +95,17 @@ try {
     # dev.ps1 自己负责 TickFlow 后端、前端和退出清理；这里用独立窗口保持其 Ctrl-C 语义。
     $tickflow = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $Root 'dev.ps1'),'-BackendPort',$TickFlowBackendPort,'-FrontendPort',$TickFlowFrontendPort,'-NoReload') -WorkingDirectory $Root -PassThru
     $children += $tickflow
-    Write-Host "TickFlow 启动器已运行，前端地址：http://localhost:$TickFlowFrontendPort/quant/" -ForegroundColor Green
+    # Do not announce a usable service until both child listeners are ready.
+    # The frontend can remain reachable from an older process while the backend
+    # child has already exited, which otherwise looks like a healthy but broken UI.
+    $ready = $false
+    for ($attempt = 0; $attempt -lt 60; $attempt++) {
+        if ($tickflow.HasExited) { throw "TickFlow 启动脚本提前退出（ExitCode=$($tickflow.ExitCode)），请查看 data\logs\backend.err.log 和 frontend.err.log。" }
+        if ((Port-InUse $TickFlowBackendPort) -and (Port-InUse $TickFlowFrontendPort)) { $ready = $true; break }
+        Start-Sleep -Milliseconds 500
+    }
+    if (-not $ready) { throw "TickFlow 服务未在 30 秒内同时监听 $TickFlowBackendPort/$TickFlowFrontendPort。请查看 data\logs\backend.err.log 和 frontend.err.log。" }
+    Write-Host "TickFlow 服务已就绪，前端地址：http://localhost:$TickFlowFrontendPort/quant/" -ForegroundColor Green
     Write-Host '关闭本窗口不会自动结束服务；请在 TickFlow 启动窗口按 Ctrl-C 停止。' -ForegroundColor DarkGray
 } catch {
     foreach ($child in $children) {
