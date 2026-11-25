@@ -78,18 +78,22 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
   const generating = isReviewGenerating()
   const selected = INDEXES.find(item => item.symbol === selectedSymbol) ?? INDEXES[0]
   const publicIndex = data.indices.find(item => item.symbol === selectedSymbol)
+  const hasMarketSnapshot = Boolean(
+    data.breadth.total > 0 ||
+    data.indices.some(index => index.last_price != null || index.change_pct != null) || data.amount.total > 0,
+  )
   const recentAI = review.content.trim().replace(/[#*_`]/g, '').replace(/\s+/g, ' ').slice(0, 420)
   const chartRows = minute.data?.rows ?? []
   const forecastRatio = volume.data?.status === 'ok' && volume.data.forecast_amount
     ? (volume.data.current_cumulative_amount ?? 0) / volume.data.forecast_amount
     : null
-  const sourceText = minute.data?.source ?? '分钟数据源未标注'
+  const sourceText = minute.data?.source ?? data.quote_status?.source ?? '分钟数据源未标注'
   const marketStats = useMemo(() => [
-    { label: '当前成交额', value: fmtBigNum(data.amount.total), sub: '点击右侧预测' },
-    { label: '上涨 / 下跌', value: `${data.breadth.up} / ${data.breadth.down}`, sub: `上涨率 ${data.breadth.up_pct.toFixed(1)}%` },
-    { label: '涨停 / 跌停', value: `${data.limit.limit_up} / ${data.limit.limit_down}`, sub: `封板率 ${(data.limit.seal_rate ?? 0).toFixed(0)}%` },
-    { label: '市场情绪', value: `${data.emotion.score}`, sub: data.emotion.label },
-  ], [data])
+    { label: '当前成交额', value: hasMarketSnapshot ? fmtBigNum(data.amount.total) : '不可用', sub: hasMarketSnapshot ? '点击右侧预测' : '未连接实时行情' },
+    { label: '上涨 / 下跌', value: hasMarketSnapshot ? `${data.breadth.up} / ${data.breadth.down}` : '不可用', sub: hasMarketSnapshot ? `上涨率 ${data.breadth.up_pct.toFixed(1)}%` : '未取得市场广度' },
+    { label: '涨停 / 跌停', value: hasMarketSnapshot ? `${data.limit.limit_up} / ${data.limit.limit_down}` : '不可用', sub: hasMarketSnapshot ? `封板率 ${(data.limit.seal_rate ?? 0).toFixed(0)}%` : '未取得涨跌停数据' },
+    { label: '市场情绪', value: hasMarketSnapshot ? `${data.emotion.score}` : '不可用', sub: hasMarketSnapshot ? data.emotion.label : '未取得市场情绪' },
+  ], [data, hasMarketSnapshot])
 
   const runAI = () => {
     if (generating) return
@@ -161,6 +165,10 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
           <Link to="/indices" className="inline-flex items-center gap-1 text-accent hover:underline"><ExternalLink className="h-3 w-3" />详细指数</Link>
         </div>
       </div>
+      {!hasMarketSnapshot && <div role="status" className="mb-2 rounded border border-warning/50 bg-warning/10 px-2 py-1.5 text-[11px] text-warning">
+        实时市场快照当前不可用：TickFlow行情服务未连接或没有可用权限。页面不会把 0 当作真实上涨、涨停或成交额；请到数据源配置页检查连接和更新时间。
+        <Link to="/settings?tab=data-sources" className="ml-1 text-accent hover:underline">检查数据源</Link>
+      </div>}
 
       <div className="mb-2 grid grid-cols-2 gap-1.5 md:grid-cols-4">
         {INDEXES.map(item => {
