@@ -42,6 +42,20 @@ function forecastText(value: number | undefined | null): string {
   return value == null ? '—' : amount(value)
 }
 
+function marketState(data: OverviewMarket, chartRows: Array<{ close?: number }>) {
+  const avg = Number(data.breadth.avg_pct)
+  const up = Number(data.breadth.up || 0)
+  const down = Number(data.breadth.down || 0)
+  const values = chartRows.map(row => Number(row.close)).filter(Number.isFinite)
+  const intraday = values.length >= 2 && values[0] > 0 ? (values.at(-1)! / values[0] - 1) * 100 : null
+  if (!Number.isFinite(avg) || !data.breadth.total) return { label: '数据不足', detail: '等待真实市场广度和指数分钟数据', cls: 'text-muted' }
+  if (avg <= -0.5 && down > up * 1.2) return { label: '继续下跌', detail: '广度偏弱，暂不把盘中波动当作反转', cls: 'text-bear' }
+  if (avg >= 0.5 && up > down * 1.5 && (intraday == null || intraday > 0)) {
+    return { label: intraday != null && intraday >= 0.8 ? '反转待确认' : '反弹观察', detail: '上涨广度占优，仍需量能和板块同步确认', cls: 'text-bull' }
+  }
+  return { label: '震荡', detail: '多空未形成一致方向，优先等待支撑/压力确认', cls: 'text-warning' }
+}
+
 export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket; tradeDate?: string }) {
   const [selectedSymbol, setSelectedSymbol] = useState(INDEXES[0].symbol)
   const [forecastTab, setForecastTab] = useState<'model' | 'ai' | 'public'>('model')
@@ -88,12 +102,14 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
     ? (volume.data.current_cumulative_amount ?? 0) / volume.data.forecast_amount
     : null
   const sourceText = minute.data?.source ?? data.quote_status?.source ?? '分钟数据源未标注'
+  const state = marketState(data, chartRows)
   const marketStats = useMemo(() => [
-    { label: '当前成交额', value: hasMarketSnapshot ? fmtBigNum(data.amount.total) : '不可用', sub: hasMarketSnapshot ? '点击右侧预测' : '未连接实时行情' },
-    { label: '上涨 / 下跌', value: hasMarketSnapshot ? `${data.breadth.up} / ${data.breadth.down}` : '不可用', sub: hasMarketSnapshot ? `上涨率 ${data.breadth.up_pct.toFixed(1)}%` : '未取得市场广度' },
-    { label: '涨停 / 跌停', value: hasMarketSnapshot ? `${data.limit.limit_up} / ${data.limit.limit_down}` : '不可用', sub: hasMarketSnapshot ? `封板率 ${(data.limit.seal_rate ?? 0).toFixed(0)}%` : '未取得涨跌停数据' },
-    { label: '市场情绪', value: hasMarketSnapshot ? `${data.emotion.score}` : '不可用', sub: hasMarketSnapshot ? data.emotion.label : '未取得市场情绪' },
-  ], [data, hasMarketSnapshot])
+    { label: '今日市场状态', value: state.label, sub: state.detail, cls: state.cls },
+    { label: '当前成交额', value: hasMarketSnapshot ? fmtBigNum(data.amount.total) : '不可用', sub: hasMarketSnapshot ? '点击右侧预测' : '未连接实时行情', cls: 'text-foreground' },
+    { label: '上涨 / 下跌', value: hasMarketSnapshot ? `${data.breadth.up} / ${data.breadth.down}` : '不可用', sub: hasMarketSnapshot ? `上涨率 ${data.breadth.up_pct.toFixed(1)}%` : '未取得市场广度', cls: 'text-foreground' },
+    { label: '涨停 / 跌停', value: hasMarketSnapshot ? `${data.limit.limit_up} / ${data.limit.limit_down}` : '不可用', sub: hasMarketSnapshot ? `封板率 ${(data.limit.seal_rate ?? 0).toFixed(0)}%` : '未取得涨跌停数据', cls: 'text-foreground' },
+    { label: '市场情绪', value: hasMarketSnapshot ? `${data.emotion.score}` : '不可用', sub: hasMarketSnapshot ? data.emotion.label : '未取得市场情绪', cls: 'text-foreground' },
+  ], [data, hasMarketSnapshot, state.label, state.detail, state.cls])
 
   const runAI = () => {
     if (generating) return
@@ -198,7 +214,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
 
         <div className="min-h-0 space-y-2 overflow-auto">
           <div className="grid grid-cols-2 gap-1.5">
-            {marketStats.map(item => <div key={item.label} className="rounded border border-border bg-elevated/45 p-2"><div className="text-[10px] text-muted">{item.label}</div><div className="mt-0.5 font-mono text-sm font-semibold">{item.value}</div><div className="text-[9px] text-secondary">{item.sub}</div></div>)}
+            {marketStats.map(item => <div key={item.label} className="rounded border border-border bg-elevated/45 p-2"><div className="text-[10px] text-muted">{item.label}</div><div className={cn('mt-0.5 font-mono text-sm font-semibold', item.cls)}>{item.value}</div><div className="text-[9px] text-secondary">{item.sub}</div></div>)}
           </div>
           <div className="rounded border border-border bg-elevated/35 p-2">
             <div className="mb-1 flex flex-wrap items-center justify-between gap-1"><b className="text-xs">预测中心</b><span className="text-[9px] text-muted">三种口径分开显示 · 预测时段：当前时点 → 当日收盘</span></div>
