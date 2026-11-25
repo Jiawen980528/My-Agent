@@ -21,7 +21,7 @@ type LegacySummary = {
   warnings?: string[]
 }
 type ScanResult = { items?: Candidate[]; count?: number; universe_count?: number; data_source?: string; generated_at?: string; history_id?: number }
-type Snapshot = { id: number | string; generated_at?: string; generatedAt?: string; period: string; valid_until?: string; validUntil?: string; scan_id?: number; historyId?: number; symbols: string[]; status: '待复盘' | '已复盘'; data_source?: string; payload?: Candidate[]; review?: { observations?: Array<{ observed_return_pct?: number | null }>; note?: string } | null }
+type Snapshot = { id: number | string; generated_at?: string; generatedAt?: string; period: string; valid_until?: string; validUntil?: string; scan_id?: number; historyId?: number; symbols: string[]; status: '待复盘' | '已复盘'; data_source?: string; payload?: Candidate[]; review?: { observations?: Array<{ symbol?: string; observed_return_pct?: number | null }>; note?: string } | null }
 const periodOptions = [
   { value: '盘中观察', label: '盘中观察', hint: '只用于当前交易时段的观察，不代表收盘预测' },
   { value: '当日收盘', label: '当日收盘', hint: '等待收盘数据后复盘当天表现' },
@@ -184,6 +184,29 @@ export function Recommendations() {
       average: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null,
     }
   }), [snapshots])
+  const sectorStats = useMemo(() => {
+    const groups = new Map<string, { count: number; positive: number; total: number }>()
+    for (const snapshot of snapshots) {
+      if (snapshot.status !== '已复盘') continue
+      const payload = snapshot.payload || []
+      const names = new Map(payload.map(item => [String(item.symbol || '').replace(/\D/g, '').slice(-6), String(item.sector || '').trim() || '未识别板块']))
+      for (const observation of snapshot.review?.observations || []) {
+        const value = Number(observation.observed_return_pct)
+        if (!Number.isFinite(value)) continue
+        const code = String(observation.symbol || '').replace(/\D/g, '').slice(-6)
+        const sector = names.get(code) || '未识别板块'
+        const current = groups.get(sector) || { count: 0, positive: 0, total: 0 }
+        current.count += 1
+        current.positive += value > 0 ? 1 : 0
+        current.total += value
+        groups.set(sector, current)
+      }
+    }
+    return [...groups.entries()]
+      .map(([sector, value]) => ({ sector, ...value, ratio: value.count ? value.positive / value.count * 100 : null, average: value.count ? value.total / value.count : null }))
+      .sort((a, b) => b.count - a.count || b.positive - a.positive)
+      .slice(0, 6)
+  }, [snapshots])
   const reviewTrend = useMemo(() => snapshots
     .filter(snapshot => snapshot.status === '已复盘')
     .map(snapshot => {
@@ -313,6 +336,15 @@ export function Recommendations() {
           <div className="mt-0.5 text-muted">上涨率 {stat.ratio == null ? '—' : `${stat.ratio.toFixed(1)}%`} · 均值 {stat.average == null ? '—' : `${stat.average >= 0 ? '+' : ''}${stat.average.toFixed(2)}%`}</div>
         </div>)}
       </div>
+      {!!sectorStats.length && <div className="mt-2 rounded border border-border/60 bg-base/40 p-2">
+        <div className="flex flex-wrap items-center justify-between gap-2"><b>按板块/题材归因</b><span className="text-[10px] text-muted">只统计已用真实行情复盘的样本；不是独立策略胜率</span></div>
+        <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+          {sectorStats.map(stat => <div key={stat.sector} className="rounded border border-border/60 bg-surface px-2 py-1.5 text-[10px]">
+            <div className="flex items-center justify-between gap-2"><b className="truncate" title={stat.sector}>{stat.sector}</b><span className="text-muted">样本 {stat.count}</span></div>
+            <div className="mt-0.5 text-muted">上涨率 {stat.ratio == null ? '—' : `${stat.ratio.toFixed(1)}%`} · 均值 {stat.average == null ? '—' : `${stat.average >= 0 ? '+' : ''}${stat.average.toFixed(2)}%`}</div>
+          </div>)}
+        </div>
+      </div>}
       {!!reviewTrend.length && <div className="mt-2 rounded border border-border/60 bg-base/40 p-2">
         <div className="flex flex-wrap items-center justify-between gap-2"><b>成功率历史趋势</b><span className="text-[10px] text-muted">每行一次已复盘快照 · 仅真实行情样本</span></div>
         <div className="mt-1.5 space-y-1.5">{reviewTrend.map(row => <div key={row.id} className="grid grid-cols-[88px_72px_1fr_88px] items-center gap-2 text-[10px]">
