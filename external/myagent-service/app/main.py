@@ -115,6 +115,7 @@ class QuantAIRequest(BaseModel):
     name: str = Field(default="", max_length=40)
     question: str = Field(min_length=1, max_length=1000)
     context: dict = Field(default_factory=dict)
+    attachment_ids: list[str] = Field(default_factory=list, max_length=5)
 class QuantLayoutRequest(BaseModel):
     layout: str = Field(min_length=1, max_length=500000)
 class QuantWatchRequest(BaseModel):
