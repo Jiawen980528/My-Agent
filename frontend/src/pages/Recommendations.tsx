@@ -112,7 +112,8 @@ export function Recommendations() {
         if (!response.ok) throw new Error('实时行情暂不可用')
         const quotes = new Map((body.items || []).map(item => [String(item.code || item.symbol || '').replace(/\D/g, ''), item]))
         if (disposed) return
-        setResult(current => current ? { ...current, items: (current.items || []).map(item => { const quote = quotes.get(item.symbol); return quote ? { ...item, price: quote.price, pct: quote.change_pct ?? quote.pct, quote_source: body.source } : item }) } : current)
+        const normalize = (value: string) => value.replace(/\D/g, '').slice(-6)
+        setResult(current => current ? { ...current, items: (current.items || []).map(item => { const quote = quotes.get(normalize(item.symbol)); return quote ? { ...item, price: quote.price, pct: quote.change_pct ?? quote.pct, quote_source: body.source } : item }) } : current)
         setQuoteUpdatedAt(new Date().toLocaleTimeString('zh-CN', { hour12: false }))
         setQuoteNotice(body.source || '实时行情')
       } catch { if (!disposed) setQuoteNotice('实时行情暂不可用，显示扫描时数据') }
