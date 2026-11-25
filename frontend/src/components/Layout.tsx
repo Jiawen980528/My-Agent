@@ -376,6 +376,18 @@ type NavState = 'expanded' | 'rail' | 'hidden'
 export function Layout() {
   // ===== 共享 hooks (替代内联 useQuery) =====
   const { data: settingsState } = useSettings()
+  // MyAgent 是独立的研究辅助模型通道；它不能复用核心策略 AI 的状态，
+  // 否则 MyAgent 已配置时侧栏仍会误报“未配置”。只读取脱敏状态，不读取密钥。
+  const { data: myAgentConfig } = useQuery({
+    queryKey: ['myagent-ai-config-status'],
+    queryFn: async () => {
+      const response = await fetch('/quant/api/myagent/config', { credentials: 'include' })
+      if (!response.ok) throw new Error(`MyAgent AI 状态 ${response.status}`)
+      return await response.json() as { api_key_configured?: boolean; model?: string }
+    },
+    staleTime: 60_000,
+    retry: false,
+  })
   const { data: matrix } = useCapabilityMatrix()
   const { data: versionData } = useVersion()
   // 更新检查 (单例 store): 启动静默查一次 GitHub Releases, 供左下角版本号徽标
@@ -821,8 +833,8 @@ export function Layout() {
                 <DataSourceHealthBadge matrix={matrix} />
               <div className="mx-2 border-t border-border/60" aria-hidden="true" />
               <AIConfigBadge
-                configured={settingsState?.ai_configured ?? settingsState?.has_ai_key}
-                model={settingsState?.ai_model}
+                configured={(settingsState?.ai_configured ?? settingsState?.has_ai_key) || myAgentConfig?.api_key_configured}
+                model={myAgentConfig?.api_key_configured ? `${myAgentConfig.model || 'MyAgent AI'} · MyAgent` : settingsState?.ai_model}
               />
               {/* 快捷行: 数据 + 扩展快捷方式 (AI 助手) 一行两个半宽 chip */}
               <div className="mx-2 mt-1 flex items-stretch gap-1 border-t border-border/45 pt-1">

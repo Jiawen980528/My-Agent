@@ -213,7 +213,10 @@ def config():
     profiles=settings.providers()
     order=settings.provider_order()
     names=[*order,*[name for name in profiles if name not in order]]
-    return {"model":profiles.get(settings.model_provider, profiles["openai"]).model,"api_key_configured":bool(settings.configured_provider_names()),"providers":[{"name":name,"label":profiles[name].label,"model":profiles[name].model,"configured":bool(profiles[name].api_key),"priority":order.index(name) + 1 if name in order else None} for name in names],"tools":[{"name":n,"risk":registry.get(n).risk,"permission":registry.get(n).permission} for n in registry.names()],"timezone":settings.timezone,"limits":{"max_model_calls":settings.max_model_calls,"max_task_seconds":settings.max_task_seconds,"max_task_cost_usd":settings.max_task_cost_usd}}
+    configured_names=settings.configured_provider_names()
+    active_name=configured_names[0] if configured_names else settings.model_provider
+    active_profile=profiles.get(active_name, profiles["openai"])
+    return {"model":active_profile.model,"provider":active_name,"api_key_configured":bool(configured_names),"providers":[{"name":name,"label":profiles[name].label,"model":profiles[name].model,"configured":bool(profiles[name].api_key),"priority":order.index(name) + 1 if name in order else None} for name in names],"tools":[{"name":n,"risk":registry.get(n).risk,"permission":registry.get(n).permission} for n in registry.names()],"timezone":settings.timezone,"limits":{"max_model_calls":settings.max_model_calls,"max_task_seconds":settings.max_task_seconds,"max_task_cost_usd":settings.max_task_cost_usd}}
 
 @app.put("/api/providers/config/{provider_name}", dependencies=[Depends(require_auth)])
 def update_provider(provider_name: str, req: ProviderUpdate):
