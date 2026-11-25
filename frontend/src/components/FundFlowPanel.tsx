@@ -97,6 +97,8 @@ function FlowChart({ data, compact = false, historical = false, onSelectDate }: 
 
 function SectorKline({ sector, compact }: { sector: string; compact: boolean }) {
   const [period, setPeriod] = useState<KlinePeriod>('daily')
+  const fuyaoBoard = /\.TI$/i.test(sector)
+  const effectivePeriod: KlinePeriod = fuyaoBoard ? 'daily' : period
   const [data, setData] = useState<KlineData | null>(null)
   const [error, setError] = useState('')
   const holder = useRef<HTMLDivElement>(null)
@@ -106,16 +108,16 @@ function SectorKline({ sector, compact }: { sector: string; compact: boolean }) 
     const load = async () => {
       if (document.visibilityState === 'hidden') return
       try {
-        const response = await fetch(`/quant/api/myagent/fund-flow/sector-kline?sector=${sector}&period=${period}&days=120`, { credentials: 'include' })
+        const response = await fetch(`/quant/api/myagent/fund-flow/sector-kline?sector=${encodeURIComponent(sector)}&period=${effectivePeriod}&days=120`, { credentials: 'include' })
         const body = await response.json()
         if (!response.ok) throw new Error(body.detail || `板块行情请求失败 ${response.status}`)
         if (active) { setData(body as KlineData); setError('') }
       } catch (err) { if (active) setError((err as Error).message) }
     }
     void load()
-    const timer = window.setInterval(() => void load(), period === 'daily' ? 300_000 : 60_000)
+    const timer = window.setInterval(() => void load(), effectivePeriod === 'daily' ? 300_000 : 60_000)
     return () => { active = false; window.clearInterval(timer) }
-  }, [sector, period])
+  }, [sector, effectivePeriod])
   useEffect(() => {
     const element = holder.current
     if (!element || !data?.rows.length) return
@@ -137,8 +139,8 @@ function SectorKline({ sector, compact }: { sector: string; compact: boolean }) 
     return () => { observer.disconnect(); chart.dispose() }
   }, [data])
   return <section className="mt-3 rounded-card border border-border bg-base/40 p-3">
-    <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-sm font-semibold">{data?.name || sector} · 板块行情</h3><p className="text-xs text-muted">{data?.source || '东方财富公开板块行情'} · {data?.latest_time || '读取中'}{data?.stale ? ' · 缓存' : ''}</p></div>
-      <div className="flex gap-1 text-xs">{(['daily', '1m', '5m', '15m'] as const).map(value => <button key={value} type="button" onClick={() => setPeriod(value)} className={`rounded border px-2 py-1 ${period === value ? 'border-accent text-accent' : 'border-border'}`}>{value === 'daily' ? '日K' : value === '1m' ? '1分K' : value === '5m' ? '5分K' : '15分K'}</button>)}</div></div>
+    <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-sm font-semibold">{data?.name || sector} · 板块行情</h3><p className="text-xs text-muted">{data?.source || '东方财富公开板块行情'} · {data?.latest_time || '读取中'}{data?.stale ? ' · 缓存' : ''}{fuyaoBoard ? ' · 扶摇当前仅提供板块日K' : ''}</p></div>
+      <div className="flex gap-1 text-xs">{(['daily', '1m', '5m', '15m'] as const).map(value => <button key={value} type="button" onClick={() => setPeriod(value)} disabled={fuyaoBoard && value !== 'daily'} title={fuyaoBoard && value !== 'daily' ? '扶摇当前未开放板块分钟K' : undefined} className={`rounded border px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40 ${effectivePeriod === value ? 'border-accent text-accent' : 'border-border'}`}>{value === 'daily' ? '日K' : value === '1m' ? '1分K' : value === '5m' ? '5分K' : '15分K'}</button>)}</div></div>
     {error && <p className="mt-2 text-xs text-danger">{error}</p>}
     {data?.rows.length ? <div ref={holder} className={compact ? 'h-[240px] w-full' : 'h-[340px] w-full'} role="img" aria-label={`${data.name}${period === 'daily' ? '日K' : `${period} K`}行情图`} /> : <p className="py-8 text-center text-xs text-muted">{error || '正在读取板块行情…'}</p>}
     <p className="text-xs text-muted">获取于 {data?.fetched_at?.slice(11, 19) || '—'}；{period === 'daily' ? '当日日K可能尚未收盘。' : '分钟K时间为区间标记，最后一根可能尚未完成。'}</p>

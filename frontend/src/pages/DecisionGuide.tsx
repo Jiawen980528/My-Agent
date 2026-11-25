@@ -151,9 +151,10 @@ export function DecisionGuide() {
   })
   const linkedBoardCode = selected?.item.board?.code?.toUpperCase().match(/^BK\d{4}$/)?.[0]
     || (selected?.item.symbol ? savedLinkedBoard(selected.item.symbol, preferences.data?.ui_prefs?.portfolio_terminal_linked_boards) : '')
+  const linkedBoardPeriod = linkedBoardCode && /\.TI$/i.test(linkedBoardCode) ? 'daily' : '1m'
   const linkedBoard = useQuery({
-    queryKey: ['decision-guide-board', linkedBoardCode],
-    queryFn: () => json<BoardContext>(`/quant/api/myagent/fund-flow/sector-kline?sector=${linkedBoardCode}&period=1m`),
+    queryKey: ['decision-guide-board', linkedBoardCode, linkedBoardPeriod],
+    queryFn: () => json<BoardContext>(`/quant/api/myagent/fund-flow/sector-kline?sector=${linkedBoardCode}&period=${linkedBoardPeriod}`),
     enabled: !!linkedBoardCode,
     refetchInterval: tradingNow() ? 60_000 : false,
     staleTime: 60_000,
@@ -170,9 +171,10 @@ export function DecisionGuide() {
     staleTime: 10 * 60_000,
   })
   const defensiveBoard = defensiveCatalog.data?.items?.find(item => item.name === '银行' || item.name.includes('银行'))
+  const defensivePeriod = defensiveBoard?.code && /\.TI$/i.test(defensiveBoard.code) ? 'daily' : '1m'
   const defensiveQuote = useQuery({
-    queryKey: ['decision-guide-defensive-board', defensiveBoard?.code],
-    queryFn: () => json<BoardContext>(`/quant/api/myagent/fund-flow/sector-kline?sector=${defensiveBoard!.code}&period=1m`),
+    queryKey: ['decision-guide-defensive-board', defensiveBoard?.code, defensivePeriod],
+    queryFn: () => json<BoardContext>(`/quant/api/myagent/fund-flow/sector-kline?sector=${defensiveBoard!.code}&period=${defensivePeriod}`),
     enabled: !!defensiveBoard?.code,
     refetchInterval: tradingNow() ? 60_000 : false,
     staleTime: 60_000,
