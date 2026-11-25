@@ -222,8 +222,12 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
     if (!raw) { onLinkedBoardChange(''); setBoardChoiceError(''); return }
     const code = raw.match(/(?:BK\d{4}|\d{6}(?:\.(?:TI|SH|SZ))?)/i)?.[0]?.toUpperCase()
     const normalizedCode = code && /^\d{6}$/.test(code) ? `${code}.TI` : code
-    const match = boardOptions.find(option => option.code === normalizedCode || option.name === raw || raw.includes(option.code))
-      || boardOptions.find(option => option.name.includes(raw))
+    // 搜索结果来自统一板块目录，不一定已经出现在“当前持仓板块”列表。
+    // 应用时必须同时匹配远程搜索结果，否则输入名称虽能搜到，下方仍会提示未找到。
+    const candidates = [...(boardSearchQuery.data?.items || []), ...boardOptions]
+      .filter((option, index, all) => all.findIndex(item => item.code === option.code) === index)
+    const match = candidates.find(option => option.code.toUpperCase() === normalizedCode || option.name === raw || raw.includes(option.code))
+      || candidates.find(option => option.name.includes(raw) || raw.includes(option.name))
     if (!match) { setBoardChoiceError('未找到该板块，请输入名称、BK 代码或同花顺指数代码'); return }
     onLinkedBoardChange(match.code); setBoardSearch(`${match.name} (${match.code})`); setBoardChoiceError('')
   }
