@@ -119,10 +119,13 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
 
   const runAI = () => {
     if (generating) return
+    const externalText = externalMarket.data?.rows?.length
+      ? externalMarket.data.rows.map(row => `${row.name} ${row.last == null ? '不可用' : row.last.toFixed(2)} ${pct(row.change_pct)}`).join('；')
+      : '美股/外围公共行情暂不可用，不得据此推断';
     const forecastHistory = forecastReviews.data?.summary
       ? `历史成交额预测复盘：已复盘 ${forecastReviews.data.summary.resolved ?? 0} 次，成功率 ${forecastReviews.data.summary.success_rate == null ? '暂无' : `${forecastReviews.data.summary.success_rate}%`}，待复盘 ${forecastReviews.data.summary.pending ?? 0} 次。`
       : '历史成交额预测复盘数据暂不可用。'
-    void startReviewGeneration(undefined, `重点分析大盘走势、成交额、量能变化、科技成长与防守风格，并给出上行/震荡/下行条件。${forecastHistory} 仅将历史复盘作为证据，不得把它当作实时数据，也不得据此编造交易信号。`)
+    void startReviewGeneration(undefined, `重点分析大盘走势、成交额、量能变化、科技成长与防守风格，并给出上行/震荡/下行条件。外围背景（公共行情，可能延迟）：${externalText}。${forecastHistory} 仅将历史复盘作为证据，不得把它当作实时数据，也不得据此编造交易信号。`)
     setForecastTab('ai')
   }
 
