@@ -968,6 +968,23 @@ async def sector_kline(
                 return {**cached[1], "stale": True}
             raise HTTPException(status_code=502, detail=f"板块K线暂不可用：{type(exc).__name__}") from exc
 
+@router.get("/quant/tickflow/status")
+async def local_tickflow_status(request: Request) -> dict[str, object]:
+    """Return local TickFlow capability state without requiring MyAgent bridge auth.
+
+    The dashboard only needs to know whether this backend can supply quotes.  A
+    missing external MyAgent bridge must not turn that diagnostic into a 503.
+    """
+    capset = getattr(request.app.state, "capabilities", None)
+    connected = bool(capset and (capset.has(Cap.QUOTE_BATCH) or capset.has(Cap.QUOTE_BY_SYMBOL)))
+    return {
+        "connected": connected,
+        "source": "TickFlow" if connected else "未连接",
+        "as_of": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
+        "message": "" if connected else "TickFlow未配置可用实时行情能力；请在数据源设置中保存有效 Key",
+    }
+
+
 @router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy_myagent(path: str, request: Request):
     if not (path.startswith("quant/") or path in {"chat", "config"}):

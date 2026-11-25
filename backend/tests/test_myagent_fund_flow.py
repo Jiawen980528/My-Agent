@@ -1,7 +1,9 @@
 """Units and date alignment for the MyAgent fund-flow bridge."""
 import unittest
+import asyncio
+from types import SimpleNamespace
 
-from app.api.myagent_bridge import _parse_flow, _parse_price, _sum_market_flows
+from app.api.myagent_bridge import _parse_flow, _parse_price, _sum_market_flows, local_tickflow_status
 
 
 class FundFlowParsingTests(unittest.TestCase):
@@ -30,6 +32,18 @@ class FundFlowParsingTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual([rows[0][key] for key in ("open", "close", "low", "high")], [100, 103, 99, 105])
         self.assertEqual(rows[0]["pct"], 3.0)
+
+    def test_tickflow_status_is_local_and_does_not_require_bridge_token(self):
+        class NoQuotes:
+            @staticmethod
+            def has(_cap):
+                return False
+
+        request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(capabilities=NoQuotes())))
+        result = asyncio.run(local_tickflow_status(request))
+        self.assertFalse(result["connected"])
+        self.assertEqual(result["source"], "未连接")
+        self.assertIn("有效 Key", result["message"])
 
 
 if __name__ == "__main__":
