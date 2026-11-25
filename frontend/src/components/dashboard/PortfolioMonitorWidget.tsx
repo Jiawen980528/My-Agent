@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom'
 import * as echarts from 'echarts'
 import { api } from '@/lib/api'
 import { resampleMinutes } from '@/lib/minuteResample'
-import type { MinuteKlineRow } from '@/lib/api'
+import type { KlineRow, MinuteKlineRow } from '@/lib/api'
 import { getPageScale } from '@/lib/pageZoom'
 import { setUiPref } from '@/lib/uiPrefs'
 import { usePreferences } from '@/lib/useSharedQueries'
@@ -318,6 +318,15 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
     const input: MinuteKlineRow[] = sourceRows.map(row => ({ datetime: row.datetime, open: row.close, high: row.high, low: row.low, close: row.close, volume: row.volume || 0, amount: row.amount ?? null }))
     return resampleMinutes(input, period).map(row => ({ datetime: row.date, open: row.open, high: row.high, low: row.low, close: row.close, volume: row.volume }))
   }, [chartPeriod, dailyHistory.data?.rows, historyRows, stockRows])
+  const latestTechnical = dailyHistory.data?.rows?.at(-1) as (KlineRow & Record<string, unknown>) | undefined
+  const technicalItems = latestTechnical ? [
+    ['RSI14', latestTechnical.rsi_14, (value: unknown) => Number(value).toFixed(1)],
+    ['MACD柱', latestTechnical.macd_hist, (value: unknown) => Number(value).toFixed(3)],
+    ['KDJ-J', latestTechnical.kdj_j, (value: unknown) => Number(value).toFixed(1)],
+    ['布林位置', latestTechnical.boll_position, (value: unknown) => `${(Number(value) * 100).toFixed(1)}%`],
+    ['ATR%', latestTechnical.atr_pct, (value: unknown) => `${(Number(value) * 100).toFixed(2)}%`],
+    ['量比', latestTechnical.vol_ratio_5d, (value: unknown) => `${Number(value).toFixed(2)}x`],
+  ] as const : []
   const autoBoardName = usableBoardName(board.data?.board?.name) ? board.data?.board?.name : usableBoardName(item.board?.name) ? item.board?.name : undefined
   const boardName = linkedBoard.data?.name || autoBoardName || '关联行业板块待绑定'
   const boardCode = linkedBoardCode || board.data?.board?.code || ''
@@ -395,6 +404,10 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
             <button key={n} type="button" onClick={() => setRequestedDays(n)} className={`rounded px-1 py-0.5 ${requestedDays === n ? 'bg-accent/20 text-accent' : 'text-muted hover:bg-elevated'}`}>{n}日</button>)}</>}</div></div>
       <TimeChart rows={chartRows} title={`${item.name} · ${chartPeriod}`} color="#5aaaff" height={260} multiDay={chartPeriod === '1m' && historyRows.length > stockRows.length} previousCloses={previousCloses} trades={chartPeriod === '1m' ? trades : []} />
       <p className="px-1 text-[11px] text-muted">滚轮缩放 · 拖动下方时间条浏览 · 鼠标悬停看具体信息 · {chartPeriod === '1m' ? `已有 ${new Set(historyRows.map(row => dateOf(row.datetime))).size} 个交易日 · 选中日 ${stockRows.length} 根` : `${chartRows.length} 根真实${chartPeriod === '1d' ? '日K' : chartPeriod === '1w' ? '周K' : chartPeriod}数据`} · {chartRows.at(-1)?.datetime || '暂无时间'} · {chartPeriod === '1d' || chartPeriod === '1w' ? (dailyHistory.data?.source || '来源未标注') : (isLatest ? (minuteSource || selectedMinute.data?.source || '来源未标注') : (selectedMinute.data?.source || minuteSource || '读取中'))}</p>
+      {(chartPeriod === '1d' || chartPeriod === '1w') && <div className="grid grid-cols-3 gap-1 rounded border border-border/70 bg-elevated/35 p-1.5 text-[10px] sm:grid-cols-6">
+        {technicalItems.map(([label, raw, format]) => <div key={label} className="rounded bg-base/50 px-1.5 py-1"><span className="text-muted">{label}</span><br /><b className="font-mono">{raw == null || !Number.isFinite(Number(raw)) ? '不可用' : format(raw)}</b></div>)}
+        {!technicalItems.length && <span className="col-span-full text-muted">当前日K未返回技术指标，不能用价格曲线替代指标。</span>}
+      </div>}
       {(chartPeriod === '1d' || chartPeriod === '1w') && dailyHistory.isError && <p className="px-1 text-[11px] text-warning">日K/周K读取失败，请检查当前数据源权限。</p>}
       {history.isError && <p className="px-1 text-[11px] text-warning">跨日缓存读取失败；仍可按日期查看单日。</p>}
       {fetchedHistory.isFetching && <p className="px-1 text-[11px] text-accent">正在按数据源权限补取历史分钟K…</p>}
@@ -965,3 +978,4 @@ export function PortfolioMonitorWidget() {
     </div>, document.body)}
   </section>
 }
+
