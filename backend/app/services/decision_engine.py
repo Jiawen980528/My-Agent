@@ -53,6 +53,7 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
     turnover = snapshot.get("turnover_forecast") if isinstance(snapshot.get("turnover_forecast"), dict) else {}
     defensive = snapshot.get("defensive") if isinstance(snapshot.get("defensive"), dict) else {}
     external = snapshot.get("external_market") if isinstance(snapshot.get("external_market"), dict) else {}
+    technical = snapshot.get("technical") if isinstance(snapshot.get("technical"), dict) else {}
     multi_period = snapshot.get("multi_period") if isinstance(snapshot.get("multi_period"), dict) else {}
     trades_today = snapshot.get("trades_today") if isinstance(snapshot.get("trades_today"), list) else []
     period_keys = ("daily", "minute_60", "minute_15", "minute_5")
@@ -148,6 +149,19 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
                     vix = _num((by_symbol.get("^VIX") or {}).get("last"))
                     if vix is not None and vix >= 30:
                         warnings.append(f"VIX={vix:.1f}处于高位，外围风险偏好偏弱，优先等待确认")
+            if technical:
+                basis.append("日线技术指标（真实 enriched 数据）")
+                rsi = _num(technical.get("rsi_14"))
+                macd_hist = _num(technical.get("macd_hist"))
+                kdj_j = _num(technical.get("kdj_j"))
+                if rsi is not None and rsi >= 70:
+                    warnings.append(f"RSI14={rsi:.1f}偏高，避免追涨")
+                elif rsi is not None and rsi <= 30:
+                    warnings.append(f"RSI14={rsi:.1f}偏低，需等待止跌确认，不据此直接抄底")
+                if macd_hist is not None and macd_hist < 0:
+                    warnings.append("MACD柱为负，短线动能偏弱")
+                if kdj_j is not None and kdj_j >= 100:
+                    warnings.append(f"KDJ-J={kdj_j:.1f}偏高，注意冲高回落")
             if trades_today:
                 basis.append("当日已成交记录")
             if reasons:
@@ -180,6 +194,7 @@ def build_decision(snapshot: dict[str, Any], *, risk_budget: float = 5000.0,
             "trades_today_count": len(trades_today),
             "context_missing": context_missing,
             "external_market": external or None,
+            "technical": technical or None,
         },
         "trigger_price": trigger,
         "invalidation_price": invalidation,
