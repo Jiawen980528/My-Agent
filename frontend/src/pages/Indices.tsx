@@ -445,6 +445,12 @@ export function Indices() {
                   /> : <EChartsCandlestick data={periodRows} height={550} showMA={false} showInfoBar={false}
                     showMarkers={false} activeIndicators={['vol']} visibleBars="all" />
                 )}
+                {selectedSymbol === '000001.SH' && <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted">
+                  <span className={hasLeadingAverage ? 'text-warning' : 'text-muted'}>
+                    领先线：{hasLeadingAverage ? `TickFlow 全市场等权代理 · 覆盖 ${minute.data?.leading_coverage ?? 0} 只` : '当前覆盖不足，未生成'}
+                  </span>
+                  {minute.data?.leading_notice && <span>{minute.data.leading_notice}</span>}
+                </div>}
               </div>
             </div>
           )}

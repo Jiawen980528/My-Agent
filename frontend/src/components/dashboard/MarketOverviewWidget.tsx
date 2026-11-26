@@ -246,6 +246,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted">
             <span>当前来源：{sourceText}</span>
             <span>最后时间：{chartRows.at(-1)?.datetime ?? '—'}</span>
+            <span className={hasLeadingLine ? 'text-warning' : 'text-muted'}>领先线：{hasLeadingLine ? `全市场等权代理 · 覆盖 ${minute.data?.leading_coverage ?? 0} 只` : '当前覆盖不足，未生成'}</span>
             <span className="text-warning">非交易时段请勿将历史曲线当作实时行情</span>
           </div>
         </div>
