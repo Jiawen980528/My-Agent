@@ -11,7 +11,9 @@ import { fmtBigNum } from '@/lib/format'
 import { cn } from '@/lib/cn'
 
 const FORECAST_REVIEW_API = '/quant/api/myagent/forecast-review'
+const MANUAL_HOLDINGS_API = '/quant/api/myagent/quant/holdings'
 type ForecastReviewItem = { id: string; trade_date: string; scope?: string; forecast_amount?: number; forecast_low?: number; forecast_high?: number; actual_amount?: number; status?: 'pending' | 'hit' | 'miss'; as_of?: string; source?: string }
+type ManualHolding = { symbol: string; name: string; sector?: string; quantity?: number; cost?: number; price?: number; pct?: number; profit?: number; profit_pct?: number }
 
 const INDEXES = [
   { symbol: '000001.SH', name: '上证指数' },
@@ -93,6 +95,17 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
     refetchInterval: 60_000,
     staleTime: 30_000,
   })
+  const manualHoldings = useQuery({
+    queryKey: ['dashboard-manual-holdings'],
+    queryFn: async () => {
+      const response = await fetch(MANUAL_HOLDINGS_API, { credentials: 'include' })
+      const body = await response.json() as { items?: ManualHolding[]; detail?: string }
+      if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`)
+      return body.items || []
+    },
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  })
   const externalMarket = useQuery({
     queryKey: ['dashboard-external-market-context'],
     queryFn: api.externalMarketContext,
@@ -122,6 +135,41 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
     : null
   const sourceText = minute.data?.source ?? data.quote_status?.source ?? '分钟数据源未标注'
   const state = marketState(data, chartRows)
+  const portfolioRows = useMemo(() => {
+    const manualByCode = new Map((manualHoldings.data || []).map(item => [item.symbol.replace(/\D/g, '').slice(-6), item]))
+    const rows = (portfolio.data?.items || []).map(item => {
+      const manual = manualByCode.get(item.symbol.replace(/\D/g, '').slice(-6))
+      if (!manual) return item
+      return {
+        ...item,
+        name: item.name || manual.name,
+        holding_source: item.holding_source || 'manual',
+        quantity: item.quantity ?? manual.quantity ?? null,
+        cost: item.cost ?? manual.cost ?? null,
+        pnl: item.pnl ?? manual.profit ?? null,
+        price: item.price ?? manual.price ?? null,
+        change_pct: item.change_pct ?? manual.pct ?? null,
+        board: item.board || (manual.sector ? { name: manual.sector, code: '' } : null),
+      }
+    })
+    const existing = new Set(rows.map(item => item.symbol.replace(/\D/g, '').slice(-6)))
+    for (const manual of manualHoldings.data || []) {
+      const code = manual.symbol.replace(/\D/g, '').slice(-6)
+      if (!code || existing.has(code)) continue
+      rows.push({
+        symbol: manual.symbol,
+        name: manual.name,
+        holding_source: 'manual',
+        quantity: manual.quantity ?? null,
+        cost: manual.cost ?? null,
+        pnl: manual.profit ?? null,
+        price: manual.price ?? null,
+        change_pct: manual.pct ?? null,
+        board: manual.sector ? { name: manual.sector, code: '' } : null,
+      })
+    }
+    return rows
+  }, [manualHoldings.data, portfolio.data?.items])
   const marketStats = useMemo(() => [
     { label: '今日市场状态', value: state.label, sub: state.detail, cls: state.cls },
     { label: '当前成交额', value: hasMarketSnapshot ? fmtBigNum(data.amount.total) : '不可用', sub: hasMarketSnapshot ? '点击右侧预测' : '未连接实时行情', cls: 'text-foreground' },
@@ -303,10 +351,8 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
             <p className="text-[10px] text-muted">只展示当前接口返回的数据；未接入券商/QMT的数量、成本和盈亏不会被填成历史快照</p>
           </div>
           <div className="flex items-center gap-2 text-[10px]">
-            <span className="text-muted">来源：{portfolio.data?.source ?? (portfolio.isLoading ? '读取中…' : '未标注')}</span>
-            {portfolio.data?.account_verified
-              ? <span className="text-bull">券商账户已核验</span>
-              : <span className="text-warning">账户未核验</span>}
+            <span className="text-muted">行情来源：{portfolio.data?.source ?? (portfolio.isLoading ? '读取中…' : '未标注')}</span>
+            {manualHoldings.data?.length ? <span className="text-bull">手工持仓已读取 {manualHoldings.data.length} 条</span> : portfolio.data?.account_verified ? <span className="text-bull">券商账户已核验</span> : <span className="text-warning">暂无已核验账户</span>}
             <Link to="/myagent-quant" className="text-accent hover:underline">管理持仓</Link>
           </div>
         </div>
@@ -320,7 +366,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
               <th className="px-2 py-1.5 text-left font-medium">板块</th><th className="px-2 py-1.5 text-left font-medium">状态</th>
             </tr></thead>
             <tbody>
-              {(portfolio.data?.items ?? []).map(item => <tr key={item.symbol} className="border-t border-border/70 hover:bg-elevated/40">
+              {portfolioRows.map(item => <tr key={item.symbol} className="border-t border-border/70 hover:bg-elevated/40">
                 <td className="px-2 py-1.5"><b>{item.name}</b><span className="ml-1 font-mono text-muted">{item.symbol}</span></td>
                 <td className="px-2 py-1.5 text-right font-mono">{item.price == null ? '—' : item.price.toFixed(3)}</td>
                 <td className={cn('px-2 py-1.5 text-right font-mono', tone(item.change_pct))}>{pct(item.change_pct)}</td>
@@ -332,7 +378,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
               </tr>)}
             </tbody>
           </table>
-          {!portfolio.isLoading && !portfolio.data?.items?.length && <p className="p-3 text-center text-[10px] text-muted">暂无持仓或监控标的，请先进入“管理持仓”录入或核对。</p>}
+          {!portfolio.isLoading && !manualHoldings.isLoading && !portfolioRows.length && <p className="p-3 text-center text-[10px] text-muted">暂无持仓或监控标的，请先进入“管理持仓”录入或核对。</p>}
         </div>
       </div>
     </section>
