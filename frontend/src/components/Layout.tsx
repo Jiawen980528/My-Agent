@@ -32,7 +32,6 @@ import {
   DatabaseZap,
   Loader2,
   BarChart3,
-  Newspaper,
   Sparkles,
   CheckCircle2,
   ChevronRight,
@@ -81,15 +80,18 @@ type CoreIndex = (typeof CORE_INDEXES)[number]
 const nav = [
   { to: '/',                   label: '看板',       icon: IconDashboard },
   { to: '/portfolio-terminal', label: '我的持仓',   icon: IconWatchlist },
-  { to: '/decision-guide',     label: '行情推演',   icon: Sparkles },
-  { to: '/watchlist',           label: '自选',       icon: IconWatchlist },
-  { to: '/screener',            label: '个股搜索',   icon: IconStrategy },
-  { to: '/fund-flow',           label: '市场总览',   icon: BarChart3 },
+  { to: '/decision-guide',     label: '持仓推演',   icon: Sparkles },
+  { to: '/recommendations',    label: '个股研究',   icon: IconStrategy },
+  { to: '/myagent-quant',      label: '量化',       icon: BarChart3 },
 ] as const
 
-// 量化侧栏只展示个人持仓决策链路。新闻、个股推荐等内容已并入看板/个股搜索，
-// 拾贝、回测、因子、数据同步等旧页面仍保留路由和数据，不再占用主导航。
+// 量化侧栏只展示个人持仓决策链路。市场宽度、情绪、资金流和大盘判断
+// 统一收进「看板」及其展开页；暗盘、预测复盘和提醒仍保留路由，
+// 统一收进「我的持仓」页内，避免把同一套决策链路重复铺在侧栏。
 const FOCUS_EXTENSION_PATHS = new Set(['/paper', '/review', '/monitor'])
+
+// 供导航回归测试和移动端入口复用；新增/精简主导航时必须同步检查这里。
+export const PRIMARY_NAV_PATHS = nav.map(item => item.to)
 
 /** 亮/暗主题切换 — 状态存 localStorage, 生效见 lib/theme.ts */
 function ThemeToggle() {
