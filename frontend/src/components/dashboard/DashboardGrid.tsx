@@ -132,6 +132,19 @@ export function DashboardGrid({ ctx, items, onItemsChange, editing, onAddWidget 
     onItemsChange(items.filter(it => it.i !== id))
   }, [items, onItemsChange])
 
+  // 手机端不挂 RGL（触摸滚动和图表手势会与网格拖拽冲突），但编辑态仍要能
+  // 调整组件顺序。用明确的上移/下移按钮替代桌面端的自由拖拽，避免把
+  // “手机端可编辑”误做成只能查看的纵向长页面。
+  const moveMobileItem = useCallback((id: string, delta: -1 | 1) => {
+    const index = items.findIndex(item => item.i === id)
+    const target = index + delta
+    if (index < 0 || target < 0 || target >= items.length) return
+    const next = [...items]
+    const [item] = next.splice(index, 1)
+    next.splice(target, 0, item)
+    onItemsChange(next)
+  }, [items, onItemsChange])
+
   const renderWidget = (it: DashboardItem): ReactNode => {
     const def = widgetDef(it.t)
     if (!def) return null
@@ -171,8 +184,18 @@ export function DashboardGrid({ ctx, items, onItemsChange, editing, onAddWidget 
       ) : isMobile ? (
         /* 移动端: 不挂网格, 纵排 */
         <div className="space-y-1.5">
-          {items.map(it => (
-            <div key={it.i} data-dashboard-widget={it.i} className="min-h-16">{renderWidget(it)}</div>
+          {items.map((it, index) => (
+            <div key={it.i} data-dashboard-widget={it.i} className="relative min-h-16">
+              {editing && <div className="mb-1 flex items-center justify-between rounded border border-border bg-surface px-1.5 py-1 text-[10px] text-muted">
+                <span className="truncate">{widgetDef(it.t)?.label ?? it.t}</span>
+                <span className="flex shrink-0 items-center gap-1">
+                  <button type="button" disabled={index === 0} onClick={() => moveMobileItem(it.i, -1)} className="rounded px-1.5 py-0.5 hover:bg-elevated disabled:opacity-30" aria-label={`上移${widgetDef(it.t)?.label ?? it.t}`}>↑</button>
+                  <button type="button" disabled={index === items.length - 1} onClick={() => moveMobileItem(it.i, 1)} className="rounded px-1.5 py-0.5 hover:bg-elevated disabled:opacity-30" aria-label={`下移${widgetDef(it.t)?.label ?? it.t}`}>↓</button>
+                  <button type="button" onClick={() => removeItem(it.i)} className="dash-widget-remove rounded px-1.5 py-0.5 text-danger hover:bg-danger/15" aria-label={`移除${widgetDef(it.t)?.label ?? it.t}`}>×</button>
+                </span>
+              </div>}
+              {renderWidget(it)}
+            </div>
           ))}
         </div>
       ) : (
