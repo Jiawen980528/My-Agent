@@ -90,31 +90,31 @@ async function render(props: { onClose?: () => void; onSaved?: (limit: number | 
 }
 
 const findButton = (text: string) =>
-  [...container.querySelectorAll('button')].find(b => b.textContent?.includes(text))!
+  [...document.body.querySelectorAll('button')].find(b => b.textContent?.includes(text))!
 
 it('exports the saved strategy as a dependency ZIP while keeping settings open', async () => {
   await render()
-  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="导出策略包"]')!.click())
+  await act(async () => document.body.querySelector<HTMLButtonElement>('[aria-label="导出策略包"]')!.click())
   expect(mocks.download).toHaveBeenCalledWith([{ kind: 'strategy', id: 'test_strategy' }], 'tsp-strategy-test_strategy.zip')
-  expect(container.querySelector('[role="dialog"]')).toBeTruthy()
+  expect(document.body.querySelector('[role="dialog"]')).toBeTruthy()
 })
 
 it('keeps unsaved strategy edits in place and requires saving before export', async () => {
   await render()
-  const input = [...container.querySelectorAll('input')].find(el => el.value === '测试策略')!
+  const input = [...document.body.querySelectorAll('input')].find(el => el.value === '测试策略')!
   setNumberInput(input, '未保存的改名')
-  const exportButton = container.querySelector<HTMLButtonElement>('[aria-label="导出策略包"]')!
+  const exportButton = document.body.querySelector<HTMLButtonElement>('[aria-label="导出策略包"]')!
   expect(exportButton.disabled).toBe(true)
   expect(exportButton.title).toContain('请先保存修改')
   act(() => exportButton.click())
   expect(mocks.download).not.toHaveBeenCalled()
   expect(input.value).toBe('未保存的改名')
-  expect(container.textContent).toContain('有未保存的改动')
+  expect(document.body.textContent).toContain('有未保存的改动')
 })
 
 // 分区页判隐: 页说明段落 → 内层容器 → 页 wrapper
 function pageHidden(introText: string) {
-  const p = [...container.querySelectorAll('p')].find(el => el.textContent?.includes(introText))
+  const p = [...document.body.querySelectorAll('p')].find(el => el.textContent?.includes(introText))
   if (!p) throw new Error(`page intro not found: ${introText}`)
   return p.parentElement!.parentElement!.className.includes('hidden')
 }
@@ -140,11 +140,11 @@ afterEach(() => {
 it('renders section nav with 策略条件 page active by default', async () => {
   await render()
 
-  expect(container.textContent).toContain('策略条件')
-  expect(container.textContent).toContain('策略权重')
-  expect(container.textContent).toContain('风控触发')
-  expect(container.textContent).toContain('基础参数')
-  expect(container.textContent).toContain('叠加条件')
+  expect(document.body.textContent).toContain('策略条件')
+  expect(document.body.textContent).toContain('策略权重')
+  expect(document.body.textContent).toContain('风控触发')
+  expect(document.body.textContent).toContain('基础参数')
+  expect(document.body.textContent).toContain('叠加条件')
   // 默认页可见, 其他分区隐藏 (常驻挂载避免编辑草稿丢失)
   expect(pageHidden('决定哪些股票进入候选')).toBe(false)
   expect(pageHidden('对通过筛选的候选按因子加权打分排序')).toBe(true)
@@ -167,19 +167,19 @@ it('shows unsaved-change hint on edit and clears it when reverted', async () => 
   await render()
   act(() => { findButton('风控触发').click() })
 
-  const stopLabel = [...container.querySelectorAll('span')].find(s => s.textContent === '止损')!
+  const stopLabel = [...document.body.querySelectorAll('span')].find(s => s.textContent === '止损')!
   const stopInput = stopLabel.parentElement!.querySelector('input[type="number"]') as HTMLInputElement
   // 百分比口径显示: 存储 -0.08 → 显示 8
   expect(stopInput.value).toBe('8')
-  expect(container.textContent).not.toContain('有未保存的改动')
+  expect(document.body.textContent).not.toContain('有未保存的改动')
 
   setNumberInput(stopInput, '9')
-  expect(container.textContent).toContain('有未保存的改动')
-  const navBtn = [...container.querySelectorAll('nav button')].find(b => b.textContent?.includes('风控触发'))!
+  expect(document.body.textContent).toContain('有未保存的改动')
+  const navBtn = [...document.body.querySelectorAll('nav button')].find(b => b.textContent?.includes('风控触发'))!
   expect(navBtn.querySelector('.bg-amber-400')).toBeTruthy()
 
   setNumberInput(stopInput, '8')
-  expect(container.textContent).not.toContain('有未保存的改动')
+  expect(document.body.textContent).not.toContain('有未保存的改动')
   expect(navBtn.querySelector('.bg-amber-400')).toBeFalsy()
 })
 
@@ -189,15 +189,15 @@ it('trading page exposes full risk fields and save carries them', async () => {
 
   // 与回测抽屉同构的 6 项纪律字段
   for (const label of ['止损', '止盈', '移动止损', '回撤止盈启动', '回撤止盈回撤', '最长持仓']) {
-    expect([...container.querySelectorAll('span')].some(s => s.textContent === label)).toBe(true)
+    expect([...document.body.querySelectorAll('span')].some(s => s.textContent === label)).toBe(true)
   }
 
   // 填止盈 15% 与回撤止盈 20/5 → 保存 payload 携带对应小数
-  const tpLabel = [...container.querySelectorAll('span')].find(s => s.textContent === '止盈')!
+  const tpLabel = [...document.body.querySelectorAll('span')].find(s => s.textContent === '止盈')!
   setNumberInput(tpLabel.parentElement!.querySelector('input[type="number"]') as HTMLInputElement, '15')
-  const taLabel = [...container.querySelectorAll('span')].find(s => s.textContent === '回撤止盈启动')!
+  const taLabel = [...document.body.querySelectorAll('span')].find(s => s.textContent === '回撤止盈启动')!
   setNumberInput(taLabel.parentElement!.querySelector('input[type="number"]') as HTMLInputElement, '20')
-  const tdLabel = [...container.querySelectorAll('span')].find(s => s.textContent === '回撤止盈回撤')!
+  const tdLabel = [...document.body.querySelectorAll('span')].find(s => s.textContent === '回撤止盈回撤')!
   setNumberInput(tdLabel.parentElement!.querySelector('input[type="number"]') as HTMLInputElement, '5')
 
   await act(async () => { findButton('保存设置').click() })
@@ -215,8 +215,8 @@ it('drawdown clamps to activate value (与回测抽屉同联动)', async () => {
   await render()
   act(() => { findButton('风控触发').click() })
 
-  const taLabel = [...container.querySelectorAll('span')].find(s => s.textContent === '回撤止盈启动')!
-  const tdLabel = [...container.querySelectorAll('span')].find(s => s.textContent === '回撤止盈回撤')!
+  const taLabel = [...document.body.querySelectorAll('span')].find(s => s.textContent === '回撤止盈启动')!
+  const tdLabel = [...document.body.querySelectorAll('span')].find(s => s.textContent === '回撤止盈回撤')!
   const tdInput = tdLabel.parentElement!.querySelector('input[type="number"]') as HTMLInputElement
   // 先设回撤 30, 再设启动 20 → 回撤被钳到 20
   setNumberInput(tdInput, '30')
@@ -251,7 +251,7 @@ it('minute strategy shows overlay unsupported message', async () => {
   mocks.detail = makeDetail({ execution_backend: 'minute_filter' })
   await render()
 
-  expect(container.textContent).toContain('不支持叠加条件')
+  expect(document.body.textContent).toContain('不支持叠加条件')
 })
 
 it('overlay conditions expose 最新/前N日 offset and save carries it', async () => {
@@ -259,12 +259,12 @@ it('overlay conditions expose 最新/前N日 offset and save carries it', async 
 
   // 叠加条件区添加一条 (默认 left=close, right='0' 常量) → 左侧出现「最新」按钮
   act(() => { findButton('添加条件').click() })
-  const latest = [...container.querySelectorAll('button')].find(b => b.textContent === '最新')
+  const latest = [...document.body.querySelectorAll('button')].find(b => b.textContent === '最新')
   expect(latest).toBeTruthy()
 
   // 切为「前1日」(与信号库同一控件): 出现 前[1]日 输入
   act(() => { latest!.click() })
-  expect([...container.querySelectorAll('span')].some(s => s.textContent === '前')).toBe(true)
+  expect([...document.body.querySelectorAll('span')].some(s => s.textContent === '前')).toBe(true)
 
   await act(async () => { findButton('保存设置').click() })
   const [, payload] = mocks.saveConfig.mock.calls[0]
@@ -280,10 +280,10 @@ it('the last overlay condition is deletable back to 不叠加', async () => {
   await render()
 
   // 仅一条时删除钮仍可用 (默认空 = 不叠加)
-  const remove = container.querySelector<HTMLButtonElement>('button[aria-label="删除条件"]')!
+  const remove = document.body.querySelector<HTMLButtonElement>('button[aria-label="删除条件"]')!
   expect(remove).toBeTruthy()
   act(() => { remove.click() })
-  expect(container.textContent).toContain('无条件 — 不叠加过滤')
+  expect(document.body.textContent).toContain('无条件 — 不叠加过滤')
 
   await act(async () => { findButton('保存设置').click() })
   const [, payload] = mocks.saveConfig.mock.calls[0]
@@ -298,8 +298,9 @@ it('composite strategy only exposes the children section', async () => {
   })
   await render()
 
-  expect(container.textContent).toContain('子策略与权重')
-  expect(container.textContent).not.toContain('策略条件')
+  expect(document.body.textContent).toContain('子策略与权重')
+  expect(document.body.textContent).not.toContain('策略条件')
   expect(pageHidden('叠加策略按权重融合子策略')).toBe(false)
-  expect(container.textContent).toContain('子策略A')
+  expect(document.body.textContent).toContain('子策略A')
 })
+
