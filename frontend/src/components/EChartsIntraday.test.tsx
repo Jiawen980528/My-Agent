@@ -117,7 +117,7 @@ it('index renders the weighted line in white and the leading line in yellow', as
   const option = chart.setOption.mock.calls.at(-1)?.[0]
   expect(option.series[0].name).toBe('价格')
   expect(option.series[0].lineStyle.color).toBe('#F4F4F5')
-  expect(option.series[1].name).toBe('均价')
+  expect(option.series[1].name).toBe('领先')
   expect(option.series[1].lineStyle.color).toBe('#F59E0B')
   expect(host.textContent).toContain('权重线')
   expect(host.textContent).toContain('领先线')
