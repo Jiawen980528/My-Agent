@@ -3475,6 +3475,10 @@ export const api = {
       date: string | null
       rows: MinuteKlineRow[]
       source?: string
+      leading_rows?: MinuteKlineRow[]
+      leading_source?: string | null
+      leading_coverage?: number
+      leading_notice?: string
     }>(
       `/api/index/minute?symbol=${encodeURIComponent(symbol)}${date ? `&date=${date}` : ''}`,
     ),

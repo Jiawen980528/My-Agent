@@ -109,6 +109,14 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
   )
   const recentAI = review.content.trim().replace(/[#*_`]/g, '').replace(/\s+/g, ' ').slice(0, 420)
   const chartRows = minute.data?.rows ?? []
+  const leadingPrices = useMemo(() => {
+    const byTime = new Map((minute.data?.leading_rows ?? []).map(row => [row.datetime.slice(0, 16), row.close]))
+    return chartRows.map(row => {
+      const value = byTime.get(row.datetime.slice(0, 16))
+      return value != null && Number.isFinite(value) && value > 0 ? value : null
+    })
+  }, [chartRows, minute.data?.leading_rows])
+  const hasLeadingLine = leadingPrices.some(value => value != null)
   const forecastRatio = volume.data?.status === 'ok' && volume.data.forecast_amount
     ? (volume.data.current_cumulative_amount ?? 0) / volume.data.forecast_amount
     : null
@@ -234,7 +242,7 @@ export function MarketOverviewWidget({ data, tradeDate }: { data: OverviewMarket
             <b>{selected.name} · 分时走势</b>
             <span className="text-[10px] text-muted">{chartRows.length ? `${chartRows.length}根分钟K · 可缩放` : minute.isLoading ? '读取中…' : '暂无分钟数据'}</span>
           </div>
-          {chartRows.length ? <EChartsIntraday data={chartRows} assetType="index" height={300} date={minute.data?.date ?? undefined} showLimitLines={false} showAvgLine /> : <div className="flex h-[300px] items-center justify-center text-xs text-muted">{minute.isLoading ? <><RefreshCw className="mr-1 h-3 w-3 animate-spin" />正在读取分钟走势…</> : '当前没有可用的分钟数据，请检查分钟数据源和交易日期'}</div>}
+          {chartRows.length ? <EChartsIntraday data={chartRows} assetType="index" height={300} date={minute.data?.date ?? undefined} showLimitLines={false} showAvgLine={hasLeadingLine} averagePrices={hasLeadingLine ? leadingPrices : undefined} averageLabel={hasLeadingLine ? '领先' : '均价'} /> : <div className="flex h-[300px] items-center justify-center text-xs text-muted">{minute.isLoading ? <><RefreshCw className="mr-1 h-3 w-3 animate-spin" />正在读取分钟走势…</> : '当前没有可用的分钟数据，请检查分钟数据源和交易日期'}</div>}
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted">
             <span>当前来源：{sourceText}</span>
             <span>最后时间：{chartRows.at(-1)?.datetime ?? '—'}</span>

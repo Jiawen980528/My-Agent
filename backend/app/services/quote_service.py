@@ -332,6 +332,9 @@ class QuoteService:
         self._index_symbol_count: int = 0
         self._etf_symbol_count: int = 0
         self._index_quotes_cache: pl.DataFrame | None = None
+        # 由全市场真实快照计算的等权领先线。它不是外部供应商的独立题材指数，
+        # 只在覆盖足够时保存，并在 API 中明确标注来源和覆盖数量。
+        self._leading_intraday: dict[str, list[dict]] = {}
         self._intraday_signal_evaluator = IntradaySignalEvaluator()
         self._intraday_signal_bucket: dict[str, str] = {}
         # 午休/收盘最终同步状态: 到边界后必须成功拉取一版行情, 再进入休盘态。
@@ -1111,6 +1114,46 @@ class QuoteService:
             if r.get("symbol") not in all_index_symbols and r.get("symbol") not in all_etf_symbols
         ]
 
+        # 上证分时的黄色参考线：使用全市场股票相对昨收的等权平均涨跌，
+        # 以当日上证昨收映射回价格轴。只有真实全市场快照覆盖足够时才生成。
+        leading_point = None
+        if stock_records:
+            changes = []
+            for row in stock_records:
+                pct = row.get("change_pct")
+                if pct is None and row.get("last_price") is not None and row.get("prev_close") not in (None, 0):
+                    pct = (float(row["last_price"]) - float(row["prev_close"])) / float(row["prev_close"])
+                try:
+                    pct = float(pct)
+                except (TypeError, ValueError):
+                    continue
+                if pct == pct and abs(pct) <= 1.5:
+                    changes.append(pct)
+            index_row = next((row for row in index_records if row.get("symbol") == "000001.SH"), None)
+            try:
+                index_prev = float(index_row.get("prev_close")) if index_row and index_row.get("prev_close") not in (None, 0) else None
+            except (TypeError, ValueError):
+                index_prev = None
+            if len(changes) >= 100 and index_prev and index_row:
+                ts = index_row.get("timestamp") or (time.time() * 1000)
+                try:
+                    ts_ms = float(ts)
+                    if ts_ms < 10_000_000_000:
+                        ts_ms *= 1000
+                    dt = datetime.fromtimestamp(ts_ms / 1000, tz=CN_TZ)
+                    leading_point = {
+                        "datetime": dt.strftime("%Y-%m-%d %H:%M"),
+                        "close": index_prev * (1 + sum(changes) / len(changes)),
+                        "high": index_prev * (1 + sum(changes) / len(changes)),
+                        "low": index_prev * (1 + sum(changes) / len(changes)),
+                        "open": None,
+                        "volume": 0,
+                        "amount": None,
+                        "coverage": len(changes),
+                    }
+                except (TypeError, ValueError, OverflowError):
+                    leading_point = None
+
         fetch_ms = (time.perf_counter() - t0) * 1000
         fetched_at = time.time() * 1000
 
@@ -1126,6 +1169,14 @@ class QuoteService:
                 self._index_quotes_cache = self._build_index_quotes(index_records)
             else:
                 logger.info("指数本轮获取失败,沿用上轮缓存: %d 只", self._index_symbol_count)
+            if leading_point:
+                day_key = leading_point["datetime"][:10]
+                points = self._leading_intraday.setdefault(day_key, [])
+                if not points or points[-1]["datetime"] != leading_point["datetime"]:
+                    points.append(leading_point)
+                else:
+                    points[-1] = leading_point
+                self._leading_intraday = {day_key: points[-500:]}
 
         _persist_last_fetch(fetched_at)
         logger.info("行情刷新: %d 只股票, %d 只ETF, %d 只指数, 耗时 %.0fms", len(stock_records), len(etf_records), len(index_records), fetch_ms)
@@ -1195,6 +1246,17 @@ class QuoteService:
         # 由调用方 (_fetch_quotes) 持 _evaluate_lock 在取数锁外执行;
         # 返回本轮快照 (daily_df, quote_extra) 作为评估输入
         return daily_df, quote_extra
+
+    def get_leading_intraday(self, day: date) -> dict:
+        """返回全市场等权领先线，供上证分时叠加显示。"""
+        with self._lock:
+            rows = list(self._leading_intraday.get(day.isoformat(), []))
+        return {
+            "rows": rows,
+            "source": "tickflow_full_market_equal_weight",
+            "coverage": rows[-1].get("coverage") if rows else 0,
+            "notice": "由全市场真实快照等权计算，不是供应商独立题材指数",
+        }
 
     # ================================================================
     # 工具

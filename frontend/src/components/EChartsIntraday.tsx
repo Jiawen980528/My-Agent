@@ -32,6 +32,7 @@ interface Props {
   showLimitLines?: boolean
   showAvgLine?: boolean
   averagePrices?: (number | null)[]
+  averageLabel?: string
 }
 
 function fmtAmt(v: number | null | undefined): string {
@@ -458,6 +459,7 @@ export function EChartsIntraday({
   showLimitLines = true,
   showAvgLine = true,
   averagePrices,
+  averageLabel = '均价',
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<ECharts | null>(null)
@@ -582,7 +584,7 @@ export function EChartsIntraday({
       fullDayToDataIdx.current = new Map()
       chart.clear()
     }
-  }, [data, prevClose, chartHeight, lineColor, areaFill, yMode, ct, priceLimit, showLimitLines, showAvgLine, priceLines])
+  }, [data, prevClose, chartHeight, lineColor, areaFill, yMode, ct, priceLimit, showLimitLines, showAvgLine, priceLines, avgPrices, averageLabel, assetType])
 
   useEffect(() => {
     return () => {
@@ -647,8 +649,8 @@ export function EChartsIntraday({
       <div style={{ backgroundColor: ct.infoBarBg }}>
         {assetType === 'index' && <div className="flex items-center gap-3 px-2 pt-1 text-[10px] text-muted">
           <span className="flex items-center gap-1"><i className="inline-block h-0.5 w-3 bg-zinc-100" />权重线</span>
-          <span className="flex items-center gap-1"><i className="inline-block h-0.5 w-3 bg-amber-400" />均价参考线</span>
-          <span>题材/领先线：当前分钟接口未提供，未用普通行情伪造</span>
+          <span className="flex items-center gap-1"><i className="inline-block h-0.5 w-3 bg-amber-400" />{averageLabel}线</span>
+          <span>{averageLabel === '领先' ? '由全市场真实快照等权计算' : '领先/题材分钟序列未提供，未用普通行情伪造'}</span>
         </div>}
         {/* 第一行: 日期 + OHLC */}
         <div className="flex items-center gap-x-2 px-2 font-mono text-[11px] select-none flex-wrap" style={{ minHeight: 20 }}>
@@ -678,7 +680,7 @@ export function EChartsIntraday({
               </span>
               {showAvgLine && <span className="flex items-center gap-x-1">
                 <span style={{ display: 'inline-block', width: 14, height: 2, background: THEME.avgLine }} />
-                <span style={{ color: THEME.avgLine }}>{avg != null ? avg.toFixed(2) : '—'}</span>
+                <span style={{ color: THEME.avgLine }}>{averageLabel} {avg != null ? avg.toFixed(2) : '—'}</span>
               </span>}
               <span className="text-muted">{hovered ? '量' : '累计量'}</span>
               <span className="text-secondary">{d.volume.toFixed(0)}</span>

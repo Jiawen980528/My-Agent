@@ -93,6 +93,7 @@ def get_index_minute(
     """
     repo = request.app.state.repo
     capset = request.app.state.capabilities
+    quote_service = getattr(request.app.state, "quote_service", None)
     info = _index_info(repo, symbol)
     today = cn_today()
     day = trade_date or today
@@ -122,6 +123,7 @@ def get_index_minute(
             while len(_index_minute_cache) > _INDEX_MINUTE_CACHE_MAX:
                 oldest = min(_index_minute_cache, key=lambda k: _index_minute_cache[k][0])
                 del _index_minute_cache[oldest]
+    leading = quote_service.get_leading_intraday(day) if quote_service and symbol == "000001.SH" else {"rows": [], "source": None, "coverage": 0}
     return {
         "symbol": symbol,
         "name": info.get("name"),
@@ -129,6 +131,10 @@ def get_index_minute(
         "date": str(day),
         "rows": df.to_dicts(),
         "source": "live" if not df.is_empty() else "none",
+        "leading_rows": leading.get("rows", []),
+        "leading_source": leading.get("source"),
+        "leading_coverage": leading.get("coverage", 0),
+        "leading_notice": leading.get("notice"),
     }
 
 

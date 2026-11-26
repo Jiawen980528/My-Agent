@@ -215,6 +215,15 @@ export function Indices() {
     const value = row.avg_price
     return value != null && Number.isFinite(value) && value > 0 ? value : null
   }), [minuteRows])
+  const leadingAveragePrices = useMemo(() => {
+    const sourceRows = minute.data?.leading_rows ?? []
+    const byTime = new Map(sourceRows.map(row => [row.datetime.slice(0, 16), row.close]))
+    return minuteRows.map(row => {
+      const value = byTime.get(row.datetime.slice(0, 16))
+      return value != null && Number.isFinite(value) && value > 0 ? value : null
+    })
+  }, [minute.data?.leading_rows, minuteRows])
+  const hasLeadingAverage = selectedSymbol === '000001.SH' && leadingAveragePrices.some(value => value != null)
   const hasPublicAverage = !useLicensedMinute && publicAveragePrices.some(value => value != null)
   const periodRows = useMemo(() => minutePeriod === 1 ? [] : resampleMinutes(minuteRows, minutePeriod), [minuteRows, minutePeriod])
   const multiDayMinuteRows = useMemo(() => historicalMinuteQueries.flatMap(query => query.data?.rows ?? []).sort((a, b) => a.datetime.localeCompare(b.datetime)), [historicalMinuteQueries])
@@ -429,8 +438,9 @@ export function Indices() {
                     prevClose={useLicensedMinute ? prevClose : Number(publicMinute.data?.prev_close ?? prevClose)}
                     date={useLicensedMinute ? selectedDate ?? undefined : publicMinute.data?.display_date ?? selectedDate ?? undefined}
                     showLimitLines={false}
-                    showAvgLine={hasPublicAverage}
-                    averagePrices={hasPublicAverage ? publicAveragePrices : undefined}
+                    showAvgLine={hasLeadingAverage || hasPublicAverage}
+                    averagePrices={hasLeadingAverage ? leadingAveragePrices : hasPublicAverage ? publicAveragePrices : undefined}
+                    averageLabel={hasLeadingAverage ? '领先' : '均价'}
                     onPriceHover={setLinkedPrice}
                   /> : <EChartsCandlestick data={periodRows} height={550} showMA={false} showInfoBar={false}
                     showMarkers={false} activeIndicators={['vol']} visibleBars="all" />
