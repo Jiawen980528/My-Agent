@@ -659,7 +659,7 @@ function DecisionGuidePanel({ items, day, minuteData, source, aiText, aiBusy, ex
   return <aside className="min-w-0 rounded border border-border bg-base/50 p-2 text-xs">
     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-1"><div><b>实时操作建议</b><span className="ml-2 text-[10px] text-muted">短线有效期 15 分钟 · 外围：{externalText || '不可用'}</span></div><div className="flex items-center gap-2"><span className="text-[10px] text-muted">规则实时更新</span><button type="button" onClick={onAiReview} disabled={aiBusy} className="rounded border border-accent/50 px-1.5 py-0.5 text-[10px] text-accent disabled:opacity-50">{aiBusy ? 'AI分析中…' : 'AI复核'}</button></div></div>
     <div className={`mt-1 rounded border px-1.5 py-1.5 ${activeGuide ? 'border-warning/50 bg-warning/10' : 'border-border bg-surface'}`}>
-      <div className="flex items-center justify-between gap-2"><b className={activeGuide ? 'text-warning' : 'text-secondary'}>{activeGuide ? '实时提醒' : '当前判断'}</b><span className="text-[10px] text-muted">每15秒刷新</span></div>
+      <div className="flex items-center justify-between gap-2"><b className={activeGuide ? 'text-warning' : 'text-secondary'}>{activeGuide ? '实时提醒' : '当前判断'}</b><span className="text-[10px] text-muted">每30秒刷新</span></div>
       <div className="mt-0.5 leading-relaxed text-secondary">{reminder}</div>
     </div>
     <p className="py-1 text-[10px] text-muted">识别冲高回落、支撑/压力和板块联动；建议是条件式观察，不自动下单。</p>
