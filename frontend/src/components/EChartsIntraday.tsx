@@ -46,6 +46,46 @@ function isValidPrice(v: number | null | undefined): v is number {
   return typeof v === 'number' && Number.isFinite(v) && v > 0
 }
 
+type AdaptiveViewport = {
+  enabled: boolean
+  data: MinuteKlineRow[]
+  avgPrices: (number | null)[]
+  prevClose?: number
+  priceLines: Props['priceLines']
+}
+
+function getVisibleAdaptiveBounds(state: AdaptiveViewport, startValue?: number, endValue?: number) {
+  if (!state.enabled || !isValidPrice(state.prevClose) || !state.data.length) return null
+  const start = Number.isFinite(startValue) ? Number(startValue) : 0
+  const end = Number.isFinite(endValue) ? Number(endValue) : FULL_DAY_TIMES.length - 1
+  const timeIndexMap = new Map(FULL_DAY_TIMES.map((t, i) => [t, i]))
+  const values: number[] = []
+  state.data.forEach((row, index) => {
+    const fullDayIndex = timeIndexMap.get(formatMinuteTime(row.datetime))
+    if (fullDayIndex == null || fullDayIndex < start || fullDayIndex > end) return
+    if (isValidPrice(row.close)) values.push(row.close)
+    const avg = state.avgPrices[index]
+    if (isValidPrice(avg)) values.push(avg)
+  })
+  if (!values.length) return null
+  const observedMin = Math.min(...values)
+  const observedMax = Math.max(...values)
+  const observedRange = Math.max(observedMax - observedMin, state.prevClose * 0.001)
+  const padding = Math.max(observedRange * 0.08, state.prevClose * 0.0005)
+  let min = observedMin - padding
+  let max = observedMax + padding
+  const monitoredDiff = (state.priceLines ?? []).reduce((largest, line) => (
+    Number.isFinite(line.value) && line.value > 0
+      ? Math.max(largest, Math.abs(line.value - state.prevClose!))
+      : largest
+  ), 0)
+  if (monitoredDiff > 0) {
+    min = Math.min(min, state.prevClose - monitoredDiff)
+    max = Math.max(max, state.prevClose + monitoredDiff)
+  }
+  return { min, max, interval: Math.max((max - min) / 2, monitoredDiff) || undefined }
+}
+
 /** 计算实际涨跌停价 (四舍五入到2位小数) 和实际涨跌停幅度 */
 function getLimitPrices(prevClose: number, priceLimit?: PriceLimitInfo): {
   limitUp: number      // 涨停价 (四舍五入)
@@ -474,6 +514,7 @@ export function EChartsIntraday({
   onPriceHoverRef.current = onPriceHover
   const onPriceDoubleClickRef = useRef(onPriceDoubleClick)
   onPriceDoubleClickRef.current = onPriceDoubleClick
+  const adaptiveViewportRef = useRef<AdaptiveViewport>({ enabled: false, data: [], avgPrices: [], priceLines })
   // 全日索引 → 数据数组索引 的映射 (ref 避免重建 chart)
   const fullDayToDataIdx = useRef<Map<number, number>>(new Map())
 
@@ -489,6 +530,13 @@ export function EChartsIntraday({
   // 不能仅依据 showAvgLine 判断“第二条线存在”：指数在没有供应商/等权序列时
   // 仍可能传入默认值，但全是 null。此时不绘制空的黄色线，也不显示误导性图例。
   const hasAverage = showAvgLine && avgPrices.some(isValidPrice)
+  adaptiveViewportRef.current = {
+    enabled: (assetType === 'index' || !priceLimit || !!priceLimit.no_limit) && yMode === 'adaptive',
+    data,
+    avgPrices,
+    prevClose,
+    priceLines,
+  }
   const summary = useMemo(() => summarizeMinutes(data), [data])
 
   // 分时线颜色：基于最新价 vs 昨收
@@ -558,6 +606,28 @@ export function EChartsIntraday({
         onPriceHoverRef.current?.(null)
       })
 
+      chart.on('datazoom', (event: any) => {
+        const payload = Array.isArray(event?.batch) ? event.batch[0] : event
+        let startValue = Number(payload?.startValue)
+        let endValue = Number(payload?.endValue)
+        if (!Number.isFinite(startValue) || !Number.isFinite(endValue)) {
+          const zoom = (chart!.getOption() as any)?.dataZoom?.[0]
+          startValue = Number(zoom?.startValue)
+          endValue = Number(zoom?.endValue)
+        }
+        const bounds = getVisibleAdaptiveBounds(adaptiveViewportRef.current, startValue, endValue)
+        if (!bounds) return
+        // buildOption always has the price axis + volume axis, and adds the
+        // right-side percentage axis whenever a valid previous close exists.
+        // Keep this independent of getOption so zoom works with lightweight
+        // chart test doubles and during the first ECharts event tick.
+        const axisCount = isValidPrice(adaptiveViewportRef.current.prevClose) ? 3 : 2
+        const yAxis: any[] = [{ min: bounds.min, max: bounds.max, interval: bounds.interval }]
+        if (axisCount > 1) yAxis.push({})
+        if (axisCount > 2) yAxis.push({ min: bounds.min, max: bounds.max, interval: bounds.interval })
+        chart!.setOption({ yAxis }, false)
+      })
+
       const handlePriceDoubleClick = (event: { offsetX: number; offsetY: number }) => {
         const pixel: [number, number] = [event.offsetX, event.offsetY]
         if (!chart!.containPixel({ gridIndex: 0 }, pixel)) return
@@ -596,6 +666,7 @@ export function EChartsIntraday({
     return () => {
       chartRef.current?.off('updateAxisPointer')
       chartRef.current?.off('globalout')
+      chartRef.current?.off('datazoom')
       if (priceDoubleClickHandlerRef.current) {
         chartRef.current?.getZr().off('dblclick', priceDoubleClickHandlerRef.current)
       }

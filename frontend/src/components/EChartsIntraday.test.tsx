@@ -169,6 +169,32 @@ it('index adaptive y-axis follows visible curves instead of abnormal high/low sp
   expect(axis.max).toBeLessThan(11200)
 })
 
+it('recomputes the index y-axis after wheel/slider zoom to the visible interval', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  cleanup = async () => { await act(async () => root.unmount()) }
+  await act(async () => root.render(
+    <EChartsIntraday
+      data={[
+        { datetime: '2026-11-06 09:30:00', open: 100, high: 101, low: 99, close: 100, volume: 10, amount: 1000 },
+        { datetime: '2026-11-06 10:30:00', open: 110, high: 111, low: 109, close: 110, volume: 10, amount: 1100 },
+      ]}
+      assetType="index"
+      date="2026-11-06"
+      prevClose={100}
+      showLimitLines={false}
+    />,
+  ))
+  const initialMax = lastYAxis().max
+  await act(async () => chart.handlers.datazoom({ startValue: 60, endValue: 60 }))
+  const zoomOption = chart.setOption.mock.calls.at(-1)?.[0]
+  expect(zoomOption.yAxis[0].min).toBeGreaterThan(109)
+  expect(zoomOption.yAxis[0].max).toBeLessThan(111)
+  expect(zoomOption.yAxis[0].max).toBeLessThan(initialMax)
+})
+
 it('no_limit day: adaptive y-axis covers data far beyond the ±10% band', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
