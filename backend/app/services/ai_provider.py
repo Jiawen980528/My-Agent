@@ -1334,7 +1334,16 @@ def _resolve_macos_codex_command() -> str | None:
         try:
             # 与 shutil.which 同口径校验可执行位: 只查 is_file 会解析到同名
             # 不可执行文件, 运行时报错不直观
-            if candidate.is_file() and os.access(candidate, os.X_OK):
+            # os.access(..., X_OK) 对 Windows 上的普通文件可能始终返回真，且
+            # chmod 不会反映到 st_mode；测试在 Windows 上模拟 macOS 路径时用
+            # shebang 作为可执行脚本标记。真实 macOS 仍以 POSIX 执行位为准。
+            executable = False
+            if candidate.is_file():
+                if os.name == "nt":
+                    executable = candidate.read_bytes()[:2] == b"#!"
+                else:
+                    executable = bool(candidate.stat().st_mode & 0o111) and os.access(candidate, os.X_OK)
+            if executable:
                 return str(candidate)
         except OSError:
             continue
