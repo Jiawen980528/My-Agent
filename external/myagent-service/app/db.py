@@ -234,11 +234,12 @@ def save_quant_recommendation_snapshot(*, scan_id, recommendation_slot="未标�
         )
         return cur.lastrowid
 
-def list_quant_recommendation_snapshots(limit=50):
+def list_quant_recommendation_snapshots(limit=2000):
     with session() as c:
         rows = c.execute(
             "SELECT * FROM quant_recommendation_snapshots ORDER BY id DESC LIMIT ?",
-            (max(1, min(int(limit), 200)),),
+            # 推荐复盘需要覆盖长期样本；限制仍保留，避免误把无限历史一次性读入内存。
+            (max(1, min(int(limit), 2000)),),
         ).fetchall()
         return [{**dict(row), "symbols": json.loads(row["symbols"]),
                  "payload": json.loads(row["payload"]),

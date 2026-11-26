@@ -424,6 +424,7 @@ export function Indices() {
                   minutePeriod === 1 ? <EChartsIntraday
                     key={`${selectedSymbol}:${selectedDate}:${useLicensedMinute ? 'configured' : 'public'}`}
                     data={minuteRows}
+                    assetType="index"
                     height={550}
                     prevClose={useLicensedMinute ? prevClose : Number(publicMinute.data?.prev_close ?? prevClose)}
                     date={useLicensedMinute ? selectedDate ?? undefined : publicMinute.data?.display_date ?? selectedDate ?? undefined}

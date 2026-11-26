@@ -54,3 +54,20 @@ def test_recommendation_snapshots_keep_period_and_review_state(monkeypatch, tmp_
     assert reviewed["status"] == "已复盘"
     assert reviewed["review"]["observations"][0]["observed_return_pct"] == 4.0
 
+
+def test_recommendation_snapshot_history_limit_covers_long_term_samples(monkeypatch, tmp_path):
+    _use_temp_db(monkeypatch, tmp_path)
+    for index in range(205):
+        db.save_quant_recommendation_snapshot(
+            scan_id=index,
+            period="盘中观察",
+            valid_until="今日收盘后",
+            generated_at=f"2026-11-{(index % 28) + 1:02d}T09:30:00+08:00",
+            data_source="TickFlow",
+            symbols=[f"{index % 1000000:06d}"],
+            payload=[],
+        )
+
+    rows = db.list_quant_recommendation_snapshots(limit=205)
+    assert len(rows) == 205
+

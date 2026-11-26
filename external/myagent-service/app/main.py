@@ -992,7 +992,7 @@ def quant_research_pool_delete(symbol: str):
     return {"ok": True, "symbol": symbol}
 
 @app.get("/api/quant/recommendation-snapshots", dependencies=[Depends(require_auth)])
-def quant_recommendation_snapshots(limit: int = 50):
+def quant_recommendation_snapshots(limit: int = 2000):
     return {"items": db.list_quant_recommendation_snapshots(limit)}
 
 @app.get("/api/quant/recommendation-snapshots/{snapshot_id}", dependencies=[Depends(require_auth)])

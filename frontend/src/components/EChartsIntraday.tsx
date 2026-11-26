@@ -19,6 +19,7 @@ const THEME = {
 
 interface Props {
   data: MinuteKlineRow[]
+  assetType?: 'stock' | 'etf' | 'index'
   height?: number
   prevClose?: number
   date?: string
@@ -197,7 +198,9 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
       if (!limitLinesActive) {
         // 指数/ETF没有涨跌停带时，纵轴应围绕实际分钟高低点动态取值。
         // 不能以昨收对称扩展，否则昨收距离当日价格较远时会把曲线压扁。
-        const observed = [closes, highs, lows, ...(showAvgLine ? [avgData] : [])]
+        // 分时主图画的是收盘/最新价曲线。高低价只用于悬浮信息，不能让一根异常
+        // 影线把指数纵轴拉到很远，否则实际走势会被压成一条横线。
+        const observed = [closes, ...(showAvgLine ? [avgData] : [])]
           .flat().filter(isValidPrice) as number[]
         const observedMin = observed.length ? Math.min(...observed) : prevClose
         const observedMax = observed.length ? Math.max(...observed) : prevClose
@@ -442,6 +445,7 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
 
 export function EChartsIntraday({
   data,
+  assetType = 'stock',
   height = 320,
   prevClose,
   date,
@@ -483,8 +487,13 @@ export function EChartsIntraday({
   const lastClose = data.length > 0 ? data[data.length - 1].close : null
   const lineIsUp = lastClose != null && prevClose != null ? lastClose > prevClose : true
   const lineIsFlat = lastClose != null && prevClose != null ? lastClose === prevClose : false
-  const lineColor = lineIsFlat ? '#A1A1AA' : lineIsUp ? '#C74040' : '#2D9B65'
-  const areaFill = lineIsFlat ? 'rgba(180,180,190,0.40)' : lineIsUp ? 'rgba(199,64,64,0.40)' : 'rgba(34,197,94,0.40)'
+  // 指数分时：白线为指数本身，黄色为真实分时均价参考；个股/ETF 保留涨跌红绿线。
+  const lineColor = assetType === 'index'
+    ? '#F4F4F5'
+    : lineIsFlat ? '#A1A1AA' : lineIsUp ? '#C74040' : '#2D9B65'
+  const areaFill = assetType === 'index'
+    ? 'rgba(244,244,245,0.18)'
+    : lineIsFlat ? 'rgba(180,180,190,0.40)' : lineIsUp ? 'rgba(199,64,64,0.40)' : 'rgba(34,197,94,0.40)'
 
   useEffect(() => {
     setInfoIdx(-1)
@@ -636,6 +645,11 @@ export function EChartsIntraday({
         </div>
       </div>}
       <div style={{ backgroundColor: ct.infoBarBg }}>
+        {assetType === 'index' && <div className="flex items-center gap-3 px-2 pt-1 text-[10px] text-muted">
+          <span className="flex items-center gap-1"><i className="inline-block h-0.5 w-3 bg-zinc-100" />权重线</span>
+          <span className="flex items-center gap-1"><i className="inline-block h-0.5 w-3 bg-amber-400" />均价参考线</span>
+          <span>题材/领先线：当前分钟接口未提供，未用普通行情伪造</span>
+        </div>}
         {/* 第一行: 日期 + OHLC */}
         <div className="flex items-center gap-x-2 px-2 font-mono text-[11px] select-none flex-wrap" style={{ minHeight: 20 }}>
           {!d && <span className="text-muted">—</span>}

@@ -100,7 +100,7 @@ export function Recommendations() {
     return () => { disposed = true }
   }, [])
   useEffect(() => {
-    fetch(`${API}/recommendation-snapshots?limit=20`, { credentials: 'include' })
+    fetch(`${API}/recommendation-snapshots?limit=2000`, { credentials: 'include' })
       .then(async response => { const body = await response.json() as { items?: Snapshot[]; detail?: string }; if (!response.ok) throw new Error(body.detail || '推荐复盘记录读取失败'); return body })
       .then(body => setSnapshots(body.items || []))
       .catch(cause => setError(cause instanceof Error ? cause.message : '推荐复盘记录读取失败'))
@@ -270,7 +270,7 @@ export function Recommendations() {
       const response = await fetch(`${API}/recommendation-snapshots`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scan_id: result.history_id, recommendation_slot: recommendationSlot, period, valid_until: validUntil, generated_at: result.generated_at || new Date().toISOString(), data_source: result.data_source || '未标注', symbols: items.map(item => item.symbol), payload: items }) })
       const body = await response.json() as { detail?: string }
       if (!response.ok) throw new Error(body.detail || `保存失败 ${response.status}`)
-      const refreshed = await fetch(`${API}/recommendation-snapshots?limit=20`, { credentials: 'include' })
+      const refreshed = await fetch(`${API}/recommendation-snapshots?limit=2000`, { credentials: 'include' })
       const list = await refreshed.json() as { items?: Snapshot[] }
       setSnapshots(list.items || [])
     } catch (cause) { setError(cause instanceof Error ? cause.message : '推荐快照保存失败') }
@@ -299,7 +299,7 @@ export function Recommendations() {
       // The review response is intentionally compact. Reload the authoritative
       // snapshot list so observed returns and the aggregate success-rate panel
       // cannot remain stale after a successful review.
-      const refreshed = await fetch(`${API}/recommendation-snapshots?limit=20`, { credentials: 'include' })
+      const refreshed = await fetch(`${API}/recommendation-snapshots?limit=2000`, { credentials: 'include' })
       const list = await refreshed.json() as { items?: Snapshot[]; detail?: string }
       if (!refreshed.ok) throw new Error(list.detail || `复盘结果读取失败 ${refreshed.status}`)
       setSnapshots(list.items || [])
