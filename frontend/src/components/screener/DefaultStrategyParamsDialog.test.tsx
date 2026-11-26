@@ -69,11 +69,11 @@ it('renders nothing when show=false', async () => {
 it('shows the basic filter fields when open', async () => {
   await render({ show: true })
 
-  expect(container.textContent).toContain('默认基础参数')
-  expect(container.textContent).toContain('价格')
-  expect(container.textContent).toContain('流通市值')
-  expect(container.textContent).toContain('板块')
-  expect(container.textContent).toContain('排除')
+  expect(document.body.textContent).toContain('默认基础参数')
+  expect(document.body.textContent).toContain('价格')
+  expect(document.body.textContent).toContain('流通市值')
+  expect(document.body.textContent).toContain('板块')
+  expect(document.body.textContent).toContain('排除')
 })
 
 it('save persists to localStorage and closes', async () => {
@@ -82,13 +82,13 @@ it('save persists to localStorage and closes', async () => {
 
   // 改价格下限: 第一对 min/max 输入 (RangeField 价格)
   // React 受控 input 需经原生 value setter + input 事件触发 onChange
-  const input = container.querySelector('input[type="number"]') as HTMLInputElement
+  const input = document.body.querySelector('input[type="number"]') as HTMLInputElement
   const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
   act(() => {
     nativeSetter.call(input, '3')
     input.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  const saveBtn = [...container.querySelectorAll('button')].find(b => b.textContent?.includes('保存'))!
+  const saveBtn = [...document.body.querySelectorAll('button')].find(b => b.textContent?.includes('保存'))!
   act(() => { saveBtn.click() })
 
   const saved = storage.defaultStrategyBasicFilter.get(null)
@@ -101,10 +101,10 @@ it('reset restores builtin defaults', async () => {
   storage.defaultStrategyBasicFilter.set({ ...BUILTIN_DEFAULT_BASIC_FILTER, price_min: 100 })
   await render({ show: true })
 
-  const resetBtn = [...container.querySelectorAll('button')].find(b => b.textContent?.includes('恢复默认'))!
+  const resetBtn = [...document.body.querySelectorAll('button')].find(b => b.textContent?.includes('恢复默认'))!
   act(() => { resetBtn.click() })
 
-  expect((container.querySelector('input[type="number"]') as HTMLInputElement).value).toBe('5')
+  expect((document.body.querySelector('input[type="number"]') as HTMLInputElement).value).toBe('5')
 })
 
 // ===== 模板注入 (纯函数) =====
@@ -136,7 +136,7 @@ it('buildCustomTemplate embeds custom defaults into the code template', () => {
 it('apply button shows strategy count after list loads', async () => {
   await render({ show: true })
 
-  const btn = [...container.querySelectorAll('button')].find(b => b.textContent?.includes('一键应用'))!
+  const btn = [...document.body.querySelectorAll('button')].find(b => b.textContent?.includes('一键应用'))!
   expect(btn.textContent).toContain('2')
   // 未点击确认前不发起任何 PATCH
   expect(mockPatchConfig).not.toHaveBeenCalled()
@@ -146,19 +146,19 @@ it('apply requires confirm, then patches every strategy with current values', as
   await render({ show: true })
 
   // 第一步: 点「一键应用」→ 出现二次确认, 尚未请求
-  const applyBtn = [...container.querySelectorAll('button')].find(b => b.textContent?.includes('一键应用'))!
+  const applyBtn = [...document.body.querySelectorAll('button')].find(b => b.textContent?.includes('一键应用'))!
   await act(async () => { applyBtn.click() })
   expect(mockPatchConfig).not.toHaveBeenCalled()
-  expect(container.textContent).toContain('确认覆盖')
+  expect(document.body.textContent).toContain('确认覆盖')
 
   // 第二步: 确认 → 逐策略 PATCH, 值为当前表单值 (改过 price_min=3)
-  const input = container.querySelector('input[type="number"]') as HTMLInputElement
+  const input = document.body.querySelector('input[type="number"]') as HTMLInputElement
   const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
   act(() => {
     nativeSetter.call(input, '3')
     input.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  const confirmBtn = [...container.querySelectorAll('button')].find(b => b.textContent?.includes('确认覆盖'))!
+  const confirmBtn = [...document.body.querySelectorAll('button')].find(b => b.textContent?.includes('确认覆盖'))!
   await act(async () => { confirmBtn.click() })
   await act(async () => {})
 

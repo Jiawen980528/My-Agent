@@ -44,7 +44,7 @@ async function render(open = true) {
 }
 
 async function click(text: string) {
-  const button = [...container.querySelectorAll('button')].find(b => b.textContent?.includes(text))
+  const button = [...document.body.querySelectorAll('button')].find(b => b.textContent?.includes(text))
   expect(button, text).toBeTruthy()
   await act(async () => button!.click())
 }
@@ -66,11 +66,11 @@ it('sends the minute backend for generation and subsequent edits', async () => {
   seed()
   await render()
   await click('一分钟策略')
-  expect(container.querySelector('button[aria-pressed="true"]')?.textContent).toContain('一分钟策略')
+  expect(document.body.querySelector('button[aria-pressed="true"]')?.textContent).toContain('一分钟策略')
   await click('AI 生成策略')
   expect(api.strategyBuildStream).toHaveBeenCalledWith(1, expect.objectContaining({ execution_backend: 'minute_filter' }))
 
-  const instruction = container.querySelector('input[placeholder^="调整策略逻辑"]') as HTMLInputElement
+  const instruction = document.body.querySelector('input[placeholder^="调整策略逻辑"]') as HTMLInputElement
   input(instruction, '涨幅改成3%')
   await click('AI 修改')
   expect(api.strategyBuildStream).toHaveBeenLastCalledWith(2, expect.objectContaining({
@@ -94,7 +94,7 @@ it('switches unchanged templates while preserving edited custom code', async () 
   await render()
   await click('自定义编写')
   await click('一分钟策略')
-  const editor = container.querySelector('textarea') as HTMLTextAreaElement
+  const editor = document.body.querySelector('textarea') as HTMLTextAreaElement
   expect(editor.value).toBe(minuteCode)
   input(editor, minuteCode + '\n# 用户规则\n')
   await click('矩阵原生')
@@ -109,7 +109,7 @@ it('switches unchanged templates while preserving edited custom code', async () 
 it('restores old minute drafts without a backend field', async () => {
   seed(minuteCode)
   await render()
-  expect(container.querySelector('button[aria-pressed="true"]')?.textContent).toContain('一分钟策略')
+  expect(document.body.querySelector('button[aria-pressed="true"]')?.textContent).toContain('一分钟策略')
   await render(false)
   await render()
   await click('重新生成')
@@ -124,16 +124,16 @@ it('shows a failed generation and keeps the chosen backend for retry', async () 
   await render()
   await click('一分钟策略')
   await click('AI 生成策略')
-  expect(container.textContent).toContain('分钟生成失败')
-  expect(container.querySelector('button[aria-pressed="true"]')?.textContent).toContain('一分钟策略')
+  expect(document.body.textContent).toContain('分钟生成失败')
+  expect(document.body.querySelector('button[aria-pressed="true"]')?.textContent).toContain('一分钟策略')
   expect(storage.strategyDraft.get(null)?.rules).toContain('2%')
 })
 
 it('keeps manual minute authoring available when AI is not configured', async () => {
   vi.mocked(api.strategyAiStatus).mockResolvedValueOnce({ configured: false, has_key: false, has_model: false })
   await render()
-  expect(container.textContent).toContain('AI API Key 未配置')
+  expect(document.body.textContent).toContain('AI API Key 未配置')
   await click('自定义编写')
   await click('一分钟策略')
-  expect((container.querySelector('textarea') as HTMLTextAreaElement).value).toBe(minuteCode)
+  expect((document.body.querySelector('textarea') as HTMLTextAreaElement).value).toBe(minuteCode)
 })

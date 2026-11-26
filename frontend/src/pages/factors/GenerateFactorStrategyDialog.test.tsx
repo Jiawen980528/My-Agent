@@ -24,7 +24,7 @@ afterEach(() => { act(() => root.unmount()); qc.clear(); container.innerHTML = '
 it.each(['high', 'low'] as const)('generates a loadable rank strategy using the current module path and %s scoring', async direction => {
   await act(async () => root.render(<QueryClientProvider client={qc}><GenerateFactorStrategyDialog
     item={{ id: 'momentum_5d', label: '5日动量', group: '动量', direction }} onClose={mocks.close} /></QueryClientProvider>))
-  const generate = [...container.querySelectorAll('button')].find(button => button.textContent?.trim() === '生成策略')!
+  const generate = [...document.body.querySelectorAll('button')].find(button => button.textContent?.trim() === '生成策略')!
   await act(async () => generate.click())
   const payload = mocks.save.mock.calls[0][0]
   expect(payload.strategy_id).toBe('custom_factor_momentum_5d')

@@ -51,7 +51,7 @@ async function render(props: Partial<React.ComponentProps<typeof StrategyPoolDia
 }
 
 function clickTab(label: string) {
-  const tab = Array.from(container.querySelectorAll('button'))
+  const tab = Array.from(document.body.querySelectorAll('button'))
     .find(b => b.textContent?.startsWith(label))
   expect(tab).toBeTruthy()
   act(() => { tab!.click() })
@@ -73,8 +73,8 @@ it('AI tab lists only ai-source drafts with a publish button', async () => {
   await render()
   clickAiTab()
 
-  expect(container.textContent).toContain('AI突破')
-  const publishBtn = Array.from(container.querySelectorAll('button'))
+  expect(document.body.textContent).toContain('AI突破')
+  const publishBtn = Array.from(document.body.querySelectorAll('button'))
     .find(b => b.textContent?.includes('发布'))
   expect(publishBtn).toBeTruthy()
 
@@ -86,12 +86,12 @@ it('builtin research template is not offered for publish anywhere in the pool', 
   await render()
 
   // 默认「全部」分组: research_only 项不进待选, 模板应完全不出现
-  expect(container.textContent).not.toContain('因子排名研究')
-  expect(container.textContent).toContain('趋势跟随')
+  expect(document.body.textContent).not.toContain('因子排名研究')
+  expect(document.body.textContent).toContain('趋势跟随')
 
   clickAiTab()
   // 草稿分区同样不列非 AI 来源的 research 项
-  expect(container.textContent).not.toContain('因子排名研究')
+  expect(document.body.textContent).not.toContain('因子排名研究')
 })
 
 it('composite strategies have their own tab and are excluded from custom tab', async () => {
@@ -99,23 +99,23 @@ it('composite strategies have their own tab and are excluded from custom tab', a
 
   // 「叠加」分组只列叠加策略
   clickTab('叠加')
-  expect(container.textContent).toContain('混合叠加')
-  expect(container.textContent).not.toContain('趋势跟随')
+  expect(document.body.textContent).toContain('混合叠加')
+  expect(document.body.textContent).not.toContain('趋势跟随')
 
   // 「自定义」分组不再并入叠加策略
   clickTab('自定义')
-  expect(container.textContent).toContain('趋势跟随')
-  expect(container.textContent).not.toContain('混合叠加')
+  expect(document.body.textContent).toContain('趋势跟随')
+  expect(document.body.textContent).not.toContain('混合叠加')
 
   // 「全部」分组仍同时可见两类
   clickTab('全部')
-  expect(container.textContent).toContain('趋势跟随')
-  expect(container.textContent).toContain('混合叠加')
+  expect(document.body.textContent).toContain('趋势跟随')
+  expect(document.body.textContent).toContain('混合叠加')
 })
 
-const button = (label: string) => [...container.querySelectorAll('button')].find(el => el.textContent?.trim() === label)!
-const choice = (name: string) => container.querySelector<HTMLInputElement>(`[aria-label="选择策略：${name}"]`)!
-const selected = () => container.querySelector('[aria-label="已选策略"]')!
+const button = (label: string) => [...document.body.querySelectorAll('button')].find(el => el.textContent?.trim() === label)!
+const choice = (name: string) => document.body.querySelector<HTMLInputElement>(`[aria-label="选择策略：${name}"]`)!
+const selected = () => document.body.querySelector('[aria-label="已选策略"]')!
 
 it('keeps library rows stable while toggling selection and saves only on explicit confirmation', async () => {
   const confirm = vi.fn()
@@ -134,21 +134,21 @@ it('searches by ID and combines source and timeframe filtering', async () => {
     mkStrategy({ id: 'custom_minute', name: '分钟突破', source: 'custom', timeframes: ['1m'] })] })
   await render()
   clickTab('自定义')
-  const input = container.querySelector<HTMLInputElement>('[aria-label="搜索策略"]')!
+  const input = document.body.querySelector<HTMLInputElement>('[aria-label="搜索策略"]')!
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
   act(() => { setter.call(input, 'custom_minute'); input.dispatchEvent(new Event('input', { bubbles: true })) })
   expect(choice('分钟突破')).toBeTruthy()
   expect(choice('趋势跟随')).toBeNull()
-  const timeframe = container.querySelector<HTMLSelectElement>('[aria-label="策略周期"]')!
+  const timeframe = document.body.querySelector<HTMLSelectElement>('[aria-label="策略周期"]')!
   act(() => { timeframe.value = '1d'; timeframe.dispatchEvent(new Event('change', { bubbles: true })) })
   expect(choice('分钟突破')).toBeNull()
-  expect(container.textContent).toContain('没有符合条件的策略')
+  expect(document.body.textContent).toContain('没有符合条件的策略')
 })
 
 it('reorders by buttons and confirms the visible order', async () => {
   const confirm = vi.fn()
   await render({ pool: ['trend_follow', 'composite_mix_v1'], onConfirm: confirm })
-  const move = container.querySelector<HTMLButtonElement>('[aria-label="下移：趋势跟随"]')!
+  const move = document.body.querySelector<HTMLButtonElement>('[aria-label="下移：趋势跟随"]')!
   act(() => move.click())
   expect([...selected().querySelectorAll('[data-strategy-id]')].map(el => el.getAttribute('data-strategy-id')))
     .toEqual(['composite_mix_v1', 'trend_follow'])
@@ -173,9 +173,9 @@ it('load failure blocks saving and retry preserves the original pool', async () 
   const confirm = vi.fn()
   mockStrategyList.mockRejectedValueOnce(new Error('连接中断'))
   await render({ pool: ['trend_follow'], onConfirm: confirm })
-  expect(container.textContent).toContain('策略列表加载失败')
+  expect(document.body.textContent).toContain('策略列表加载失败')
   expect(button('保存策略池').disabled).toBe(true)
-  expect(container.textContent).not.toContain('失效策略')
+  expect(document.body.textContent).not.toContain('失效策略')
   await act(async () => button('重试').click())
   expect(choice('趋势跟随').checked).toBe(true)
   expect(confirm).not.toHaveBeenCalled()
@@ -184,7 +184,7 @@ it('load failure blocks saving and retry preserves the original pool', async () 
 it('invalid selections require an explicit removal before saving', async () => {
   const confirm = vi.fn()
   await render({ pool: ['deleted_strategy'], onConfirm: confirm })
-  expect(container.textContent).toContain('失效策略')
+  expect(document.body.textContent).toContain('失效策略')
   expect(button('保存策略池').disabled).toBe(true)
   act(() => button('移除失效项').click())
   expect(button('保存策略池').disabled).toBe(false)
