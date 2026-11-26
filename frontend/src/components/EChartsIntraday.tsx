@@ -482,7 +482,10 @@ export function EChartsIntraday({
   const [expanded, setExpanded] = useState(false)
   const chartHeight = expanded ? Math.max(640, window.innerHeight - 170) : height
   const ct = useChartTheme()
-  const avgPrices = useMemo(() => averagePrices ?? computeIntradayAverage(data), [averagePrices, data])
+  // 指数没有可直接用成交额/成交量推导的价格均线；只有数据源明确提供
+  // averagePrices (例如领先/等权序列) 时才绘制第二条线，避免把成分股
+  // 成交口径错误地当成指数点位并拉坏纵轴。
+  const avgPrices = useMemo(() => averagePrices ?? computeIntradayAverage(data, assetType), [averagePrices, assetType, data])
   const summary = useMemo(() => summarizeMinutes(data), [data])
 
   // 分时线颜色：基于最新价 vs 昨收
@@ -731,3 +734,4 @@ export function EChartsMultiDayIntraday({ data, height = 420 }: { data: MinuteKl
   </div>
   return expanded ? createPortal(content, document.body) : content
 }
+
