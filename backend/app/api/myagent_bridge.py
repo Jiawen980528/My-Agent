@@ -23,6 +23,7 @@ from app.services.volume_forecast import forecast_amount
 from app.services.market_volume_forecast import forecast_market_amount
 from app.services.market_data_service import quote_snapshot
 from app.services import forecast_reviews
+from app.services import sector_rotation
 from app.tickflow.capabilities import Cap
 from app.plugins.fuyao.client import FuyaoError
 
@@ -435,6 +436,73 @@ async def _fetch_board_price(client: httpx.AsyncClient, sector: str, period: str
         raise ValueError(f"板块 {sector} 暂无{period}行情")
     bars = _parse_price(data["klines"], period)
     return str(data.get("name") or sector), bars[-days if period == "daily" else -120:]
+
+
+async def _fetch_tickflow_sector_curve(request: Request, code: str, name: str, period: str) -> dict | None:
+    """Build a transparent real-minute sector curve from local TickFlow bars.
+
+    This is an equal-weight aggregation of verified constituent minute bars,
+    normalized to 100 because the aggregation has no vendor-provided absolute
+    sector price. ``None`` preserves the public fallback when data is missing.
+    """
+    if not name or period == "daily":
+        return None
+    bucket = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "60m": 60}.get(period)
+    if bucket is None:
+        return None
+    try:
+        result = await asyncio.to_thread(
+            sector_rotation.build_sector_rotation,
+            request.app.state.repo,
+            kind="concept", top=5, bucket_minutes=bucket,
+            series_names=[name], exclude_sectors=[], auto_rows=1, sort_by="pct",
+        )
+        if result.get("status") != "ok":
+            result = await asyncio.to_thread(
+                sector_rotation.build_sector_rotation,
+                request.app.state.repo,
+                kind="industry", top=5, bucket_minutes=bucket,
+                series_names=[name], exclude_sectors=[], auto_rows=1, sort_by="pct",
+            )
+        series = result.get("series") or {}
+        names = series.get("sectors") or []
+        matrix = series.get("matrix") or []
+        buckets = series.get("buckets") or []
+        if result.get("status") != "ok" or name not in names or not buckets:
+            return None
+        values = matrix[names.index(name)]
+        rows = []
+        previous = None
+        for stamp, raw_pct in zip(buckets, values, strict=False):
+            if raw_pct is None:
+                continue
+            pct_value = float(raw_pct)
+            close = 100.0 * (1.0 + pct_value)
+            if not (close > 0 and close == close):
+                continue
+            rows.append({
+                "time": f"{result.get('date', '')} {stamp}",
+                "open": previous if previous is not None else close,
+                "close": close,
+                "high": max(close, previous) if previous is not None else close,
+                "low": min(close, previous) if previous is not None else close,
+                "volume": None,
+                "pct": pct_value * 100.0,
+            })
+            previous = close
+        if not rows:
+            return None
+        return {
+            "sector": code, "name": name, "period": period, "rows": rows[-120:],
+            "latest_time": rows[-1]["time"],
+            "fetched_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
+            "stale": False, "provider": "tickflow_derived",
+            "source": "TickFlow全市场分钟聚合（等权归一化，基准=100）",
+            "normalized": True,
+            "notice": "由真实成分股分钟行情等权聚合，非供应商独立板块指数；无成分分钟数据时自动回退公开板块行情。",
+        }
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError, IndexError):
+        return None
 
 
 async def _fetch_flow(client: httpx.AsyncClient, secid: str) -> list[dict]:
@@ -905,6 +973,7 @@ async def sector_kline(
     sector: str = Query(..., pattern=r"^(?:BK\d{4}|\d{6}\.(?:TI|SH|SZ))$"),
     period: str = Query("daily", pattern=r"^(daily|1m|5m|15m|30m|60m)$"),
     days: int = Query(60, ge=10, le=120),
+    name: str = Query("", max_length=80),
 ):
     """Use TickFlow-routed local bars for exchange indices, Fuyao for THS boards."""
     if re.fullmatch(r"\d{6}\.(?:SH|SZ)", sector.upper()):
@@ -958,6 +1027,14 @@ async def sector_kline(
             if cached:
                 return {**cached[1], "stale": True}
             raise HTTPException(status_code=502, detail=f"扶摇板块日K暂不可用：{type(exc).__name__}") from exc
+
+    if re.fullmatch(r"BK\d{4}", sector.upper()) and period != "daily":
+        resolved_name = name.strip()
+        if not resolved_name:
+            resolved_name = next((item["name"] for item in _LOCAL_BOARD_CATALOG if item["code"] == sector.upper()), "")
+        derived = await _fetch_tickflow_sector_curve(request, sector.upper(), resolved_name, period)
+        if derived is not None:
+            return derived
 
     key = f"kline:{sector}:{period}:{days if period == 'daily' else 120}"
     ttl = 45 if period != "daily" else 300
@@ -1125,3 +1202,4 @@ async def proxy_myagent(path: str, request: Request):
                         media_type=upstream.headers.get("content-type", "application/json"))
     except httpx.HTTPError:
         return Response('{"detail":"MyAgent bridge unavailable"}', status_code=502, media_type="application/json")
+
