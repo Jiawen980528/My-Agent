@@ -22,6 +22,7 @@ fanout 配方字段:
   separator          多类别拼接符 (概念用 ";", 行业层级用 "-")
   concurrency        并发上限 (可选, 默认 8)
   retries            单条目失败重试次数 (可选, 默认 1; 用尽进失败补拉)
+  min_interval_seconds 逐条请求的最小间隔 (可选, 用于遵守供应商每分钟配额)
 
 产出: 行方向由「类别 → 成员」反转为「成员 → 类别清单」, 与单请求路径的
 行结构一致, 下游 rows_to_parquet / 分析页零改动。
@@ -117,7 +118,20 @@ async def _fetch_fanout_rows(config: ExtConfig, target_date=None) -> list[dict]:
     raw_retries = fanout.get("retries")
     retries = int(_DEFAULT_RETRIES if raw_retries is None else raw_retries)
     sem = asyncio.Semaphore(max(1, concurrency))
+    min_interval = max(0.0, float(fanout.get("min_interval_seconds") or 0.0))
+    pace_lock = asyncio.Lock()
+    last_request_at = [0.0]
     rate_limited = [False]
+
+    async def _pace_request() -> None:
+        if not min_interval:
+            return
+        async with pace_lock:
+            now = asyncio.get_running_loop().time()
+            wait_for = min_interval - (now - last_request_at[0])
+            if wait_for > 0:
+                await _sleep(wait_for)
+            last_request_at[0] = asyncio.get_running_loop().time()
 
     async def _rate_limit_backoff() -> None:
         rate_limited[0] = True
@@ -130,6 +144,7 @@ async def _fetch_fanout_rows(config: ExtConfig, target_date=None) -> list[dict]:
         async with sem:
             for attempt in range(retries + 1):
                 try:
+                    await _pace_request()
                     data = await _request_json(
                         pull, config.id, None, url_override=member_url
                     )

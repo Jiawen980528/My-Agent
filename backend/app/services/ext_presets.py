@@ -44,8 +44,10 @@ logger = logging.getLogger(__name__)
 _FUYAO_BASE = "https://fuyao.aicubes.cn"
 _FUYAO_CATALOG_PATH = "/api/a-share-index/catalog/ths-index-list"
 _FUYAO_CONSTITUENTS_PATH = "/api/a-share-index/constituents/ths-stock-list"
-# 成分股逐板块拉取: 全量 710 次调用, 8 并发 + 单板块失败重试 1 次 (实测无 429)
-_FUYAO_CONCURRENCY = 8
+# Pro 每分钟请求配额下，全量约 710 次成分请求不能瞬间并发打满。
+# 限制为 2 并发并在请求间留出 0.6s，完整同步会慢一些但能减少 429 和半套板块。
+_FUYAO_CONCURRENCY = 2
+_FUYAO_MIN_INTERVAL_S = 0.6
 _FUYAO_TIMEOUT_S = 20.0
 _FUYAO_BOARD_RETRIES = 1
 # 复用 fuyao 行情插件的凭据 (secrets.json: fuyao_api_key / 环境变量 FUYAO_API_KEY)
@@ -108,6 +110,7 @@ def _concept_preset() -> ExtConfig:
                 "value_col": "所属概念",
                 "separator": ";",
                 "concurrency": _FUYAO_CONCURRENCY,
+                "min_interval_seconds": _FUYAO_MIN_INTERVAL_S,
                 "retries": _FUYAO_BOARD_RETRIES,
             },
         ),
@@ -155,6 +158,7 @@ def _industry_preset() -> ExtConfig:
                 "value_col": "所属同花顺行业",
                 "separator": "-",
                 "concurrency": _FUYAO_CONCURRENCY,
+                "min_interval_seconds": _FUYAO_MIN_INTERVAL_S,
                 "retries": _FUYAO_BOARD_RETRIES,
             },
         ),
