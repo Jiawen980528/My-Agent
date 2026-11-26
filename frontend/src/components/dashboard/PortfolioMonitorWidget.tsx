@@ -225,9 +225,9 @@ function TimeChart({ rows, title, color, height, multiDay = false, previousClose
   </div>
 }
 
-function Detail({ item, day, latestBars, minuteSource, news, visible, trades, linkedBoardCode, boardOptions, onLinkedBoardChange }: {
+function Detail({ item, day, latestBars, minuteSource, news, visible, trades, linkedBoardCode, linkedBoardName: persistedBoardName, boardOptions, onLinkedBoardChange }: {
   item: Holding; day: string; latestBars: Bar[]; minuteSource?: string; news: News['items']; visible: Record<Panel, boolean>; trades: Trade[]
-  linkedBoardCode?: string; boardOptions: { code: string; name: string; pct?: number | null }[]; onLinkedBoardChange: (code: string) => void
+  linkedBoardCode?: string; linkedBoardName?: string; boardOptions: { code: string; name: string; pct?: number | null }[]; onLinkedBoardChange: (code: string, name?: string) => void
 }) {
   const [flowScope, setFlowScope] = useState<'linked' | 'market'>('linked')
   const [chartPeriod, setChartPeriod] = useState<ChartPeriod>('1m')
@@ -247,10 +247,12 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
   }, [boardSearch, boardSearchQuery.data?.items, boardOptions])
   useEffect(() => {
     const selected = boardOptions.find(option => option.code === linkedBoardCode)
-    setBoardSearch(selected ? `${selected.name} (${selected.code})` : '')
+    const name = selected?.name || persistedBoardName
+    setBoardSearch(name && linkedBoardCode ? `${name} (${linkedBoardCode})` : '')
     setBoardChoiceError('')
-    if (linkedBoardCode && boardOptions.length && !selected) onLinkedBoardChange('')
-  }, [item.symbol, linkedBoardCode, boardOptions])
+    // 搜索结果可能来自完整远程目录，而不是前端缓存的首批目录；
+    // 不能因为本地目录没有该代码就清空用户刚选中的真实板块。
+  }, [item.symbol, linkedBoardCode, persistedBoardName, boardOptions])
   const applyBoardSearch = () => {
     const raw = boardSearch.trim()
     if (!raw) { onLinkedBoardChange(''); setBoardChoiceError(''); return }
@@ -258,7 +260,7 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
     // 应用时必须同时匹配远程搜索结果，否则输入名称虽能搜到，下方仍会提示未找到。
     const match = resolveBoardSearchOption(raw, boardSearchQuery.data?.items || [], boardOptions)
     if (!match) { setBoardChoiceError('未找到该板块，请输入名称、BK 代码或同花顺指数代码'); return }
-    onLinkedBoardChange(match.code); setBoardSearch(`${match.name} (${match.code})`); setBoardChoiceError('')
+    onLinkedBoardChange(match.code, match.name); setBoardSearch(`${match.name} (${match.code})`); setBoardChoiceError('')
   }
   const isLatest = day === (quoteDate(item) || marketDay())
   const selectedMinute = useQuery({ queryKey: ['portfolio-selected-minute', item.symbol, day],
@@ -269,7 +271,7 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
     staleTime: 30_000, refetchInterval: isLatest && tradingNow() ? 60_000 : false })
   const fuyaoBoard = Boolean(linkedBoardCode && /\.TI$/i.test(linkedBoardCode))
   const linkedBoardPeriod = fuyaoBoard || chartPeriod === '1d' || chartPeriod === '1w' ? 'daily' : chartPeriod
-  const linkedBoardName = boardOptions.find(option => option.code === linkedBoardCode)?.name || item.board?.name || ''
+  const linkedBoardName = boardOptions.find(option => option.code === linkedBoardCode)?.name || persistedBoardName || item.board?.name || ''
   const linkedBoard = useQuery({ queryKey: ['portfolio-linked-board-widget', linkedBoardCode, day, linkedBoardPeriod], queryFn: () =>
     json<{ name: string; rows: { time: string; close: number; high: number; low: number; volume: number }[]; source: string; latest_time: string }>(
       `${PUBLIC_API}/fund-flow/sector-kline?sector=${encodeURIComponent(linkedBoardCode || '')}&name=${encodeURIComponent(linkedBoardName)}&period=${linkedBoardPeriod}`),
@@ -407,7 +409,7 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
         <span className={`ml-2 text-xs ${Number(item.change_pct) >= 0 ? 'text-bull' : 'text-bear'}`}>{pct(item.change_pct)}</span></div>
       <div className="flex flex-wrap items-center justify-end gap-1"><label className="text-xs text-muted">关联板块
           <span className="relative ml-1 inline-block"><input aria-label={`${item.name}关联板块搜索`} list={boardListId} value={boardSearch} onChange={event => { setBoardSearch(event.target.value); setBoardChoiceError('') }} onKeyDown={event => { if (event.key === 'Enter') applyBoardSearch() }} placeholder="输入名称或板块/指数代码" className="w-52 rounded border border-border bg-base px-1 py-0.5 text-[11px]" />
-          {!!boardSearch.trim() && !!boardSuggestions.length && <span className="absolute left-0 top-full z-50 mt-1 block max-h-48 w-72 overflow-auto rounded border border-border bg-surface p-1 shadow-2xl">{boardSuggestions.map(option => <button type="button" key={option.code} onClick={() => { setBoardSearch(`${option.name} (${option.code})`); onLinkedBoardChange(option.code); setBoardChoiceError('') }} className="block w-full px-2 py-1 text-left text-[11px] hover:bg-elevated"><b>{option.name}</b><span className="ml-2 font-mono text-muted">{option.code}</span>{option.pct != null && <span className={`float-right ${option.pct >= 0 ? 'text-bull' : 'text-bear'}`}>{option.pct > 0 ? '+' : ''}{option.pct}%</span>}</button>)}</span>}
+          {!!boardSearch.trim() && !!boardSuggestions.length && <span className="absolute left-0 top-full z-50 mt-1 block max-h-48 w-72 overflow-auto rounded border border-border bg-surface p-1 shadow-2xl">{boardSuggestions.map(option => <button type="button" key={option.code} onClick={() => { setBoardSearch(`${option.name} (${option.code})`); onLinkedBoardChange(option.code, option.name); setBoardChoiceError('') }} className="block w-full px-2 py-1 text-left text-[11px] hover:bg-elevated"><b>{option.name}</b><span className="ml-2 font-mono text-muted">{option.code}</span>{option.pct != null && <span className={`float-right ${option.pct >= 0 ? 'text-bull' : 'text-bear'}`}>{option.pct > 0 ? '+' : ''}{option.pct}%</span>}</button>)}</span>}
         </span><datalist id={boardListId}>{boardOptions.map(option => <option key={option.code} value={`${option.name} (${option.code})`} />)}</datalist></label>
         <button type="button" onClick={applyBoardSearch} className="rounded border border-border px-1.5 py-0.5 text-[11px] text-accent">应用</button>
         <button type="button" onClick={() => { setBoardSearch(''); onLinkedBoardChange(''); setBoardChoiceError('') }} className="px-1 text-[11px] text-muted">自动</button>
@@ -728,6 +730,7 @@ export function PortfolioMonitorWidget() {
   const [viewMode, setViewMode] = useState<'detail' | 'overview'>(() => loadObject('portfolio-terminal-view', 'detail'))
   const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => loadObject('portfolio-terminal-layout', 'side'))
   const [linkedBoards, setLinkedBoards] = useState<Record<string, string>>(() => loadObject('portfolio-terminal-linked-boards', {}))
+  const [linkedBoardNames, setLinkedBoardNames] = useState<Record<string, string>>(() => loadObject('portfolio-terminal-linked-board-names', {}))
   const [extraSymbols, setExtraSymbols] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('portfolio-terminal-extra-symbols') || '[]') }
     catch { return [] }
@@ -845,12 +848,16 @@ export function PortfolioMonitorWidget() {
   const aiText = review.content.trim().replace(/[#*_`]/g, '').replace(/\s+/g, ' ').slice(0, 520)
   const chooseView = (mode: 'detail' | 'overview') => { setViewMode(mode); setUiPref('portfolio-terminal-view', JSON.stringify(mode)) }
   const chooseLayout = (mode: LayoutMode) => { setLayoutMode(mode); setUiPref('portfolio-terminal-layout', JSON.stringify(mode)) }
-  const setLinkedBoard = (symbol: string, code: string) => {
+  const setLinkedBoard = (symbol: string, code: string, name?: string) => {
     const next = { ...linkedBoards }
+    const nextNames = { ...linkedBoardNames }
     if (code) next[symbol] = code
-    else delete next[symbol]
+    else { delete next[symbol]; delete nextNames[symbol] }
+    if (code && name) nextNames[symbol] = name
     setLinkedBoards(next)
+    setLinkedBoardNames(nextNames)
     setUiPref('portfolio-terminal-linked-boards', JSON.stringify(next))
+    setUiPref('portfolio-terminal-linked-board-names', JSON.stringify(nextNames))
   }
   useEffect(() => {
     const remote = preferences?.ui_prefs
@@ -869,6 +876,8 @@ export function PortfolioMonitorWidget() {
     if (remoteLayout === 'side' || remoteLayout === 'strip' || remoteLayout === 'grid') setLayoutMode(remoteLayout)
     const linked = remote.portfolio_terminal_linked_boards
     if (linked && typeof linked === 'object' && !Array.isArray(linked)) setLinkedBoards(linked as Record<string, string>)
+    const linkedNames = remote.portfolio_terminal_linked_board_names
+    if (linkedNames && typeof linkedNames === 'object' && !Array.isArray(linkedNames)) setLinkedBoardNames(linkedNames as Record<string, string>)
     const symbols = remote.portfolio_terminal_extra_symbols
     if (Array.isArray(symbols)) setExtraSymbols(symbols.filter((value): value is string => typeof value === 'string'))
     const symbolNames = remote.portfolio_terminal_extra_symbol_names
@@ -965,7 +974,7 @@ export function PortfolioMonitorWidget() {
         onPointerDown={event => resizePane('left', event)} className="portfolio-split-handle cursor-ew-resize touch-none bg-border/60 hover:bg-accent active:bg-accent" />}
       {selectedBoard ? <BoardDetail code={selectedBoard} day={day} news={news.data?.items || []} visible={visible} onSelectSymbol={symbol => { setSelected(symbol); setSelectedBoard('') }} />
         : active ? <Detail item={active} day={day} latestBars={usableMinuteData[active.symbol] || []} minuteSource={minute.data?.source} news={news.data?.items || []} visible={visible}
-          trades={(tradeHistory.data?.trades || []).filter(trade => trade.symbol === active.symbol)} linkedBoardCode={linkedBoards[active.symbol] || ''} boardOptions={boardOptions} onLinkedBoardChange={code => setLinkedBoard(active.symbol, code)} />
+          trades={(tradeHistory.data?.trades || []).filter(trade => trade.symbol === active.symbol)} linkedBoardCode={linkedBoards[active.symbol] || ''} linkedBoardName={linkedBoardNames[active.symbol] || ''} boardOptions={boardOptions} onLinkedBoardChange={(code, name) => setLinkedBoard(active.symbol, code, name)} />
         : <p className="p-4 text-xs text-muted">暂无监控标的</p>}
       {layoutMode === 'side' && <div role="separator" aria-label="拖动调整策略栏宽度" aria-orientation="vertical" title="拖动调整策略栏宽度"
         onPointerDown={event => resizePane('right', event)} className="portfolio-split-handle cursor-ew-resize touch-none bg-border/60 hover:bg-accent active:bg-accent" />}
