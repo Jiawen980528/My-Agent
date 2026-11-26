@@ -292,9 +292,16 @@ def _manifest_path(data_dir: Path, run_id: str) -> Path:
     if not _RUN_ID.fullmatch(run_id):
         raise ValueError("回测编号无效")
     root = Path(data_dir).resolve()
-    path = root / "backtest_runs" / f"{run_id}.json"
-    if path.resolve() != path:
+    # 先创建并校验目录，再拼接文件名。并发首次写入时，直接对尚不存在的
+    # 子路径调用 resolve() 在 Windows 上可能短暂得到不一致结果；校验父目录
+    # 同样能拦截目录级 symlink，同时避免把正常并发写误判为越界。
+    runs_dir = root / "backtest_runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    if runs_dir.resolve() != runs_dir:
         raise ValueError("回测记录目录无效")
+    path = runs_dir / f"{run_id}.json"
+    if path.exists() and path.resolve() != path:
+        raise ValueError("回测记录文件无效")
     return path
 
 
@@ -536,3 +543,4 @@ class EvidenceRecorder:
                 "记录内容指纹和有效参数，不归档全量行情；原始数据被覆盖后不能仅凭指纹还原。",
             ],
         }
+
