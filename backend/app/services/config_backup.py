@@ -595,6 +595,11 @@ _TEXT_SUFFIXES = frozenset({".py", ".json", ".jsonl", ".yaml", ".yml", ".js"})
 
 def _write_payload(target: Path, payload: bytes) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
+    # 策略源码必须按原始字节恢复。Windows 文本模式会改写 CRLF/LF，
+    # 导致导入后的源码与备份不一致，破坏精确回滚和版本校验。
+    if target.suffix.lower() == ".py":
+        _write_bytes_atomic(target, payload)
+        return
     if target.suffix.lower() in _TEXT_SUFFIXES:
         atomic_write_text(target, payload.decode("utf-8"))
     else:
