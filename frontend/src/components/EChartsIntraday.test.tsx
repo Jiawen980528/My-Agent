@@ -139,7 +139,6 @@ it('index adaptive y-axis follows visible curves instead of abnormal high/low sp
       date="2026-11-06"
       prevClose={11100}
       showLimitLines={false}
-      showAvgLine={false}
     />,
   ))
   const axis = lastYAxis()
