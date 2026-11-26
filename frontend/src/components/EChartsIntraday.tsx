@@ -257,7 +257,7 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
           高 <span style="color:${lineColor}">${Number(row.high).toFixed(3)}</span>
           低 <span style="color:${lineColor}">${Number(row.low).toFixed(3)}</span>
           收 <span style="color:${lineColor}">${Number(row.close).toFixed(3)}</span><br/>
-          均价 <span style="color:${THEME.avgLine}">${avg == null ? '—' : Number(avg).toFixed(3)}</span>
+          ${averageLabel} <span style="color:${THEME.avgLine}">${avg == null ? '—' : Number(avg).toFixed(3)}</span>
           · 量 ${Number(row.volume ?? 0).toLocaleString('zh-CN')}<br/>
           成交额 ${fmtAmt(row.amount)}
         </div>`
