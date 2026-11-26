@@ -111,16 +111,16 @@ it('index renders the weighted line in white and the leading line in yellow', as
       showLimitLines={false}
       showAvgLine
       averagePrices={[3688, 3690]}
-      averageLabel="领先"
+      averageLabel="题材/等权"
     />,
   ))
   const option = chart.setOption.mock.calls.at(-1)?.[0]
   expect(option.series[0].name).toBe('价格')
   expect(option.series[0].lineStyle.color).toBe('#F4F4F5')
-  expect(option.series[1].name).toBe('领先')
+  expect(option.series[1].name).toBe('题材/等权')
   expect(option.series[1].lineStyle.color).toBe('#F59E0B')
   expect(host.textContent).toContain('权重线')
-  expect(host.textContent).toContain('领先线')
+  expect(host.textContent).toContain('题材/等权线')
 })
 
 it('index adaptive y-axis follows visible curves instead of abnormal high/low spikes', async () => {
