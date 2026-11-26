@@ -28,6 +28,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { Modal } from '@/components/Modal'
 import { StrategyExecutionPanel } from './StrategyExecutionPanel'
 import { executionApi, executionListKey } from './executionClient'
+import { StockPreviewDialog } from '@/components/StockPreviewDialog'
 
 const ORDER_TYPE_LABEL: Record<string, string> = {
   market: '即时',
@@ -2116,6 +2117,7 @@ export function Paper() {
  *  含总览卡/净值曲线/持仓/订单与成交/回合明细/下单/跟单规则/费用设置/冻结/删除。 */
 function AccountPanel({ acc, name, onDeleted }: { acc: string; name?: string; onDeleted?: () => void }) {
   const qc = useQueryClient()
+  const [previewStock, setPreviewStock] = useState<{ symbol: string; name?: string } | null>(null)
   const [tab, setTab] = useState<'orders' | 'trades' | 'rounds'>('orders')
   const [feeOpen, setFeeOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -2275,7 +2277,10 @@ function AccountPanel({ acc, name, onDeleted }: { acc: string; name?: string; on
             </div>
 
             <div className="rounded-card border border-border bg-surface p-4">
-              <div className="text-sm font-medium">当前持仓</div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div><div className="text-sm font-medium">当前持仓</div><div className="mt-0.5 text-[10px] text-muted">点击代码或名称查看实时分时、K线和历史走势</div></div>
+                {holdings.length > 0 && <span className="text-[10px] text-muted">共 {holdings.length} 只</span>}
+              </div>
               {holdings.length === 0 ? (
                 <div className="py-8 text-center text-xs text-muted">暂无持仓 — 右侧下单或等自动跟单触发</div>
               ) : (
@@ -2295,10 +2300,15 @@ function AccountPanel({ acc, name, onDeleted }: { acc: string; name?: string; on
                     {holdings.map(h => (
                       <tr key={h.symbol} className="border-t border-border/50 transition-colors hover:bg-elevated/40">
                         <td className="py-1.5 font-sans">
-                          {h.symbol}
-                          {symbolNames[h.symbol] && (
-                            <span className="ml-1.5 text-[10px] text-muted">{symbolNames[h.symbol]}</span>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => setPreviewStock({ symbol: h.symbol, name: symbolNames[h.symbol] })}
+                            className="group text-left hover:text-accent"
+                            title="打开实时行情详情"
+                          >
+                            <span className="font-medium underline decoration-transparent group-hover:decoration-current">{h.symbol}</span>
+                            {symbolNames[h.symbol] && <span className="ml-1.5 text-[10px] text-muted group-hover:text-accent">{symbolNames[h.symbol]}</span>}
+                          </button>
                         </td>
                         <td className="py-1.5 text-right">{h.qty}</td>
                         <td className="py-1.5 text-right text-muted">{h.available_qty}</td>
@@ -2543,6 +2553,12 @@ function AccountPanel({ acc, name, onDeleted }: { acc: string; name?: string; on
           }}
         />
       )}
+      <StockPreviewDialog
+        symbol={previewStock?.symbol ?? null}
+        name={previewStock?.name}
+        onClose={() => setPreviewStock(null)}
+        onNavigate={(symbol, displayName) => setPreviewStock({ symbol, name: displayName })}
+      />
     </div>
   )
 }
