@@ -67,6 +67,7 @@ def _memory_snapshot() -> dict:
 
 
 @router.get("/health")
+@router.get("/api/health")
 def health() -> dict:
     return {
         "status": "ok",
