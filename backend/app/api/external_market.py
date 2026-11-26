@@ -18,8 +18,12 @@ router = APIRouter(prefix="/api/external-market", tags=["external-market"])
 _SYMBOLS = (
     ("^GSPC", "标普500"),
     ("^IXIC", "纳斯达克"),
+    ("NQ=F", "纳斯达克100期货"),
     ("^DJI", "道琼斯"),
     ("^VIX", "VIX恐慌指数"),
+    ("^KS11", "韩国综合指数"),
+    ("^HSI", "恒生指数"),
+    ("^N225", "日经225"),
 )
 _CACHE: dict[str, object] | None = None
 _CACHE_AT = 0.0
