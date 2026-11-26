@@ -486,6 +486,9 @@ export function EChartsIntraday({
   // averagePrices (例如领先/等权序列) 时才绘制第二条线，避免把成分股
   // 成交口径错误地当成指数点位并拉坏纵轴。
   const avgPrices = useMemo(() => averagePrices ?? computeIntradayAverage(data, assetType), [averagePrices, assetType, data])
+  // 不能仅依据 showAvgLine 判断“第二条线存在”：指数在没有供应商/等权序列时
+  // 仍可能传入默认值，但全是 null。此时不绘制空的黄色线，也不显示误导性图例。
+  const hasAverage = showAvgLine && avgPrices.some(isValidPrice)
   const summary = useMemo(() => summarizeMinutes(data), [data])
 
   // 分时线颜色：基于最新价 vs 昨收
@@ -582,12 +585,12 @@ export function EChartsIntraday({
       }
       fullDayToDataIdx.current = mapping
 
-      chart.setOption(buildOption(data, prevClose, avgPrices, lineColor, areaFill, yMode, ct, priceLimit, showLimitLines, showAvgLine, priceLines, averageLabel), true)
+      chart.setOption(buildOption(data, prevClose, avgPrices, lineColor, areaFill, yMode, ct, priceLimit, showLimitLines, hasAverage, priceLines, averageLabel), true)
     } else {
       fullDayToDataIdx.current = new Map()
       chart.clear()
     }
-  }, [data, prevClose, chartHeight, lineColor, areaFill, yMode, ct, priceLimit, showLimitLines, showAvgLine, priceLines, avgPrices, averageLabel, assetType])
+  }, [data, prevClose, chartHeight, lineColor, areaFill, yMode, ct, priceLimit, showLimitLines, hasAverage, priceLines, avgPrices, averageLabel, assetType])
 
   useEffect(() => {
     return () => {
@@ -652,8 +655,9 @@ export function EChartsIntraday({
       <div style={{ backgroundColor: ct.infoBarBg }}>
         {assetType === 'index' && <div className="flex items-center gap-3 px-2 pt-1 text-[10px] text-muted">
           <span className="flex items-center gap-1"><i className="inline-block h-0.5 w-3 bg-zinc-100" />权重线</span>
-          <span className="flex items-center gap-1"><i className="inline-block h-0.5 w-3 bg-amber-400" />{averageLabel}线</span>
-          <span>{averageLabel === '题材/等权' ? '由全市场真实快照等权计算；不是供应商独立题材指数' : '领先/题材分钟序列未提供，未用普通行情伪造'}</span>
+          {hasAverage
+            ? <><span className="flex items-center gap-1"><i className="inline-block h-0.5 w-3 bg-amber-400" />{averageLabel}线</span><span>{averageLabel === '题材/等权' ? '由全市场真实快照等权计算；不是供应商独立题材指数' : '来源提供的领先/题材分钟序列'}</span></>
+            : <span>第二条线数据不可用，未用普通行情伪造</span>}
         </div>}
         {/* 第一行: 日期 + OHLC */}
         <div className="flex items-center gap-x-2 px-2 font-mono text-[11px] select-none flex-wrap" style={{ minHeight: 20 }}>
@@ -681,7 +685,7 @@ export function EChartsIntraday({
                 <span style={{ display: 'inline-block', width: 14, height: 2, background: priceClr }} />
                 <span style={{ color: priceClr }}>{d.close.toFixed(2)}</span>
               </span>
-              {showAvgLine && <span className="flex items-center gap-x-1">
+              {hasAverage && <span className="flex items-center gap-x-1">
                 <span style={{ display: 'inline-block', width: 14, height: 2, background: THEME.avgLine }} />
                 <span style={{ color: THEME.avgLine }}>{averageLabel} {avg != null ? avg.toFixed(2) : '—'}</span>
               </span>}

@@ -123,6 +123,29 @@ it('index renders the weighted line in white and the leading line in yellow', as
   expect(host.textContent).toContain('题材/等权线')
 })
 
+it('does not render an empty second index line when the provider has no reference series', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  cleanup = async () => { await act(async () => root.unmount()) }
+  await act(async () => root.render(
+    <EChartsIntraday
+      data={[{ datetime: '2026-11-06 09:30:00', open: 3689, high: 3692, low: 3688, close: 3691, volume: 100, amount: 368900 }]}
+      assetType="index"
+      date="2026-11-06"
+      prevClose={3689}
+      showLimitLines={false}
+      showAvgLine
+      averagePrices={[null]}
+    />,
+  ))
+  const option = chart.setOption.mock.calls.at(-1)?.[0]
+  expect(option.series.map((series: { name: string }) => series.name)).not.toContain('均价')
+  expect(host.textContent).toContain('第二条线数据不可用')
+  expect(host.textContent).not.toContain('均价线')
+})
+
 it('index adaptive y-axis follows visible curves instead of abnormal high/low spikes', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
