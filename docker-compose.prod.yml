@@ -5,6 +5,9 @@ services:
     # source refresh/rebuild cannot silently present a first-run setup screen.
     volumes:
       - /opt/tick-stock-panel-data:/app/data
+      # 前端静态产物独立挂载，允许只更新 UI 而不重装后端依赖。
+      # 目录由发布脚本/管理员先行同步，缺失时不要启动生产容器。
+      - ./frontend/dist:/app/static:ro
     networks:
       default: {}
       myagent:
