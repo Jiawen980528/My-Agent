@@ -216,6 +216,25 @@ def _is_retired_factory_pull(config_id: str, pull: PullConfig | None) -> bool:
     return any(url == retired["url"] for retired in _RETIRED_FACTORY_PULLS.get(config_id, ()))
 
 
+def _migrate_factory_rate_limit(existing: ExtConfig, current: ExtConfig) -> bool:
+    """只给仍指向官方富耀且沿用旧默认并发的配方补限速字段。
+
+    用户改过 URL、fanout 地址或并发参数时不覆盖，避免把自定义数据源
+    当成内置配置迁移。
+    """
+    old = existing.pull.fanout if existing.pull else None
+    new = current.pull.fanout if current.pull else None
+    if not old or not new or not existing.pull or not current.pull:
+        return False
+    if existing.pull.url != current.pull.url or old.get("url") != new.get("url"):
+        return False
+    if old.get("concurrency") != 8 or old.get("min_interval_seconds"):
+        return False
+    old["concurrency"] = new["concurrency"]
+    old["min_interval_seconds"] = new["min_interval_seconds"]
+    return True
+
+
 async def ensure_builtin_presets(data_dir: Path) -> None:
     """启动时: 首次安装创建预设配置, 并把历代出厂空壳/旧配方补齐为当前配方。
 
@@ -246,6 +265,8 @@ async def ensure_builtin_presets(data_dir: Path) -> None:
             changed = False
             if _is_retired_factory_pull(config.id, existing.pull):
                 existing.pull = config.pull
+                changed = True
+            elif _migrate_factory_rate_limit(existing, config):
                 changed = True
             if not (existing.description or "").strip() or \
                     (existing.description or "").startswith(_FACTORY_DESC_PREFIXES):
