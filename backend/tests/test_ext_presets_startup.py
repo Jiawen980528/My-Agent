@@ -115,6 +115,24 @@ def test_ensure_builtin_presets_fills_empty_shell(tmp_path: Path) -> None:
     assert refreshed.pull.fanout, "空壳配置未被补齐为完整配方"
 
 
+def test_ensure_builtin_presets_migrates_old_factory_rate_limit(tmp_path: Path) -> None:
+    """已保存的官方旧配方只补限速字段, 不要求用户重新配置。"""
+    asyncio.run(ensure_builtin_presets(tmp_path))
+    store = ExtConfigStore(tmp_path)
+    config = store.get("ext_gn_ths")
+    assert config is not None and config.pull is not None and config.pull.fanout is not None
+    config.pull.fanout["concurrency"] = 8
+    config.pull.fanout.pop("min_interval_seconds", None)
+    store.upsert(config)
+
+    asyncio.run(ensure_builtin_presets(tmp_path))
+
+    refreshed = ExtConfigStore(tmp_path).get("ext_gn_ths")
+    assert refreshed is not None and refreshed.pull is not None and refreshed.pull.fanout is not None
+    assert refreshed.pull.fanout["concurrency"] == 2
+    assert refreshed.pull.fanout["min_interval_seconds"] == 0.6
+
+
 def test_ensure_builtin_presets_keeps_custom_user_pull(tmp_path: Path) -> None:
     """用户自定义过 pull (URL 不等于历代出厂值) → 一律不动, 即使 enabled=True。"""
     asyncio.run(ensure_builtin_presets(tmp_path))
