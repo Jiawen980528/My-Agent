@@ -31,6 +31,8 @@ import {
   Settings,
   DatabaseZap,
   Loader2,
+  BarChart3,
+  Newspaper,
   Sparkles,
   CheckCircle2,
   ChevronRight,
@@ -51,7 +53,6 @@ import {
   IconDashboard,
   IconWatchlist,
   IconStrategy,
-  IconQuant,
   type BrandIconProps,
 } from './BrandIcons'
 import { Logo } from './Logo'
@@ -67,6 +68,7 @@ import { toggleTheme, useTheme } from '@/lib/theme'
 import { setCurrentTotal as setAlertTotal, useUnreadAlerts } from '@/lib/monitorBadge'
 import { DEFAULT_INDEXES, useIndexWatchlist } from '@/lib/indexWatchlist'
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
+import { getFrontendExtensionNavigation } from '@/extensions/registry'
 
 // 品牌色 — 只用于 logo / brand 区域,不影响功能语义色
 const BRAND = '#8B5CF6'
@@ -79,17 +81,15 @@ type CoreIndex = (typeof CORE_INDEXES)[number]
 const nav = [
   { to: '/',                   label: '看板',       icon: IconDashboard },
   { to: '/portfolio-terminal', label: '我的持仓',   icon: IconWatchlist },
-  { to: '/decision-guide',     label: '持仓推演',   icon: Sparkles },
-  { to: '/recommendations',    label: '个股研究',   icon: IconStrategy },
-  { to: '/myagent-quant',      label: '量化',       icon: IconQuant },
+  { to: '/decision-guide',     label: '行情推演',   icon: Sparkles },
+  { to: '/watchlist',           label: '自选',       icon: IconWatchlist },
+  { to: '/screener',            label: '个股搜索',   icon: IconStrategy },
+  { to: '/fund-flow',           label: '市场总览',   icon: BarChart3 },
 ] as const
 
-// 供导航回归测试和移动端入口复用；新增/精简主导航时必须同步检查这里。
-export const PRIMARY_NAV_PATHS = nav.map(item => item.to)
-
-// 量化侧栏只展示个人持仓决策链路。市场宽度、情绪、资金流和大盘判断
-// 统一收进「看板」及其展开页；暗盘、预测复盘和提醒仍保留路由，
-// 统一收进「我的持仓」页内，避免把同一套决策链路重复铺在侧栏。
+// 量化侧栏只展示个人持仓决策链路。新闻、个股推荐等内容已并入看板/个股搜索，
+// 拾贝、回测、因子、数据同步等旧页面仍保留路由和数据，不再占用主导航。
+const FOCUS_EXTENSION_PATHS = new Set(['/paper', '/review', '/monitor'])
 
 /** 亮/暗主题切换 — 状态存 localStorage, 生效见 lib/theme.ts */
 function ThemeToggle() {
@@ -591,13 +591,20 @@ export function Layout() {
     if (alertsTotal != null) setAlertTotal(alertsTotal)
   }, [alertsTotal])
 
-  // 主栏只保留个人持仓决策链路；暗盘/复盘/提醒由「我的持仓」页内导航承载。
+  // 合并个人持仓决策链路 + 暗盘/复盘/提醒三个必要扩展入口。
   type NavIcon = (props: BrandIconProps) => ReactNode
   // arch: 'ext' = 扩展域页面 (官方扩展/自定义分析), 核心域 nav 常量不带标。
   // 与菜单设置 ARCH_CLASS 同口径: nav 常量 8 项全部核心, 其余两个来源全部扩展。
   type NavItem = { to: string; label: string; icon: NavIcon; badge?: string; arch?: 'core' | 'ext' }
-  // 扩展页仍保留路由，但不并入主导航；由对应核心工作区提供入口。
-  const allNav: NavItem[] = [...nav]
+  const extensionNav: NavItem[] = getFrontendExtensionNavigation().map(item => ({
+    to: item.route.path,
+    label: item.label,
+    icon: item.icon,
+    badge: item.badge,
+    arch: 'ext' as const,
+  }))
+
+  const allNav: NavItem[] = [...nav, ...extensionNav.filter(item => FOCUS_EXTENSION_PATHS.has(item.to))]
   const savedOrder = prefs?.nav_order ?? []
 
   const navItems = savedOrder.length > 0
@@ -962,6 +969,18 @@ export function Layout() {
               </div>
             )
           })}
+          <NavLink
+            to="/myagent-quant"
+            title={railMode ? 'MyAgent量化' : undefined}
+            className={cn(
+              'group relative flex items-center rounded-btn text-sm transition-all duration-150 ease-smooth',
+              railMode ? 'justify-center px-0 py-2' : 'gap-3 px-3 py-2',
+              'text-foreground/75 hover:bg-elevated/70 hover:text-foreground',
+            )}
+          >
+            <BarChart3 className="h-4 w-4 shrink-0 text-foreground/60 group-hover:text-foreground/85" />
+            {!railMode && <span className="truncate">MyAgent量化</span>}
+          </NavLink>
           <ExtensionSlot
             name="layout.navigation.extra"
             context={{ collapsed: railMode, pathname: location.pathname }}
@@ -1164,7 +1183,7 @@ export function Layout() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-        className="h-full overflow-auto scrollbar-gutter-stable pb-16 md:pb-0"
+        className="h-full overflow-auto scrollbar-gutter-stable"
       >
         {streamStatus === 'reconnecting' && (
           <div
@@ -1187,31 +1206,6 @@ export function Layout() {
           <Outlet />
         </Suspense>
       </motion.main>
-      {/* 手机端固定入口：把独立量化页固定暴露，避免侧栏抽屉关闭后找不到。 */}
-      {!isDesktop && (
-        <nav
-          aria-label="移动端量化导航"
-          className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border bg-surface/95 px-1 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(0,0,0,0.22)] backdrop-blur-md"
-        >
-          {nav.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) => cn(
-                'flex min-h-14 flex-col items-center justify-center gap-1 px-1 py-2 text-[11px] transition-colors',
-                isActive ? 'text-accent' : 'text-muted hover:text-foreground',
-              )}
-            >
-              {({ isActive }) => (
-                <>
-                  <Icon className={cn('h-4 w-4', isActive && 'drop-shadow-[0_0_5px_rgba(59,130,246,0.55)]')} />
-                  <span>{label}</span>
-                </>
-              )}
-            </NavLink>
-          ))}
-        </nav>
-      )}
       <ToastContainer />
       <AlertToastContainer />
       <AiAnalysisHost />
