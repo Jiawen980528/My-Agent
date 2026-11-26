@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useRef, useState, type FormEvent } from 'react'
 import { ArrowLeft, Calculator, ImagePlus, LayoutDashboard, Loader2, Plus, Save } from 'lucide-react'
 import { PortfolioMonitorWidget } from '@/components/dashboard/PortfolioMonitorWidget'
+import { StockPreviewDialog } from '@/components/StockPreviewDialog'
 import { api, type WatchlistImportCandidate } from '@/lib/api'
 
 type Holding = { symbol: string; name: string; sector?: string; quantity: number; cost: number; price?: number; pct?: number; profit?: number; profit_pct?: number }
@@ -120,6 +121,25 @@ function HoldingTools() {
   </section>
 }
 
+function CompactHoldingsView() {
+  const holdings = useQuery({
+    queryKey: ['myagent-portfolio-compact-holdings'],
+    queryFn: () => readJson<{ items: Holding[] }>('/quant/api/myagent/quant/holdings'),
+    refetchInterval: 30_000,
+  })
+  const [preview, setPreview] = useState<{ symbol: string; name?: string } | null>(null)
+  const rows = holdings.data?.items || []
+  const totalPnl = rows.reduce((sum, row) => sum + (num(row.profit) || 0), 0)
+  return <section className="rounded-card border border-border bg-surface p-3 text-foreground">
+    <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="text-sm font-semibold">我的持仓</h2><p className="mt-0.5 text-[11px] text-muted">只显示核心持仓数据；点击个股查看实时分时和K线</p></div><div className="text-right text-[11px] text-muted">{rows.length} 只 · 浮盈亏 <b className={totalPnl >= 0 ? 'text-bull' : 'text-bear'}>{totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)}</b></div></div>
+    {holdings.isLoading && <p className="py-8 text-center text-xs text-muted">读取持仓…</p>}
+    {holdings.error && <p className="py-8 text-center text-xs text-danger">持仓读取失败：{(holdings.error as Error).message}</p>}
+    {!holdings.isLoading && !holdings.error && !rows.length && <p className="py-8 text-center text-xs text-muted">暂无持仓，请在下方“录入与计算工具”中添加。</p>}
+    {rows.length > 0 && <div className="mt-2 overflow-x-auto"><table className="w-full min-w-[720px] text-xs"><thead className="border-y border-border text-[10px] text-muted"><tr><th className="px-2 py-2 text-left font-normal">个股</th><th className="px-2 py-2 text-right font-normal">数量</th><th className="px-2 py-2 text-right font-normal">成本</th><th className="px-2 py-2 text-right font-normal">现价</th><th className="px-2 py-2 text-right font-normal">涨跌</th><th className="px-2 py-2 text-right font-normal">浮盈亏</th><th className="px-2 py-2 text-left font-normal">提醒</th></tr></thead><tbody>{rows.map(row => { const pct = num(row.pct); const profit = num(row.profit); const alert = pct == null ? '等待行情' : pct <= -3 ? '弱势·等待确认' : pct >= 3 ? '冲高·不追' : '观察'; return <tr key={row.symbol} className="border-b border-border/60 hover:bg-elevated/40"><td className="px-2 py-2"><button type="button" onClick={() => setPreview({ symbol: row.symbol, name: row.name })} className="text-left hover:text-accent"><b>{row.name}</b><span className="ml-2 font-mono text-[10px] text-muted">{row.symbol}</span><span className="ml-2 text-[10px] text-accent">查看行情</span></button></td><td className="px-2 py-2 text-right font-mono">{row.quantity.toLocaleString()}</td><td className="px-2 py-2 text-right font-mono">{row.cost.toFixed(3)}</td><td className="px-2 py-2 text-right font-mono">{row.price == null ? '—' : row.price.toFixed(3)}</td><td className={`px-2 py-2 text-right font-mono ${pct != null && pct >= 0 ? 'text-bull' : 'text-bear'}`}>{pct == null ? '—' : `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`}</td><td className={`px-2 py-2 text-right font-mono ${profit != null && profit >= 0 ? 'text-bull' : 'text-bear'}`}>{profit == null ? '—' : `${profit >= 0 ? '+' : ''}${profit.toFixed(2)}`}</td><td className="px-2 py-2 text-[11px] text-secondary">{alert}</td></tr> })}</tbody></table></div>}
+    <StockPreviewDialog symbol={preview?.symbol ?? null} name={preview?.name} onClose={() => setPreview(null)} onNavigate={(symbol, name) => setPreview({ symbol, name })} />
+  </section>
+}
+
 /** 独立持仓实时工作区；看板中的同一组件仍保留。 */
 export function PortfolioTerminal() {
   const status = useQuery({
@@ -183,7 +203,7 @@ export function PortfolioTerminal() {
         <span className="text-muted">{boardStatus.data?.message || '板块状态读取中'}</span>
         {!boardStatus.data?.fuyao_configured && <Link to="/settings?tab=data-sources" className="ml-auto text-accent hover:underline">配置扶摇</Link>}
       </div>
-      <div className="min-h-0 flex-1 overflow-auto"><div className="space-y-2"><HoldingTools /><PortfolioMonitorWidget /></div></div>
+      <div className="min-h-0 flex-1 overflow-auto"><div className="space-y-2"><CompactHoldingsView /><details className="rounded-card border border-border bg-surface"><summary className="cursor-pointer px-3 py-2 text-xs font-medium text-secondary hover:text-foreground">录入持仓 / 截图识别 / 回本与补仓计算</summary><div className="p-2 pt-0"><HoldingTools /></div></details><details className="rounded-card border border-border bg-surface"><summary className="cursor-pointer px-3 py-2 text-xs font-medium text-secondary hover:text-foreground">展开详细分析：板块、资金流、新闻和做T观察</summary><div className="p-2 pt-0"><PortfolioMonitorWidget /></div></details></div></div>
     </div>
   )
 }
