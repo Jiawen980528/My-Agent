@@ -84,6 +84,9 @@ const nav = [
   { to: '/myagent-quant',      label: '量化',       icon: IconQuant },
 ] as const
 
+// 供导航回归测试和移动端入口复用；新增/精简主导航时必须同步检查这里。
+export const PRIMARY_NAV_PATHS = nav.map(item => item.to)
+
 // 量化侧栏只展示个人持仓决策链路。市场宽度、情绪、资金流和大盘判断
 // 统一收进「看板」及其展开页；暗盘、预测复盘和提醒仍保留路由，
 // 统一收进「我的持仓」页内，避免把同一套决策链路重复铺在侧栏。
