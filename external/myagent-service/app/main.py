@@ -194,6 +194,15 @@ def home():
         '<button data-p="content">◫ 内容与资讯</button>',
         '<button data-p="content">◫ 内容与资讯</button><button onclick="location.href=\'/quant\'">⌁ 统一量化终端</button><button onclick="location.href=\'/portfolio-monitor\'">▦ 持仓监控</button>',
     )
+    # 手机端隐藏侧栏时，仍需在顶部保留量化入口；桌面端保持原有侧栏布局。
+    html = html.replace(
+        '</style><body>',
+        '.mobile-quant{display:none;text-decoration:none;background:#2563eb;color:#fff;padding:8px 11px;border-radius:8px;font-weight:650;white-space:nowrap}@media(max-width:800px){.top .mobile-quant{display:inline-flex}}</style><body>',
+    )
+    html = html.replace(
+        '<main><header class="top"><h1 id="title">概览</h1><span id="status">正在检查连接…</span></header>',
+        '<main><header class="top"><h1 id="title">概览</h1><span id="status">正在检查连接…</span><a class="mobile-quant" href="/quant/">量化终端</a></header>',
+    )
     # Migrate an already-authenticated agent.xdailab.com browser session to
     # the shared parent-domain cookie without asking for the token again.
     html = html.replace("</body>", "<script>fetch('/api/session',{method:'POST',credentials:'same-origin'}).catch(()=>{});</script></body>")

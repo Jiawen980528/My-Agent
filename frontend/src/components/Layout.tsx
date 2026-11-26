@@ -1159,7 +1159,7 @@ export function Layout() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-        className="h-full overflow-auto scrollbar-gutter-stable"
+        className="h-full overflow-auto scrollbar-gutter-stable pb-16 md:pb-0"
       >
         {streamStatus === 'reconnecting' && (
           <div
@@ -1182,6 +1182,31 @@ export function Layout() {
           <Outlet />
         </Suspense>
       </motion.main>
+      {/* 手机端固定入口：工作台、持仓、推演、研究；避免侧栏抽屉关闭后找不到量化功能。 */}
+      {!isDesktop && (
+        <nav
+          aria-label="移动端量化导航"
+          className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-border bg-surface/95 px-1 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(0,0,0,0.22)] backdrop-blur-md"
+        >
+          {nav.map(({ to, label, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) => cn(
+                'flex min-h-14 flex-col items-center justify-center gap-1 px-1 py-2 text-[11px] transition-colors',
+                isActive ? 'text-accent' : 'text-muted hover:text-foreground',
+              )}
+            >
+              {({ isActive }) => (
+                <>
+                  <Icon className={cn('h-4 w-4', isActive && 'drop-shadow-[0_0_5px_rgba(59,130,246,0.55)]')} />
+                  <span>{label}</span>
+                </>
+              )}
+            </NavLink>
+          ))}
+        </nav>
+      )}
       <ToastContainer />
       <AlertToastContainer />
       <AiAnalysisHost />
