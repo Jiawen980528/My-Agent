@@ -93,6 +93,60 @@ it('index uses provider average instead of amount divided by constituent volume'
   expect(host.textContent).toContain('3624.99')
 })
 
+it('index renders the weighted line in white and the leading line in yellow', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  cleanup = async () => { await act(async () => root.unmount()) }
+  await act(async () => root.render(
+    <EChartsIntraday
+      data={[
+        { datetime: '2026-11-06 09:30:00', open: 3689, high: 3692, low: 3688, close: 3691, volume: 100, amount: 368900 },
+        { datetime: '2026-11-06 15:00:00', open: 3691, high: 3694, low: 3687, close: 3693, volume: 55, amount: 203115 },
+      ]}
+      assetType="index"
+      date="2026-11-06"
+      prevClose={3689}
+      showLimitLines={false}
+      showAvgLine
+      averagePrices={[3688, 3690]}
+      averageLabel="领先"
+    />,
+  ))
+  const option = chart.setOption.mock.calls.at(-1)?.[0]
+  expect(option.series[0].name).toBe('价格')
+  expect(option.series[0].lineStyle.color).toBe('#F4F4F5')
+  expect(option.series[1].name).toBe('均价')
+  expect(option.series[1].lineStyle.color).toBe('#F59E0B')
+  expect(host.textContent).toContain('权重线')
+  expect(host.textContent).toContain('领先线')
+})
+
+it('index adaptive y-axis follows visible curves instead of abnormal high/low spikes', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  cleanup = async () => { await act(async () => root.unmount()) }
+  await act(async () => root.render(
+    <EChartsIntraday
+      data={[
+        { datetime: '2026-11-06 09:30:00', open: 11100, high: 12000, low: 10000, close: 11100, volume: 100, amount: 1110000 },
+        { datetime: '2026-11-06 15:00:00', open: 11120, high: 11900, low: 10100, close: 11120, volume: 55, amount: 611600 },
+      ]}
+      assetType="index"
+      date="2026-11-06"
+      prevClose={11100}
+      showLimitLines={false}
+      showAvgLine={false}
+    />,
+  ))
+  const axis = lastYAxis()
+  expect(axis.min).toBeGreaterThan(11000)
+  expect(axis.max).toBeLessThan(11200)
+})
+
 it('no_limit day: adaptive y-axis covers data far beyond the ±10% band', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
@@ -149,3 +203,4 @@ it('listing day without prevClose anchors y-axis with scale, not zero', async ()
   expect(axis.max).toBeUndefined()
   expect(axis.scale).toBe(true)
 })
+
