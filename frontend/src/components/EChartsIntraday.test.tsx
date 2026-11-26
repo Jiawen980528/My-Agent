@@ -144,6 +144,7 @@ it('does not render an empty second index line when the provider has no referenc
   expect(option.series.map((series: { name: string }) => series.name)).not.toContain('均价')
   expect(host.textContent).toContain('第二条线数据不可用')
   expect(host.textContent).not.toContain('均价线')
+  expect(option.tooltip.formatter([{ dataIndex: 0, seriesName: '价格' }])).not.toContain('均价')
 })
 
 it('index adaptive y-axis follows visible curves instead of abnormal high/low spikes', async () => {
