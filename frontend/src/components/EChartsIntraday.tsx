@@ -653,7 +653,7 @@ export function EChartsIntraday({
         {assetType === 'index' && <div className="flex items-center gap-3 px-2 pt-1 text-[10px] text-muted">
           <span className="flex items-center gap-1"><i className="inline-block h-0.5 w-3 bg-zinc-100" />权重线</span>
           <span className="flex items-center gap-1"><i className="inline-block h-0.5 w-3 bg-amber-400" />{averageLabel}线</span>
-          <span>{averageLabel === '领先' ? '由全市场真实快照等权计算' : '领先/题材分钟序列未提供，未用普通行情伪造'}</span>
+          <span>{averageLabel === '题材/等权' ? '由全市场真实快照等权计算；不是供应商独立题材指数' : '领先/题材分钟序列未提供，未用普通行情伪造'}</span>
         </div>}
         {/* 第一行: 日期 + OHLC */}
         <div className="flex items-center gap-x-2 px-2 font-mono text-[11px] select-none flex-wrap" style={{ minHeight: 20 }}>
