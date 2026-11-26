@@ -45,14 +45,14 @@ async function mount() {
 }
 
 async function selectFile(file = new File(['zip'], 'auction.zip', { type: 'application/zip' })) {
-  const input = host.querySelector('input[type=file]')!
+  const input = document.body.querySelector('input[type=file]')!
   Object.defineProperty(input, 'files', { configurable: true, value: [file] })
   await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })))
   return file
 }
 
 async function click(text: string) {
-  const button = [...host.querySelectorAll('button')].find(button => button.textContent?.trim() === text)!
+  const button = [...document.body.querySelectorAll('button')].find(button => button.textContent?.trim() === text)!
   expect(button).toBeTruthy()
   await act(async () => button.click())
 }
@@ -60,21 +60,21 @@ async function click(text: string) {
 it('previews a single configuration, imports it, and explains recipient key setup', async () => {
   await mount()
   const file = await selectFile()
-  expect(host.textContent).toContain('集合竞价')
-  expect(host.textContent).toContain('API Key')
+  expect(document.body.textContent).toContain('集合竞价')
+  expect(document.body.textContent).toContain('API Key')
   await click('导入配置')
   expect(api.extDataConfigImport).toHaveBeenCalledWith(file, 'auction')
-  expect(host.textContent).toContain('导入成功')
-  expect(host.textContent).toContain('自己的 API Key')
-  expect(host.textContent).toContain('定时拉取')
+  expect(document.body.textContent).toContain('导入成功')
+  expect(document.body.textContent).toContain('自己的 API Key')
+  expect(document.body.textContent).toContain('定时拉取')
 })
 
 it('suggests a new ID on conflict and never offers silent overwrite', async () => {
   vi.mocked(api.extDataConfigInspect).mockResolvedValue({ ...preview, conflict: true })
   await mount(); await selectFile()
-  const input = host.querySelector<HTMLInputElement>('input[name=config_id]')!
+  const input = document.body.querySelector<HTMLInputElement>('input[name=config_id]')!
   expect(input.value).toBe('auction_copy')
-  expect(host.textContent).toContain('已有同名配置')
+  expect(document.body.textContent).toContain('已有同名配置')
   await click('导入配置')
   expect(api.extDataConfigImport).toHaveBeenCalledWith(expect.any(File), 'auction_copy')
 })
@@ -82,12 +82,12 @@ it('suggests a new ID on conflict and never offers silent overwrite', async () =
 it('shows parsing and import failures without reporting success', async () => {
   vi.mocked(api.extDataConfigInspect).mockRejectedValueOnce(new Error('不是配置包'))
   await mount(); await selectFile()
-  expect(host.querySelector('[role=alert]')?.textContent).toContain('不是配置包')
+  expect(document.body.querySelector('[role=alert]')?.textContent).toContain('不是配置包')
   await selectFile()
   vi.mocked(api.extDataConfigImport).mockRejectedValueOnce(new Error('标识已被其他请求创建'))
   await click('导入配置')
-  expect(host.querySelector('[role=alert]')?.textContent).toContain('标识已被其他请求创建')
-  expect(host.textContent).not.toContain('导入成功')
+  expect(document.body.querySelector('[role=alert]')?.textContent).toContain('标识已被其他请求创建')
+  expect(document.body.textContent).not.toContain('导入成功')
 })
 
 it('protects an active import from Escape and duplicate submissions', async () => {
@@ -96,7 +96,8 @@ it('protects an active import from Escape and duplicate submissions', async () =
   await mount(); await selectFile(); await click('导入配置')
   await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
   expect(close).not.toHaveBeenCalled()
-  expect(host.querySelector<HTMLButtonElement>('button[aria-label=关闭]')?.disabled).toBe(true)
+  expect(document.body.querySelector<HTMLButtonElement>('button[aria-label=关闭]')?.disabled).toBe(true)
   expect(api.extDataConfigImport).toHaveBeenCalledTimes(1)
   await act(async () => finish({ ...preview, created_at: '', updated_at: '' }))
 })
+
