@@ -55,6 +55,16 @@ export const IconStrategy = make(
   <path d="M4 5H20L14 12.2V19.2L10 17.2V12.2Z" />,
 )
 
+/** 量化 — 网格坐标 + 趋势折线，区别于个股研究的筛选漏斗 */
+export const IconQuant = make(
+  <>
+    <path d="M4 19.5H20" strokeWidth="1.5" strokeOpacity="0.65" />
+    <path d="M5 16L8.2 12.5L11 14.2L15 8.5L19 10" />
+    <circle cx="8.2" cy="12.5" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="8.5" r="1.1" fill="currentColor" stroke="none" />
+  </>,
+)
+
 /** 因子 — 散点 + 上升趋势线 */
 export const IconFactors = make(
   <>

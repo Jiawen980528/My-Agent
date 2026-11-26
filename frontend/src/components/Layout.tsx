@@ -51,6 +51,7 @@ import {
   IconDashboard,
   IconWatchlist,
   IconStrategy,
+  IconQuant,
   type BrandIconProps,
 } from './BrandIcons'
 import { Logo } from './Logo'
@@ -80,6 +81,7 @@ const nav = [
   { to: '/portfolio-terminal', label: '我的持仓',   icon: IconWatchlist },
   { to: '/decision-guide',     label: '持仓推演',   icon: Sparkles },
   { to: '/recommendations',    label: '个股研究',   icon: IconStrategy },
+  { to: '/myagent-quant',      label: '量化',       icon: IconQuant },
 ] as const
 
 // 量化侧栏只展示个人持仓决策链路。市场宽度、情绪、资金流和大盘判断
@@ -1182,11 +1184,11 @@ export function Layout() {
           <Outlet />
         </Suspense>
       </motion.main>
-      {/* 手机端固定入口：工作台、持仓、推演、研究；避免侧栏抽屉关闭后找不到量化功能。 */}
+      {/* 手机端固定入口：把独立量化页固定暴露，避免侧栏抽屉关闭后找不到。 */}
       {!isDesktop && (
         <nav
           aria-label="移动端量化导航"
-          className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-border bg-surface/95 px-1 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(0,0,0,0.22)] backdrop-blur-md"
+          className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border bg-surface/95 px-1 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(0,0,0,0.22)] backdrop-blur-md"
         >
           {nav.map(({ to, label, icon: Icon }) => (
             <NavLink
