@@ -15,7 +15,7 @@ type HistoryData = Pick<FlowData, 'mode' | 'sector' | 'rows' | 'latest_time' | '
 type DayResponse = ({ status: 'ok'; date: string } & HistoryData) | { status: 'not_recorded'; date: string; rows: []; notice: string }
 type PriceBar = { time: string; open: number; high: number; low: number; close: number; volume: number; pct: number | null }
 type KlinePeriod = 'daily' | '1m' | '5m' | '15m'
-type KlineData = { sector: string; name: string; period: KlinePeriod; rows: PriceBar[]; latest_time: string; fetched_at: string; stale: boolean; source: string }
+type KlineData = { sector: string; name: string; period: KlinePeriod; rows: PriceBar[]; latest_time: string; fetched_at: string; stale: boolean; source: string; normalized?: boolean; notice?: string }
 
 const seriesInfo = [
   { key: 'main', label: '主力', color: '#6ea8ff' },
@@ -95,7 +95,7 @@ function FlowChart({ data, compact = false, historical = false, onSelectDate }: 
   return <div ref={holder} className={compact ? 'h-[220px] w-full' : 'h-[310px] w-full'} role="img" aria-label={`${historical ? '历史每日' : '当日分时'}资金净流入曲线，单位亿元`} />
 }
 
-function SectorKline({ sector, compact }: { sector: string; compact: boolean }) {
+function SectorKline({ sector, sectorName, compact }: { sector: string; sectorName?: string; compact: boolean }) {
   const [period, setPeriod] = useState<KlinePeriod>('daily')
   const fuyaoBoard = /\.TI$/i.test(sector)
   const effectivePeriod: KlinePeriod = fuyaoBoard ? 'daily' : period
@@ -108,7 +108,9 @@ function SectorKline({ sector, compact }: { sector: string; compact: boolean }) 
     const load = async () => {
       if (document.visibilityState === 'hidden') return
       try {
-        const response = await fetch(`/quant/api/myagent/fund-flow/sector-kline?sector=${encodeURIComponent(sector)}&period=${effectivePeriod}&days=120`, { credentials: 'include' })
+        const params = new URLSearchParams({ sector, period: effectivePeriod, days: '120' })
+        if (sectorName) params.set('name', sectorName)
+        const response = await fetch(`/quant/api/myagent/fund-flow/sector-kline?${params}`, { credentials: 'include' })
         const body = await response.json()
         if (!response.ok) throw new Error(body.detail || `板块行情请求失败 ${response.status}`)
         if (active) { setData(body as KlineData); setError('') }
@@ -117,7 +119,7 @@ function SectorKline({ sector, compact }: { sector: string; compact: boolean }) 
     void load()
     const timer = window.setInterval(() => void load(), effectivePeriod === 'daily' ? 300_000 : 60_000)
     return () => { active = false; window.clearInterval(timer) }
-  }, [sector, effectivePeriod])
+  }, [sector, sectorName, effectivePeriod])
   useEffect(() => {
     const element = holder.current
     if (!element || !data?.rows.length) return
@@ -139,7 +141,7 @@ function SectorKline({ sector, compact }: { sector: string; compact: boolean }) 
     return () => { observer.disconnect(); chart.dispose() }
   }, [data])
   return <section className="mt-3 rounded-card border border-border bg-base/40 p-3">
-    <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-sm font-semibold">{data?.name || sector} · 板块行情</h3><p className="text-xs text-muted">{data?.source || '东方财富公开板块行情'} · {data?.latest_time || '读取中'}{data?.stale ? ' · 缓存' : ''}{fuyaoBoard ? ' · 扶摇当前仅提供板块日K' : ''}</p></div>
+    <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-sm font-semibold">{data?.name || sector} · 板块行情</h3><p className="text-xs text-muted">{data?.source || '东方财富公开板块行情'} · {data?.latest_time || '读取中'}{data?.stale ? ' · 缓存' : ''}{fuyaoBoard ? ' · 扶摇当前仅提供板块日K' : ''}</p>{data?.notice && <p className="mt-1 text-[10px] text-warning">{data.notice}</p>}</div>
       <div className="flex gap-1 text-xs">{(['daily', '1m', '5m', '15m'] as const).map(value => <button key={value} type="button" onClick={() => setPeriod(value)} disabled={fuyaoBoard && value !== 'daily'} title={fuyaoBoard && value !== 'daily' ? '扶摇当前未开放板块分钟K' : undefined} className={`rounded border px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40 ${effectivePeriod === value ? 'border-accent text-accent' : 'border-border'}`}>{value === 'daily' ? '日K' : value === '1m' ? '1分K' : value === '5m' ? '5分K' : '15分K'}</button>)}</div></div>
     {error && <p className="mt-2 text-xs text-danger">{error}</p>}
     {data?.rows.length ? <div ref={holder} className={compact ? 'h-[240px] w-full' : 'h-[340px] w-full'} role="img" aria-label={`${data.name}${period === 'daily' ? '日K' : `${period} K`}行情图`} /> : <p className="py-8 text-center text-xs text-muted">{error || '正在读取板块行情…'}</p>}
@@ -289,6 +291,6 @@ export function FundFlowPanel({ compact = false }: { compact?: boolean }) {
         {!selectedDate && <p className="py-6 text-center text-xs text-muted">选择交易日后查看真实分钟资金曲线。</p>}
       </div>}
     </> : <div className="flex h-56 items-center justify-center text-xs text-muted">{view === 'history' ? historyLoading ? '正在读取历史资金流…' : historyError || '暂无历史资金流' : loading ? '正在加载资金流向…' : '暂无可用资金流数据'}</div>}
-    {sector && <SectorKline key={sector} sector={sector} compact={compact} />}
+    {sector && <SectorKline key={`${sector}:${sectorName}`} sector={sector} sectorName={sectorName} compact={compact} />}
   </section>
 }

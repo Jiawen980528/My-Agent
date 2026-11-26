@@ -260,9 +260,10 @@ function Detail({ item, day, latestBars, minuteSource, news, visible, trades, li
     staleTime: 30_000, refetchInterval: isLatest && tradingNow() ? 60_000 : false })
   const fuyaoBoard = Boolean(linkedBoardCode && /\.TI$/i.test(linkedBoardCode))
   const linkedBoardPeriod = fuyaoBoard || chartPeriod === '1d' || chartPeriod === '1w' ? 'daily' : chartPeriod
+  const linkedBoardName = boardOptions.find(option => option.code === linkedBoardCode)?.name || item.board?.name || ''
   const linkedBoard = useQuery({ queryKey: ['portfolio-linked-board-widget', linkedBoardCode, day, linkedBoardPeriod], queryFn: () =>
     json<{ name: string; rows: { time: string; close: number; high: number; low: number; volume: number }[]; source: string; latest_time: string }>(
-      `${PUBLIC_API}/fund-flow/sector-kline?sector=${encodeURIComponent(linkedBoardCode || '')}&period=${linkedBoardPeriod}`),
+      `${PUBLIC_API}/fund-flow/sector-kline?sector=${encodeURIComponent(linkedBoardCode || '')}&name=${encodeURIComponent(linkedBoardName)}&period=${linkedBoardPeriod}`),
     enabled: !!linkedBoardCode, staleTime: 30_000, refetchInterval: isLatest && tradingNow() ? 60_000 : false })
   const selectedFlow = useQuery({ queryKey: ['portfolio-selected-flow', flowScope, linkedBoardCode],
     queryFn: () => json<{ rows: { time: string; main: number }[]; source: string; latest_time: string }>(
@@ -601,7 +602,7 @@ function DecisionGuidePanel({ items, day, minuteData, source, aiText, aiBusy, ex
         get<ExternalMarketContext>('/quant/api/external-market/context'),
       ])
       const defensive = defensiveCatalog?.items?.find(item => item.name === '银行' || item.name.includes('银行'))
-      const defensiveSeries = defensive?.code ? await get<{ rows?: { close?: number }[] }>(`/quant/api/myagent/fund-flow/sector-kline?sector=${encodeURIComponent(defensive.code)}&period=${/\.TI$/i.test(defensive.code) ? 'daily' : '1m'}`) : null
+      const defensiveSeries = defensive?.code ? await get<{ rows?: { close?: number }[] }>(`/quant/api/myagent/fund-flow/sector-kline?sector=${encodeURIComponent(defensive.code)}&name=${encodeURIComponent(defensive.name || '')}&period=${/\.TI$/i.test(defensive.code) ? 'daily' : '1m'}`) : null
       const defensiveRows = defensiveSeries?.rows || []
       const defensiveFirst = Number(defensiveRows[0]?.close), defensiveLast = Number(defensiveRows.at(-1)?.close)
       const defensivePct = Number.isFinite(defensiveFirst) && defensiveFirst > 0 && Number.isFinite(defensiveLast) ? (defensiveLast / defensiveFirst - 1) * 100 : null

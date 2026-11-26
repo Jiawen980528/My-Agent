@@ -2,8 +2,15 @@
 import unittest
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import patch
 
-from app.api.myagent_bridge import _parse_flow, _parse_price, _sum_market_flows, local_tickflow_status
+from app.api.myagent_bridge import (
+    _fetch_tickflow_sector_curve,
+    _parse_flow,
+    _parse_price,
+    _sum_market_flows,
+    local_tickflow_status,
+)
 
 
 class FundFlowParsingTests(unittest.TestCase):
@@ -44,6 +51,21 @@ class FundFlowParsingTests(unittest.TestCase):
         self.assertFalse(result["connected"])
         self.assertEqual(result["source"], "未连接")
         self.assertIn("有效 Key", result["message"])
+
+    def test_sector_intraday_prefers_real_minute_aggregation_and_marks_normalized(self):
+        request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(repo=object())))
+        rotation = {
+            "status": "ok", "date": "2026-11-26",
+            "series": {"sectors": ["半导体设备"], "buckets": ["09:30", "09:35"], "matrix": [[0.01, 0.02]]},
+        }
+        with patch("app.api.myagent_bridge.sector_rotation.build_sector_rotation", return_value=rotation):
+            result = asyncio.run(_fetch_tickflow_sector_curve(request, "BK1326", "半导体设备", "5m"))
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result["provider"], "tickflow_derived")
+        self.assertTrue(result["normalized"])
+        self.assertEqual(result["source"], "TickFlow全市场分钟聚合（等权归一化，基准=100）")
+        self.assertEqual([row["close"] for row in result["rows"]], [101.0, 102.0])
 
 
 if __name__ == "__main__":
