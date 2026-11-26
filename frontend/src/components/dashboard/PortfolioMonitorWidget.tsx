@@ -69,6 +69,15 @@ export function resolveBoardSearchOption(rawValue: string, remote: BoardSearchOp
     || candidates.find(option => option.name.includes(raw) || raw.includes(option.name))
 }
 
+/**
+ * The API owns board search semantics (including compound Chinese terms).
+ * Keep this helper deliberately presentation-only so a valid remote result is
+ * never discarded by a stricter client-side substring check.
+ */
+export function visibleBoardSearchMatches(rawValue: string, remote: BoardSearchOption[], limit = 8) {
+  return rawValue.trim() ? remote.slice(0, limit) : []
+}
+
 function usableBoardName(name?: string | null) {
   const text = String(name || '').trim()
   return Boolean(text) && !/(季报|年报|中报|首亏|预亏|预增|扭亏|公告|减持|增持|重组|摘帽)/.test(text)
@@ -756,8 +765,10 @@ export function PortfolioMonitorWidget() {
   const boardMatches = useMemo(() => {
     const query = boardInput.trim().toLowerCase()
     if (!query) return []
-    const remote = boardSearch.data?.items || []
-    return remote.filter(item => `${item.code} ${item.name}`.toLowerCase().includes(query) || item.name.includes(query)).slice(0, 8)
+    // 后端负责完整目录检索和复合中文词拆分（例如“半导体设备材料”
+    // 可能返回“半导体设备”和“半导体材料”）。这里不能再用完整 query
+    // 做二次 substring 过滤，否则会把后端已经命中的结果全部删掉。
+    return visibleBoardSearchMatches(boardInput, boardSearch.data?.items || [])
   }, [boardInput, boardSearch.data?.items])
   const allItems = useMemo<Holding[]>(() => [...items, ...extraSymbols.filter(symbol => !items.some(item => item.symbol === symbol))
     .map(symbol => ({ symbol, name: extraSymbolNames[symbol] || symbol + ' · 名称待核对' }))], [items, extraSymbols, extraSymbolNames])

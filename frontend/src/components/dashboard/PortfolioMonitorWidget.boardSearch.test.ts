@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveBoardSearchOption } from './PortfolioMonitorWidget'
+import { resolveBoardSearchOption, visibleBoardSearchMatches } from './PortfolioMonitorWidget'
 
 describe('resolveBoardSearchOption', () => {
   const local = [{ code: 'BK0001', name: '本地板块' }]
@@ -17,5 +17,12 @@ describe('resolveBoardSearchOption', () => {
 
   it('still matches local board names and codes', () => {
     expect(resolveBoardSearchOption('BK0001', [], local)?.name).toBe('本地板块')
+  })
+
+  it('keeps backend compound-term matches visible', () => {
+    expect(visibleBoardSearchMatches('半导体设备材料', [
+      { code: 'BK1325', name: '半导体材料' },
+      { code: 'BK1326', name: '半导体设备' },
+    ])).toHaveLength(2)
   })
 })
