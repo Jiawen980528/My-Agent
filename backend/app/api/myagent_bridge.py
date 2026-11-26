@@ -451,19 +451,22 @@ async def _fetch_tickflow_sector_curve(request: Request, code: str, name: str, p
     if bucket is None:
         return None
     try:
-        result = await asyncio.to_thread(
-            sector_rotation.build_sector_rotation,
-            request.app.state.repo,
-            kind="concept", top=5, bucket_minutes=bucket,
-            series_names=[name], exclude_sectors=[], auto_rows=1, sort_by="pct",
-        )
-        if result.get("status") != "ok":
-            result = await asyncio.to_thread(
+        result = None
+        for kind in ("concept", "industry"):
+            candidate = await asyncio.to_thread(
                 sector_rotation.build_sector_rotation,
                 request.app.state.repo,
-                kind="industry", top=5, bucket_minutes=bucket,
+                kind=kind, top=5, bucket_minutes=bucket,
                 series_names=[name], exclude_sectors=[], auto_rows=1, sort_by="pct",
             )
+            candidate_series = candidate.get("series") or {}
+            if candidate.get("status") == "ok" and name in (candidate_series.get("sectors") or []):
+                result = candidate
+                break
+            if result is None:
+                result = candidate
+        if result is None:
+            return None
         series = result.get("series") or {}
         names = series.get("sectors") or []
         matrix = series.get("matrix") or []

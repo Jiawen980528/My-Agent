@@ -67,6 +67,17 @@ class FundFlowParsingTests(unittest.TestCase):
         self.assertEqual(result["source"], "TickFlow全市场分钟聚合（等权归一化，基准=100）")
         self.assertEqual([row["close"] for row in result["rows"]], [101.0, 102.0])
 
+    def test_sector_intraday_tries_industry_when_concept_catalog_misses_name(self):
+        request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(repo=object())))
+        missing = {"status": "ok", "series": {"sectors": ["其他"], "buckets": ["09:30"], "matrix": [[0.0]]}}
+        industry = {"status": "ok", "date": "2026-11-26", "series": {
+            "sectors": ["银行", "其他"], "buckets": ["09:30"], "matrix": [[0.005], [0.0]],
+        }}
+        with patch("app.api.myagent_bridge.sector_rotation.build_sector_rotation", side_effect=[missing, industry]) as build:
+            result = asyncio.run(_fetch_tickflow_sector_curve(request, "BK0475", "银行", "1m"))
+        self.assertIsNotNone(result)
+        self.assertEqual(build.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()
